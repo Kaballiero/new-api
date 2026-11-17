@@ -55,5 +55,6 @@ func SyncOptions(frequency int) {
 		common.SysLog("syncing options from database")
 		_ = Default().Reload.Execute()
 		pricingruntime.SyncPricingCatalogueInputs()
+		pricingruntime.RefreshUpstreamCatalogTariffs()
 	}
 }

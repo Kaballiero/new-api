@@ -2,7 +2,9 @@ package read_upstream_catalogue
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -11,15 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeStore publishes one selection at a time and records the hashes whose
-// payloads were read.
+// fakeStore publishes one selection at a time, none for a selection without
+// a normalization version, and records the hashes whose payloads were read.
 type fakeStore struct {
 	selection domain.CatalogSelection
+	fetchedAt string
 	read      [][]string
 }
 
 func (store *fakeStore) Head(context.Context, string) (domain.CatalogSource, error) {
-	return domain.CatalogSource{Revision: domain.CatalogHash([]byte(store.selection.NormalizationVersion))}, nil
+	if store.selection.NormalizationVersion == "" {
+		return domain.CatalogSource{}, nil
+	}
+	return domain.CatalogSource{Revision: domain.CatalogHash([]byte(store.selection.NormalizationVersion)), FetchedAt: store.fetchedAt}, nil
 }
 func (store *fakeStore) IsMissing(error) bool { return false }
 func (store *fakeStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
@@ -34,11 +40,16 @@ func (store *fakeStore) Documents(_ context.Context, _ string, hashes []string) 
 	return result, nil
 }
 
-// fakeCatalog decodes a stored document into a document of its model id.
+// fakeCatalog decodes a stored document into a document of its model id with
+// one eligible endpoint offer of provider tag "provider".
 type fakeCatalog struct{ domain.CatalogReader }
 
 func (fakeCatalog) DecodeDocument(_ []byte, ref domain.SourceReference) (*domain.SourceDocument, error) {
-	return &domain.SourceDocument{ID: ref.ID}, nil
+	tag := "provider"
+	return &domain.SourceDocument{ID: ref.ID, Modalities: domain.SourceModalities{Output: []string{"text"}}, Offers: []domain.SourceOffer{{
+		Scope: "endpoint", Provider: &domain.SourceProvider{Tag: &tag}, Eligibility: &domain.SourceEligibility{Eligible: true},
+		Facts: []byte(`{"pricing":{"prompt":"0.000001","completion":"0.000002"}}`),
+	}}}, nil
 }
 
 func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
@@ -54,7 +65,7 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	// Documents are stored per source: another source's document of the same
 	// hash is not taken as stored.
 	documents.Store(otherSource, first.Hash, &domain.SourceDocument{ID: first.ID})
-	usecase := NewUsecase(deps, store, documents, func() (domain.CatalogSource, bool, error) {
+	usecase := NewUsecase(deps, store, documents, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: source}, true, nil
 	})
 
@@ -78,4 +89,54 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	assert.False(t, cached)
 	_, cached = documents.Load(source, next.Hash)
 	assert.True(t, cached)
+}
+
+// The tariffs of the published revision are published with the head
+// fetchedAt; a head that moved only its fetchedAt keeps the tariffs of the
+// revision, and a new revision replaces them without changing the previous
+// ones a reader may hold.
+func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
+	model := domain.CatalogModelReference{ID: "acme/model", Hash: domain.CatalogHash([]byte("acme/model"))}
+	next := domain.CatalogModelReference{ID: "acme/next", Hash: domain.CatalogHash([]byte("acme/next"))}
+	deps := pricingadapter.Capabilities()
+	deps.Catalog = fakeCatalog{CatalogReader: deps.Catalog}
+	store := &fakeStore{selection: domain.CatalogSelection{NormalizationVersion: "1", Models: []domain.CatalogModelReference{model}}, fetchedAt: "2026-11-16T10:00:00.5Z"}
+	tariffs := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, tariffs, func() (domain.CatalogSource, bool, error) {
+		return domain.CatalogSource{ID: domain.CatalogHash([]byte("source"))}, true, nil
+	})
+
+	_, _, _, err := usecase.Execute(context.Background())
+	require.NoError(t, err)
+	first := tariffs.Load()
+	require.NotNil(t, first)
+	assert.Equal(t, time.Date(2026, 11, 16, 10, 0, 0, 5e8, time.UTC), first.FetchedAt)
+	require.Contains(t, first.Models, model.ID)
+	assert.Equal(t, "provider", first.Models[model.ID].Endpoints[0].Tag)
+
+	store.fetchedAt = "2026-11-17T10:00:00Z"
+	_, _, _, err = usecase.Execute(context.Background())
+	require.NoError(t, err)
+	touched := tariffs.Load()
+	assert.Equal(t, time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC), touched.FetchedAt)
+	assert.Equal(t, first.Revision, touched.Revision)
+	assert.Equal(t, first.Models[model.ID], touched.Models[model.ID])
+
+	store.selection = domain.CatalogSelection{NormalizationVersion: "2", Models: []domain.CatalogModelReference{next}}
+	_, _, _, err = usecase.Execute(context.Background())
+	require.NoError(t, err)
+	assert.Contains(t, tariffs.Load().Models, next.ID)
+	assert.NotContains(t, tariffs.Load().Models, model.ID)
+	assert.Contains(t, first.Models, model.ID)
+	assert.NotContains(t, first.Models, next.ID)
+
+	store.fetchedAt = "invalid"
+	_, _, _, err = usecase.Execute(context.Background())
+	require.NoError(t, err)
+	assert.True(t, tariffs.Load().FetchedAt.IsZero())
+
+	store.selection = domain.CatalogSelection{}
+	_, _, _, err = usecase.Execute(context.Background())
+	require.NoError(t, err)
+	assert.Nil(t, tariffs.Load())
 }

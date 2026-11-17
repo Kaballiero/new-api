@@ -1,6 +1,18 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
+
+// UpstreamCatalogTariffs are the endpoint tariffs of a published upstream
+// catalog revision by model id (CatalogEndpointTariffs) with the time its
+// catalog data last changed: the manifest fetchedAt the head stores.
+type UpstreamCatalogTariffs struct {
+	Revision  string
+	FetchedAt time.Time
+	Models    map[string]NativeEndpointResponse
+}
 
 // CatalogEndpointTariffs are the endpoint tariffs of upstream catalog
 // documents by model id, in the shape of the endpoints OpenRouter publishes at

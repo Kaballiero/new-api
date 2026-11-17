@@ -1283,3 +1283,46 @@ func TestPricingStorageUpgradeCompatibility(t *testing.T) {
 	require.NoError(t, db.Raw(query).Scan(&version).Error)
 	t.Logf("engine=%s version=%s phase=%s", kind, version, phase)
 }
+
+// A channel model with a routing shortcut requests the listed model, and every
+// requested model brings the :batch variant the manifest lists, which prices
+// the Batch reserve. A variant is neither missing nor published for the loss
+// guard: a revision without it applies.
+func TestSyncUpstreamCatalogTakesBatchVariantsOfRequestedModels(t *testing.T) {
+	channels := lossGuardChannels{"acme/a:nitro", "acme/b", "acme/c"}
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			upstreamCatalogTestDB(t, dialect, false)
+			ctx := context.Background()
+			source := pricingdomain.CatalogSource{ID: pricingstate.CatalogHash([]byte("batch-variants")), Kind: "openrouter", BaseURL: "https://catalog.example"}
+			deps := pricingadapter.Capabilities()
+			documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+			requested, _, err := pricingdomain.CatalogRequestedModels(deps, channels)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]bool{"acme/a": true, "acme/b": true, "acme/c": true}, requested)
+			for _, step := range []struct {
+				name, revision string
+				listed         []string
+				published      []string
+				missing        []string
+			}{
+				{"variants of requested models", "1", []string{"acme/a", "acme/a:batch", "acme/b", "acme/x:batch"}, []string{"acme/a", "acme/a:batch", "acme/b"}, []string{"acme/c"}},
+				{"revision without a variant", "2", []string{"acme/a", "acme/b", "acme/c"}, []string{"acme/a", "acme/b", "acme/c"}, nil},
+			} {
+				result, err := sync_upstream_catalog.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, source, requested, lossGuardClient{manifest: lossGuardManifest(step.revision, step.listed)})
+				require.NoError(t, err, step.name)
+				assert.Equal(t, step.missing, result.MissingModels, step.name)
+				assert.Equal(t, len(requested)-len(step.missing), result.ImportedModels, step.name)
+				head, err := ensureCatalogSource(ctx, pricingrecord.CatalogSource(source))
+				require.NoError(t, err)
+				selection, err := pricingstate.ReadCatalogSelection(ctx, source.ID, head.Revision)
+				require.NoError(t, err)
+				var published []string
+				for _, ref := range selection.Models {
+					published = append(published, ref.ID)
+				}
+				assert.Equal(t, step.published, published, step.name)
+			}
+		})
+	}
+}

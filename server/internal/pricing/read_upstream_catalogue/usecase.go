@@ -3,6 +3,7 @@ package read_upstream_catalogue
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
@@ -21,16 +22,30 @@ type DocumentCache interface {
 	// hashes.
 	Retain(sourceID string, hashes []string)
 }
+
+// Tariffs keeps the endpoint tariffs of the published revision for the
+// reserve estimates; a publication replaces them whole.
+type Tariffs interface {
+	Load() *domain.UpstreamCatalogTariffs
+	Store(*domain.UpstreamCatalogTariffs)
+}
 type Usecase struct {
 	deps      domain.Capabilities
 	store     Store
 	documents DocumentCache
+	tariffs   Tariffs
 	source    func() (domain.CatalogSource, bool, error)
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, documents DocumentCache, source func() (domain.CatalogSource, bool, error)) Usecase {
-	return Usecase{deps: deps, store: store, documents: documents, source: source}
+func NewUsecase(deps domain.Capabilities, store Store, documents DocumentCache, tariffs Tariffs, source func() (domain.CatalogSource, bool, error)) Usecase {
+	return Usecase{deps: deps, store: store, documents: documents, tariffs: tariffs, source: source}
 }
+
+// Execute reads the documents of the published revision and publishes their
+// endpoint tariffs (domain.CatalogEndpointTariffs) with the head fetchedAt. The
+// tariffs of a revision are mapped once: a head that moved only its fetchedAt
+// keeps them. Without a published revision there are no tariffs; a failed read
+// keeps the published ones.
 func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument, map[string]string, bool, error) {
 	source, enabled, err := u.source()
 	if err != nil || !enabled {
@@ -39,12 +54,14 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 	head, err := u.store.Head(ctx, source.ID)
 	if err != nil {
 		if u.store.IsMissing(err) {
+			u.tariffs.Store(nil)
 			return map[string]*domain.SourceDocument{}, map[string]string{}, true, nil
 		}
 		return nil, nil, true, err
 	}
 
 	if head.Revision == "" {
+		u.tariffs.Store(nil)
 		return map[string]*domain.SourceDocument{}, map[string]string{}, true, nil
 	}
 	selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
@@ -73,5 +90,15 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 			return nil, nil, true, err
 		}
 	}
+	// The head stores a validated fetchedAt; one that does not parse leaves
+	// the zero time, so the tariffs are stale.
+	fetchedAt, _ := time.Parse(time.RFC3339Nano, head.FetchedAt)
+	tariffs := &domain.UpstreamCatalogTariffs{Revision: head.Revision, FetchedAt: fetchedAt}
+	if published := u.tariffs.Load(); published != nil && published.Revision == head.Revision {
+		tariffs.Models = published.Models
+	} else {
+		tariffs.Models = domain.CatalogEndpointTariffs(u.deps, models)
+	}
+	u.tariffs.Store(tariffs)
 	return models, byID, true, nil
 }

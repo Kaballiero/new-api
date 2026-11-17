@@ -45,8 +45,8 @@ func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store S
 	return Usecase{deps: deps, projection: projection, store: store, documents: documents, now: now, invalidate: invalidate}
 }
 
-// SyncUpstreamCatalog acquires one immutable remote manifest and its requested
-// alias closure. Only a complete, validated selection is allowed to move the head.
+// SyncUpstreamCatalog acquires one immutable remote manifest, its requested
+// models with the :batch variants it lists and their alias closure. Only a complete, validated selection is allowed to move the head.
 // A manifest that lost more than domain.MaxCatalogModelLossPercent of the
 // published models (domain.CatalogModelLoss) is rejected with
 // domain.CatalogModelLossError and leaves the head. Models the channels no
@@ -77,16 +77,23 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	for _, ref := range manifest.Models {
 		refs[ref.ID] = ref
 	}
-	pending := []domain.SourceReference{}
+	wanted := map[string]domain.SourceReference{}
 	for id := range requested {
+		// The Batch reserve is priced from the :batch variant of a model. The
+		// variant is taken when the manifest lists it; without it the model is
+		// not missing.
+		if batch, listed := refs[domain.UpstreamTariffModel(id, true)]; listed {
+			wanted[batch.ID] = batch
+		}
 		ref, exists := refs[id]
 		if !exists {
 			result.MissingModels = append(result.MissingModels, id)
 			continue
 		}
-		pending = append(pending, ref)
+		wanted[id] = ref
 	}
 	slices.Sort(result.MissingModels)
+	pending := slices.Collect(maps.Values(wanted))
 	selected := map[string]domain.SourceReference{}
 	decoded := map[string]*domain.SourceDocument{}
 	fresh := []domain.CatalogDocument{}
