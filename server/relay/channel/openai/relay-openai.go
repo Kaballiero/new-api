@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -255,6 +256,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 func markOpenRouterContentDelivered(c *gin.Context, info *relaycommon.RelayInfo, data string) {
 	state := info.OpenRouterCost
 	if state == nil || !state.ChatText || state.ContentDelivered || c.Request.Context().Err() != nil {
+		return
+	}
+	if info.RelayMode == relayconstant.RelayModeCompletions {
+		var completion dto.CompletionsStreamResponse
+		if common.UnmarshalJsonStr(data, &completion) != nil {
+			return
+		}
+		for _, choice := range completion.Choices {
+			if choice.Text != "" {
+				state.ContentDelivered = true
+			}
+		}
 		return
 	}
 	var chunk dto.ChatCompletionsStreamResponse

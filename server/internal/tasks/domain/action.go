@@ -16,4 +16,10 @@ const (
 	TaskActionFirstTailToVideo      = constant.TaskActionFirstTailToVideo
 	TaskActionReferenceToVideo      = constant.TaskActionReferenceToVideo
 	TaskActionRemix                 = constant.TaskActionRemix
+	TaskActionAudio                 = constant.TaskActionAudio
+	TaskActionImage                 = constant.TaskActionImage
+	TaskActionRerank                = constant.TaskActionRerank
+	TaskActionChatImage             = constant.TaskActionChatImage
+	TaskActionChat                  = constant.TaskActionChat
+	TaskActionCompletions           = constant.TaskActionCompletions
 )

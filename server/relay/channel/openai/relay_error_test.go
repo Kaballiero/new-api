@@ -589,15 +589,24 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	failed := event(`{"type":"response.failed","response":{"id":"` + generationID + `","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"Upstream failed"}}}`)
 	responsesCompleted := event(`{"type":"response.completed","response":{"id":"` + generationID + `","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5,"cost":0.004}}}`)
 	responsesNonstream := `{"id":"` + generationID + `","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`
+	responsesNonstreamWithoutID := `{"object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`
+	completion := func(text string) string {
+		return `data: {"id":"` + generationID + `","object":"text_completion","model":"vendor/provider-test","choices":[{"index":0,"text":"` + text + `","finish_reason":null}]}` + "\n\n"
+	}
+	completionCompleted := `data: {"id":"` + generationID + `","object":"text_completion","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n"
+	completionNonstream := `{"id":"` + generationID + `","object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
+	completionNonstreamWithoutID := `{"object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
 
 	type clientFormat struct {
 		path, body  string
 		mode        int
 		relayFormat types.RelayFormat
+		action      string
 	}
-	messages := clientFormat{"/v1/messages", chatBody, relayconstant.RelayModeUnknown, types.RelayFormatClaude}
-	gemini := clientFormat{"/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini}
-	responses := clientFormat{"/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses}
+	messages := clientFormat{"/v1/messages", chatBody, relayconstant.RelayModeUnknown, types.RelayFormatClaude, constant.TaskActionChat}
+	gemini := clientFormat{"/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini, constant.TaskActionChat}
+	responses := clientFormat{"/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, constant.TaskActionChat}
+	completions := clientFormat{"/v1/completions", `{"model":"vendor/provider-test","prompt":"OK","max_tokens":8}`, relayconstant.RelayModeCompletions, types.RelayFormatOpenAI, constant.TaskActionCompletions}
 	for _, tc := range []struct {
 		name     string
 		format   clientFormat
@@ -605,7 +614,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		upstream string
 		// disconnectAt is the content during whose write the client disconnects.
 		disconnectAt string
-		// deferred means the hold moved into a chat Task awaiting generation cost;
+		// deferred means the hold moved into a text Task awaiting generation cost;
 		// otherwise the controller settles cost or refunds the hold on wantErr.
 		deferred               bool
 		cost                   float64
@@ -629,7 +638,8 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		{name: "gemini/content in the last chunk without terminal cost", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "gemini/completed", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
-		{name: "responses/nonstream keeps requiring terminal cost", format: responses, upstream: responsesNonstream, wantErr: missingCost},
+		{name: "responses/nonstream without terminal cost", format: responses, upstream: responsesNonstream, deferred: true},
+		{name: "responses/nonstream without identity refunds", format: responses, upstream: responsesNonstreamWithoutID, wantErr: missingCost},
 		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
 		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
 		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, wantErr: "OpenRouter upstream reported an error"},
@@ -637,6 +647,13 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), wantErr: missingCost},
 		{name: "responses/abort before content", format: responses, stream: true, upstream: created, wantErr: missingCost},
 		{name: "responses/completed", format: responses, stream: true, upstream: created + delta("partial") + responsesCompleted, cost: .004, delivered: "partial"},
+
+		{name: "completions/nonstream without terminal cost", format: completions, upstream: completionNonstream, deferred: true, delivered: "partial"},
+		{name: "completions/nonstream without identity refunds", format: completions, upstream: completionNonstreamWithoutID, wantErr: missingCost},
+		{name: "completions/abort after content", format: completions, stream: true, upstream: completion("partial") + completion(" more") + completion(" lost"),
+			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
+		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), wantErr: missingCost},
+		{name: "completions/completed", format: completions, stream: true, upstream: completion("partial") + completionCompleted, cost: .004, delivered: "partial"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
@@ -669,7 +686,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 			response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(tc.format.body))
 			require.NoError(t, err)
-			assert.Equal(t, tc.stream || tc.format != responses, info.OpenRouterCost.ChatText, "Responses defers a missing cost only for streams")
+			assert.True(t, info.OpenRouterCost.ChatText)
 			hold := billing.reserved
 			if tc.disconnectAt != "" {
 				c.Writer = &cancelAfterWriter{ResponseWriter: c.Writer, needle: tc.disconnectAt, cancel: cancel}
@@ -704,7 +721,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, exists)
 			assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, task.Platform)
-			assert.Equal(t, "chat", task.Action)
+			assert.Equal(t, tc.format.action, task.Action)
 			assert.Equal(t, hold, task.Quota)
 			assert.Equal(t, generationID, task.PrivateData.UpstreamTaskID)
 			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)

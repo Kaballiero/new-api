@@ -94,3 +94,40 @@ func TestReconciliationPreservesUnknownCostAndClaimsBeforeEffects(t *testing.T) 
 		})
 	}
 }
+
+func TestReconciliationMatchesGenerationOfTaskAction(t *testing.T) {
+	now := time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)
+	generationTime := float64(1)
+	for _, tc := range []struct {
+		name      string
+		platform  domain.TaskPlatform
+		action    string
+		apiType   string
+		cancelled bool
+		// class is the lookup outcome: empty settles, incomplete_metadata
+		// waits, identity_or_invalid_cost parks the hold for root.
+		class string
+	}{
+		{name: "chat generation settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionChat, apiType: "completions"},
+		{name: "completion generation settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "completions"},
+		{name: "rerank generation settles", platform: domain.TaskPlatformOpenRouterRerank, action: domain.TaskActionRerank, apiType: "rerank"},
+		{name: "completion with another api type is held", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "embeddings", class: "identity_or_invalid_cost"},
+		{name: "rerank with another api type is held", platform: domain.TaskPlatformOpenRouterRerank, action: domain.TaskActionRerank, apiType: "completions", class: "identity_or_invalid_cost"},
+		{name: "cancelled completion settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "completions", cancelled: true},
+		{name: "cancelled chat image waits", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionChatImage, apiType: "completions", cancelled: true, class: "incomplete_metadata"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &domain.Task{TaskID: "task-sync", Platform: string(tc.platform), Action: tc.action, Status: domain.TaskStatusInProgress, Quota: 50, StartTime: now.Unix() - 31,
+				Properties: domain.Properties{UpstreamModelName: "author/model"},
+				PrivateData: domain.TaskPrivateData{UpstreamTaskID: "gen-fixture", Reconciliation: &domain.TaskReconciliation{ReservedQuota: 50},
+					OpenRouterSync: &domain.OpenRouterSyncTask{Deadline: now.Add(24 * time.Hour).Unix(), MetadataURL: "https://provider.invalid/v1/generation", ResultReady: true}},
+			}
+			fixture := &syncFixture{metadata: domain.SyncMetadata{ID: "gen-fixture", Model: "author/model", APIType: tc.apiType,
+				Cancelled: &tc.cancelled, GenerationTime: &generationTime, CostPresent: true, CostValid: true, CostUSD: .01}}
+			require.NoError(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task))
+			assert.Equal(t, tc.class, task.PrivateData.OpenRouterSync.LastError)
+			assert.Equal(t, tc.class == "", task.PrivateData.Reconciliation.HasUpstreamCost)
+			assert.Equal(t, tc.class == "identity_or_invalid_cost", task.PrivateData.Reconciliation.Required)
+		})
+	}
+}
