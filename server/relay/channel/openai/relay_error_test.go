@@ -25,6 +25,7 @@ import (
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	. "github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -1000,6 +1001,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				require.NoError(t, common.Unmarshal(metadata, &discovered))
 				estimator := openrouter.NewRequestEstimator()
 				estimator.Models[requestedModel] = discovered.Data.Endpoints
+				estimator.Models[requestedModel+":batch"] = discovered.Data.Endpoints
 				_, err := estimator.Estimate(info, []byte(body), operation)
 				require.ErrorContains(t, err, tc.wantError)
 				assert.Zero(t, transport.posts)
@@ -1278,8 +1280,10 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 			if tc.noPolicy || tc.wrongPolicy || tc.source == dto.OpenRouterReservationUpstream {
 				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0)
+				assert.Equal(t, pricingdomain.ReserveSourceLive, info.OpenRouterCost.ReserveSource)
 			} else {
 				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.Equal(t, pricingdomain.ReserveSourceConfiguredPrice, info.OpenRouterCost.ReserveSource)
 				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)

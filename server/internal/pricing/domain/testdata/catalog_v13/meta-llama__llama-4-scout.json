@@ -1,0 +1,211 @@
+{
+ "alias": null,
+ "id": "meta-llama/llama-4-scout",
+ "modalities": {
+  "input": [
+   "image",
+   "text"
+  ],
+  "output": [
+   "text"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 1310720,
+    "max_completion_tokens": 8192,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "frequency_penalty",
+     "max_tokens",
+     "presence_penalty",
+     "response_format",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ]
+   },
+   "eligibility": {
+    "eligible": false,
+    "reasons": [
+     "is_byok_only"
+    ]
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.0000007",
+     "discount": 0,
+     "prompt": "0.00000025"
+    }
+   },
+   "provider": {
+    "id": "google-vertex/us-east5",
+    "name": "Google",
+    "tag": "google-vertex/us-east5"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "model_variant_slug": "meta-llama/llama-4-scout",
+    "provider_region": "us-east5",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 327680,
+    "max_completion_tokens": 16384,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "frequency_penalty",
+     "logit_bias",
+     "max_tokens",
+     "min_p",
+     "presence_penalty",
+     "repetition_penalty",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "top_k",
+     "top_p"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.0000003",
+     "discount": 0,
+     "prompt": "0.0000001"
+    }
+   },
+   "provider": {
+    "id": "deepinfra/fp8",
+    "name": "DeepInfra",
+    "tag": "deepinfra/fp8"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "model_variant_slug": "meta-llama/llama-4-scout",
+    "provider_region": "us",
+    "quantization": "fp8",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 327680,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "frequency_penalty",
+     "logit_bias",
+     "max_tokens",
+     "min_p",
+     "presence_penalty",
+     "repetition_penalty",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.00000024",
+     "discount": 0,
+     "prompt": "0.00000008"
+    }
+   },
+   "provider": {
+    "id": "deepinfra/fp8/flex",
+    "name": "DeepInfra",
+    "tag": "deepinfra/fp8/flex"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "model_variant_slug": "meta-llama/llama-4-scout",
+    "provider_region": "us",
+    "quantization": "fp8",
+    "service_tier": "flex",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 327680,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "frequency_penalty",
+     "logit_bias",
+     "max_tokens",
+     "min_p",
+     "presence_penalty",
+     "repetition_penalty",
+     "seed",
+     "stop",
+     "structured_outputs",
+     "temperature",
+     "tool_choice",
+     "tools",
+     "top_k",
+     "top_p"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.00000045",
+     "discount": 0,
+     "prompt": "0.00000015"
+    }
+   },
+   "provider": {
+    "id": "deepinfra/fp8/priority",
+    "name": "DeepInfra",
+    "tag": "deepinfra/fp8/priority"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "model_variant_slug": "meta-llama/llama-4-scout",
+    "provider_region": "us",
+    "quantization": "fp8",
+    "service_tier": "priority",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

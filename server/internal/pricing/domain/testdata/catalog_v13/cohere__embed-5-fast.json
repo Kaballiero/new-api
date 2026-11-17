@@ -1,0 +1,55 @@
+{
+ "alias": null,
+ "id": "cohere/embed-5-fast",
+ "modalities": {
+  "input": [
+   "image",
+   "text"
+  ],
+  "output": [
+   "embeddings"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 128000,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "image_token": "0.0000004",
+     "prompt": "0.00000008"
+    }
+   },
+   "provider": {
+    "id": "cohere",
+    "name": "Cohere",
+    "tag": "cohere"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "cohere/embed-5-fast-20261029",
+    "model_variant_slug": "cohere/embed-5-fast",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

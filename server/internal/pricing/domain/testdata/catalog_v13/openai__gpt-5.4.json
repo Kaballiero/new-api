@@ -1,0 +1,179 @@
+{
+ "alias": null,
+ "id": "openai/gpt-5.4",
+ "modalities": {
+  "input": [
+   "file",
+   "image",
+   "text"
+  ],
+  "output": [
+   "text"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 1050000,
+    "max_completion_tokens": 128000,
+    "max_prompt_tokens": 922000,
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "seed",
+     "structured_outputs",
+     "tool_choice",
+     "tools",
+     "verbosity"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.0000075",
+     "discount": 0,
+     "input_cache_read": "0.000000125",
+     "overrides": [
+      {
+       "completion": "0.00001125",
+       "input_cache_read": "0.00000025",
+       "min_prompt_tokens": 272000,
+       "prompt": "0.0000025"
+      }
+     ],
+     "prompt": "0.00000125",
+     "web_search": "0.01"
+    }
+   },
+   "provider": {
+    "id": "openai/flex",
+    "name": "OpenAI",
+    "tag": "openai/flex"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "openai/gpt-5.4-20260305",
+    "model_variant_slug": "openai/gpt-5.4",
+    "quantization": "unknown",
+    "service_tier": "flex",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 1050000,
+    "max_completion_tokens": 128000,
+    "max_prompt_tokens": 922000,
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "seed",
+     "structured_outputs",
+     "tool_choice",
+     "tools",
+     "verbosity"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.00003",
+     "discount": 0,
+     "input_cache_read": "0.0000005",
+     "overrides": [
+      {
+       "completion": "0.000045",
+       "input_cache_read": "0.000001",
+       "min_prompt_tokens": 272000,
+       "prompt": "0.00001"
+      }
+     ],
+     "prompt": "0.000005",
+     "web_search": "0.01"
+    }
+   },
+   "provider": {
+    "id": "openai/fast",
+    "name": "OpenAI",
+    "tag": "openai/fast"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "openai/gpt-5.4-20260305",
+    "model_variant_slug": "openai/gpt-5.4",
+    "quantization": "unknown",
+    "service_tier": "priority",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 1050000,
+    "max_completion_tokens": 128000,
+    "max_prompt_tokens": 922000,
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "seed",
+     "structured_outputs",
+     "tool_choice",
+     "tools",
+     "verbosity"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.000015",
+     "discount": 0,
+     "input_cache_read": "0.00000025",
+     "overrides": [
+      {
+       "completion": "0.0000225",
+       "input_cache_read": "0.0000005",
+       "min_prompt_tokens": 272000,
+       "prompt": "0.000005"
+      }
+     ],
+     "prompt": "0.0000025",
+     "web_search": "0.01"
+    }
+   },
+   "provider": {
+    "id": "openai",
+    "name": "OpenAI",
+    "tag": "openai"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "openai/gpt-5.4-20260305",
+    "model_variant_slug": "openai/gpt-5.4",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

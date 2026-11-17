@@ -1,0 +1,69 @@
+{
+ "alias": null,
+ "id": "anthropic/claude-sonnet-5.5:batch",
+ "modalities": {
+  "input": [
+   "file",
+   "image",
+   "text"
+  ],
+  "output": [
+   "text"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 1000000,
+    "max_completion_tokens": 128000,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "include_reasoning",
+     "max_tokens",
+     "reasoning",
+     "response_format",
+     "stop",
+     "structured_outputs",
+     "tool_choice",
+     "tools",
+     "verbosity"
+    ]
+   },
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.000005",
+     "discount": 0,
+     "input_cache_read": "0.00000005",
+     "input_cache_write": "0.00000125",
+     "input_cache_write_1h": "0.000002",
+     "prompt": "0.000001",
+     "web_search": "0.01"
+    }
+   },
+   "provider": {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "tag": "anthropic"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "anthropic/claude-sonnet-5.5-20260928:batch",
+    "model_variant_slug": "anthropic/claude-sonnet-5.5:batch",
+    "quantization": "unknown",
+    "variant": "batch"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

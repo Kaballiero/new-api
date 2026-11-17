@@ -11,9 +11,13 @@ import (
 )
 
 // ReadEndpointRate reads one OpenRouter endpoint price, a USD amount per
-// token, request or image published as a JSON string or number.
+// token, request or image published as a JSON string or number. An absent or
+// null price is ErrEndpointPriceMissing.
 func ReadEndpointRate(deps Capabilities, raw json.RawMessage) (decimal.Decimal, error) {
 	value := strings.TrimSpace(string(raw))
+	if value == "" || value == "null" {
+		return decimal.Zero, ErrEndpointPriceMissing
+	}
 	if len(value) > 1 && value[0] == '"' {
 		if deps.Codec.Unmarshal(raw, &value) != nil {
 			return decimal.Zero, errors.New("invalid OpenRouter endpoint price")

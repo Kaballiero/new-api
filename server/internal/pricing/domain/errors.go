@@ -38,6 +38,14 @@ var (
 	// ErrCatalogSourceChanged rejects a stale source snapshot
 	// before publication.
 	ErrCatalogSourceChanged = errors.New("catalog source changed before publication")
+
+	// ErrNoCompatibleEndpoint reports that no endpoint of the routable models
+	// passed the filters of an OpenRouter request; the reasons, if any, follow
+	// the message.
+	ErrNoCompatibleEndpoint = errors.New("OpenRouter request has no compatible priced endpoint")
+	// ErrEndpointPriceMissing reports an OpenRouter endpoint price that is
+	// absent or null: unknown, not zero. Its text is that of an invalid price.
+	ErrEndpointPriceMissing = errors.New("invalid OpenRouter endpoint price")
 )
 
 // CatalogModelLossError rejects an upstream catalog revision that lost more

@@ -8,20 +8,11 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"github.com/shopspring/decimal"
-)
-
-// serviceTier is the OpenRouter service tier of an endpoint or a request.
-type serviceTier string
-
-const (
-	serviceTierDefault   serviceTier = "default"
-	serviceTierPriority  serviceTier = "priority"
-	serviceTierFlex      serviceTier = "flex"
-	serviceTierUltrafast serviceTier = "ultrafast"
 )
 
 // Provider is the provider routing of an OpenRouter request; the gateway
@@ -34,19 +25,22 @@ type Provider struct {
 	MaxPrice            map[string]json.RawMessage
 }
 
-// Input is a request the gateway has parsed and measured, with the endpoints
-// discovered for its routable models.
+// Input is a request the gateway has parsed and measured.
 type Input struct {
 	Model string
 	// Models are the routable models in request order, duplicates kept.
 	Models []string
-	// Endpoints are the discovered endpoints per model; an absent model has
-	// no discovery.
-	Endpoints        map[string][]domain.NativePricedEndpoint
-	OutputModalities map[string][]string
-	Provider         Provider
-	ServiceTier      string
-	Speed            string
+	// Batch prices the :batch variants of the routable models
+	// (domain.UpstreamTariffModel).
+	Batch bool
+	// ChannelBaseURL is the base URL of the channel; only the official
+	// OpenRouter API is priced from the upstream catalog.
+	ChannelBaseURL string
+	// Live discovers the endpoint tariffs the catalog does not price.
+	Live        LiveTariffs
+	Provider    Provider
+	ServiceTier string
+	Speed       string
 	// Parameters are the top-level request fields checked by
 	// provider.require_parameters.
 	Parameters map[string]json.RawMessage
@@ -85,21 +79,55 @@ type Estimate struct {
 	// IncludesAddOnReserve reports that the maximum endpoint cost includes the
 	// add-on reserve.
 	IncludesAddOnReserve bool
+	// Source is what the reserve is priced from (reserveSource).
+	Source domain.ReserveSource
+	// StaleCatalog reports that a stale catalog document priced a model,
+	// whatever the Source.
+	StaleCatalog bool
 }
 
 type Usecase struct {
-	deps domain.Capabilities
+	deps    domain.Capabilities
+	catalog CatalogTariffs
+	now     func() time.Time
+	// maxAge bounds the age of the catalog data a reserve is priced from.
+	maxAge func() time.Duration
 }
 
-func NewUsecase(deps domain.Capabilities) Usecase {
-	return Usecase{deps: deps}
+func NewUsecase(deps domain.Capabilities, catalog CatalogTariffs, now func() time.Time, maxAge func() time.Duration) Usecase {
+	return Usecase{deps: deps, catalog: catalog, now: now, maxAge: maxAge}
 }
 
-// Execute takes the complete maximum over the eligible endpoints of every
+// Execute prices the reserve from the endpoint tariffs of every routable model
+// (loadTariffs). A model priced from the fresh catalog is checked against live
+// when a price it needs is missing, when no endpoint of it passes the filters
+// or when provider.require_parameters excludes one of them: it is priced again
+// from live, so that the client gets the result of live pricing. When live
+// fails, a missing price is priced from the document as live would price it,
+// with the local cover; a pool the filters emptied or narrowed, of a fresh or a
+// stale document, never prices the model, so the reserve is never below live:
+// only the local cover covers it, otherwise the live error refuses the request.
+func (u Usecase) Execute(in Input) (Estimate, error) {
+	tariffs, err := u.loadTariffs(in)
+	if err != nil {
+		return Estimate{}, err
+	}
+	for {
+		estimate, recheck, err := u.price(in, tariffs)
+		if recheck == "" {
+			return estimate, err
+		}
+		tariffs.recheckLive(in.Live, recheck)
+	}
+}
+
+// price takes the complete maximum over the eligible endpoints of every
 // routable model. Price strings are USD per token/request/image. An
 // unavailable monetary estimate is a *domain.EstimateUnavailableError; with
-// an add-on reserve it is returned at the first such endpoint.
-func (u Usecase) Execute(in Input) (Estimate, error) {
+// an add-on reserve it is returned at the first such endpoint. The tariff
+// model it returns instead is a catalog tariff to price again from live
+// (modelTariffs.checksLive); it is empty otherwise.
+func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, string, error) {
 	type reservationCandidate struct {
 		tariff       domain.NativePricedEndpoint
 		output       int
@@ -109,6 +137,9 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 	approximateReserve := in.ApproximateReserveUSD != nil
 	addOnReserve := in.AddOnReserveUSD != nil
 	outputReserve := in.TextOutput && !approximateReserve
+	// localCover is the explicit local/minimum policy that alone covers an
+	// unavailable monetary estimate.
+	localCover := in.ConfiguredPrice || (in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve
 	var estimate Estimate
 	var maximum decimal.Decimal
 	found := false
@@ -118,44 +149,48 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 	quantizationMatched, parametersSupported := false, false
 	for _, model := range in.Models {
 		if model == "perplexity/sonar-deep-research" && !approximateReserve {
-			return Estimate{}, errors.New("OpenRouter Sonar research reserve policy is disabled")
+			return Estimate{}, "", errors.New("OpenRouter Sonar research reserve policy is disabled")
 		}
 		if strings.HasSuffix(model, ":online") {
-			return Estimate{}, errors.New("OpenRouter online routing includes unpriced hosted search")
+			return Estimate{}, "", errors.New("OpenRouter online routing includes unpriced hosted search")
 		}
-		endpoints, ok := in.Endpoints[model]
-		if !ok {
-			return Estimate{}, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
+		tariffModel := domain.UpstreamTariffModel(model, in.Batch)
+		modelTariff := tariffsByModel[tariffModel]
+		endpoints, declared := modelTariff.response.Endpoints, modelTariff.response.OutputModalities
+		if in.Batch {
+			// Batch does not check the output modalities its :batch variant
+			// declares.
+			declared = nil
 		}
-		if in.Rerank && !slices.Contains(in.OutputModalities[model], "rerank") {
-			return Estimate{}, errors.New("OpenRouter model does not declare rerank output capability")
+		if in.Rerank && !slices.Contains(declared, "rerank") {
+			return Estimate{}, "", errors.New("OpenRouter model does not declare rerank output capability")
 		}
-		if in.Decisions && !slices.Contains(in.OutputModalities[model], "decisions") {
-			return Estimate{}, errors.New("OpenRouter model does not declare decisions output capability")
+		if in.Decisions && !slices.Contains(declared, "decisions") {
+			return Estimate{}, "", errors.New("OpenRouter model does not declare decisions output capability")
 		}
-		if in.ImageReserveOnly && !slices.Contains(in.OutputModalities[model], "image") {
-			return Estimate{}, errors.New("OpenRouter model does not declare image output capability")
+		if in.ImageReserveOnly && !slices.Contains(declared, "image") {
+			return Estimate{}, "", errors.New("OpenRouter model does not declare image output capability")
 		}
-		if in.Audio && len(in.OutputModalities[model]) == 0 {
-			return Estimate{}, errors.New("OpenRouter audio model output capability is missing")
+		if in.Audio && len(declared) == 0 {
+			return Estimate{}, "", errors.New("OpenRouter audio model output capability is missing")
 		}
-		if declared := in.OutputModalities[model]; declared != nil {
+		if declared != nil {
 			if in.ConfiguredPrice && len(in.Modalities) == 0 && !in.Decisions && !in.Rerank {
 				for _, modality := range declared {
 					if modality != "text" && modality != "image" {
-						return Estimate{}, errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
+						return Estimate{}, "", errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
 					}
 				}
 			}
 			for _, modality := range in.Modalities {
 				if !slices.Contains(declared, modality) {
-					return Estimate{}, errors.New("OpenRouter model does not support requested output modality")
+					return Estimate{}, "", errors.New("OpenRouter model does not support requested output modality")
 				}
 			}
 		}
 		var candidates []reservationCandidate
 		var flexTariffs []domain.NativePricedEndpoint
-		flexPriceUnknown := false
+		flexPriceUnknown, parametersExcluded := false, false
 		for _, endpoint := range endpoints {
 			tag := strings.ToLower(endpoint.Tag)
 			if base, ok := strings.CutSuffix(tag, "/priority"); ok {
@@ -179,47 +214,38 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 			}
 			quantizationMatched = true
 			if endpoint.Tag == "" {
-				return Estimate{}, errors.New("OpenRouter endpoint tag is missing")
+				return Estimate{}, "", errors.New("OpenRouter endpoint tag is missing")
 			}
 			// Service tiers require explicit opt-in; ordinary variants such as
-			// deepinfra/turbo remain in the base provider's eligible pool. The
-			// fast suffix names the priority tier.
-			tier := serviceTierDefault
-			for _, candidate := range []serviceTier{serviceTierPriority, serviceTierFlex, serviceTierUltrafast} {
-				if strings.HasSuffix(tag, "/"+string(candidate)) {
-					tier = candidate
-				}
-			}
-			if strings.HasSuffix(tag, "/fast") {
-				tier = serviceTierPriority
-			}
-			requestedTier := serviceTier(in.ServiceTier)
+			// deepinfra/turbo remain in the base provider's eligible pool.
+			tier := domain.EndpointServiceTier(tag)
+			requestedTier := domain.ServiceTier(in.ServiceTier)
 			if in.ServiceTier == "fast" || in.Speed == "fast" {
-				requestedTier = serviceTierPriority
+				requestedTier = domain.ServiceTierPriority
 			}
 			explicitTier := slices.Contains(in.Provider.Only, tag) || slices.Contains(in.Provider.Order, tag)
 			if !explicitTier {
 				switch tier {
-				case serviceTierUltrafast:
-					if requestedTier != serviceTierUltrafast {
+				case domain.ServiceTierUltrafast:
+					if requestedTier != domain.ServiceTierUltrafast {
 						continue
 					}
-				case serviceTierPriority:
-					if requestedTier != serviceTierPriority && requestedTier != serviceTierUltrafast && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":nitro")) {
+				case domain.ServiceTierPriority:
+					if requestedTier != domain.ServiceTierPriority && requestedTier != domain.ServiceTierUltrafast && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":nitro")) {
 						continue
 					}
-				case serviceTierFlex:
-					if requestedTier != serviceTierFlex && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":floor")) {
+				case domain.ServiceTierFlex:
+					if requestedTier != domain.ServiceTierFlex && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":floor")) {
 						continue
 					}
 				}
 			}
 			if in.ImageTokens != nil && in.Images > 0 && !matches("cohere") {
-				return Estimate{}, errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
+				return Estimate{}, "", errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
 			}
 
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
-				return Estimate{}, errors.New("invalid OpenRouter endpoint token limits")
+				return Estimate{}, "", errors.New("invalid OpenRouter endpoint token limits")
 			}
 			if endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens {
 				continue
@@ -229,7 +255,7 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				if in.OutputLimit != nil {
 					output = *in.OutputLimit
 					if output < 0 || output > in.MaxTokensLimit {
-						return Estimate{}, errors.New("invalid OpenRouter output cap")
+						return Estimate{}, "", errors.New("invalid OpenRouter output cap")
 					}
 				} else {
 					// Without a client limit the reserve covers a bounded answer.
@@ -272,22 +298,26 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				}
 				if len(unsupported) > 0 {
 					unsupportedParameters = append(unsupportedParameters, unsupported...)
+					parametersExcluded = true
 					continue
 				}
 				parametersSupported = true
 			}
 			if approximateReserve || in.SearchReserveUSD != nil {
 				if in.Model == "perplexity/sonar-deep-research" && tag != "perplexity" {
-					return Estimate{}, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
+					return Estimate{}, "", errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
 				if endpoint.ModelID != "" && endpoint.ModelID != in.Model {
-					return Estimate{}, errors.New("OpenRouter reserve endpoint model does not match final model ID")
+					return Estimate{}, "", errors.New("OpenRouter reserve endpoint model does not match final model ID")
 				}
 			}
 			tariffs, pricingErr := u.endpointPricingTariffs(endpoint, in.PromptTokens, in.MaxTokensLimit)
 			if pricingErr != nil {
+				if modelTariff.missesCatalogPrice(pricingErr) {
+					return Estimate{}, tariffModel, nil
+				}
 				if len(in.Provider.MaxPrice) > 0 {
-					return Estimate{}, pricingErr
+					return Estimate{}, "", pricingErr
 				}
 				// Keep the discovered route identity for local fallback, without
 				// inventing a tariff when its monetary declaration is unavailable.
@@ -297,12 +327,15 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				excluded := false
 				for key, raw := range in.Provider.MaxPrice {
 					rate, err := domain.ReadEndpointRate(u.deps, tariff.Pricing[key])
+					if modelTariff.missesCatalogPrice(err) {
+						return Estimate{}, tariffModel, nil
+					}
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					limit, err := domain.ReadEndpointRate(u.deps, raw)
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					if key == "prompt" || key == "completion" {
 						rate = rate.Mul(decimal.NewFromInt(1000000))
@@ -316,13 +349,33 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				}
 				candidates = append(candidates, reservationCandidate{
 					tariff: tariff, output: output, pricingErr: pricingErr,
-					flexFallback: requestedTier == serviceTierFlex && tier == serviceTierDefault && !explicitTier,
+					flexFallback: requestedTier == domain.ServiceTierFlex && tier == domain.ServiceTierDefault && !explicitTier,
 				})
-				if requestedTier == serviceTierFlex && tier == serviceTierFlex {
+				if requestedTier == domain.ServiceTierFlex && tier == domain.ServiceTierFlex {
 					flexTariffs = append(flexTariffs, tariff)
 					flexPriceUnknown = flexPriceUnknown || pricingErr != nil
 				}
 			}
+		}
+		poolNarrowed := len(candidates) == 0 || parametersExcluded
+		if modelTariff.checksLive() && poolNarrowed {
+			return Estimate{}, tariffModel, nil
+		}
+		if modelTariff.liveErr != nil && poolNarrowed {
+			// A pool the filters narrowed may hold fewer endpoints than live,
+			// so it never prices the model: only the local cover does, as for
+			// an unknown price, and otherwise the live error refuses it.
+			if addOnReserve {
+				return Estimate{}, "", &domain.EstimateUnavailableError{Cause: modelTariff.liveErr}
+			}
+			if !localCover {
+				return Estimate{}, "", modelTariff.liveErr
+			}
+			if *in.ApproximateReserveUSD <= 0 {
+				return Estimate{}, "", errors.New("OpenRouter unavailable estimate requires a positive reserve")
+			}
+			found = true
+			continue
 		}
 		// Only flex tariffs surviving the same route, capability, limit and
 		// max-price checks may constrain the default fallback reservation.
@@ -350,8 +403,11 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
 				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
 					searchRate, err := domain.ReadEndpointRate(u.deps, raw)
+					if modelTariff.missesCatalogPrice(err) {
+						return Estimate{}, tariffModel, nil
+					}
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					if in.SearchReserveUSD == nil && !searchRate.IsZero() {
 						cost = cost.Add(decimal.NewFromFloat(*in.AddOnReserveUSD))
@@ -360,15 +416,18 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				}
 			}
 			if estimateErr != nil {
+				if modelTariff.missesCatalogPrice(estimateErr) {
+					return Estimate{}, tariffModel, nil
+				}
 				var unavailable *domain.EstimateUnavailableError
 				if addOnReserve && errors.As(estimateErr, &unavailable) {
-					return Estimate{}, estimateErr
+					return Estimate{}, "", estimateErr
 				}
-				if (!in.ConfiguredPrice && !((in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve)) || !errors.As(estimateErr, &unavailable) {
-					return Estimate{}, estimateErr
+				if !localCover || !errors.As(estimateErr, &unavailable) {
+					return Estimate{}, "", estimateErr
 				}
 				if *in.ApproximateReserveUSD <= 0 {
-					return Estimate{}, errors.New("OpenRouter unavailable estimate requires a positive reserve")
+					return Estimate{}, "", errors.New("OpenRouter unavailable estimate requires a positive reserve")
 				}
 				// This endpoint is eligible, but its unknown monetary quantity is
 				// covered only by the explicit local/minimum policy.
@@ -400,9 +459,9 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 			reasons = append(reasons, "provider.require_parameters excluded endpoints that do not support: "+strings.Join(slices.Compact(unsupportedParameters), ", "))
 		}
 		if len(reasons) > 0 {
-			return Estimate{}, errors.New("OpenRouter request has no compatible priced endpoint: " + strings.Join(reasons, "; "))
+			return Estimate{}, "", fmt.Errorf("%w: %s", domain.ErrNoCompatibleEndpoint, strings.Join(reasons, "; "))
 		}
-		return Estimate{}, errors.New("OpenRouter request has no compatible priced endpoint")
+		return Estimate{}, "", domain.ErrNoCompatibleEndpoint
 	}
 	if in.SearchReserveUSD != nil {
 		maximum = maximum.Add(decimal.NewFromFloat(*in.SearchReserveUSD))
@@ -415,9 +474,11 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 	}
 	estimate.USD, _ = maximum.Float64()
 	if math.IsInf(estimate.USD, 0) || math.IsNaN(estimate.USD) {
-		return Estimate{}, errors.New("OpenRouter estimate overflow")
+		return Estimate{}, "", errors.New("OpenRouter estimate overflow")
 	}
-	return estimate, nil
+	estimate.Source = reserveSource(in, tariffsByModel)
+	estimate.StaleCatalog = tariffsByModel.hasStaleDocument()
+	return estimate, "", nil
 }
 
 // exceedsFlexPriceBounds excludes only fallback tariffs proven to exceed

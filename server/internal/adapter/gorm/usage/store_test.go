@@ -175,6 +175,30 @@ func TestSerializerOwnsBillingShapesAndPreservesProviderJSON(t *testing.T) {
 	assert.Contains(t, admin, "channel_affinity")
 }
 
+// The admin log names the source of an OpenRouter reserve; a configured
+// price names it also when the estimator did not price the reserve.
+func TestSerializerWritesOpenRouterReservationSource(t *testing.T) {
+	configured := 0.5
+	for _, tc := range []struct {
+		name  string
+		state domain.OpenRouterCostState
+		want  any
+	}{
+		{"catalog", domain.OpenRouterCostState{ReserveSource: "catalog"}, "catalog"},
+		{"stale catalog", domain.OpenRouterCostState{ReserveSource: "catalog_stale"}, "catalog_stale"},
+		{"configured price", domain.OpenRouterCostState{ReserveSource: "configured_price", ConfiguredReserveUSD: &configured}, "configured_price"},
+		{"configured price without an estimator source", domain.OpenRouterCostState{ConfiguredReserveUSD: &configured}, "configured_price"},
+		{"no source", domain.OpenRouterCostState{}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other := consumptionOther(domain.Consumption{Kind: domain.TextConsumption, Request: domain.RequestFacts{ContextPresent: true, OpenRouterCost: &tc.state}, Text: &domain.TextFacts{}}, logMetadata{})
+			admin, ok := other.Snapshot()["admin_info"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, admin["openrouter_reservation_source"])
+		})
+	}
+}
+
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
 	assert.Equal(t, ", search calls: 2, cost 17", renderer.RenderContent([]domain.Note{

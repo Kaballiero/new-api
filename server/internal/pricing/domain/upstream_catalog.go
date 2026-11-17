@@ -153,8 +153,8 @@ type CatalogChannels interface {
 }
 
 // CatalogRequestedModels are the upstream catalog models the channels request:
-// the upstream model each ability of an enabled OpenRouter catalog channel
-// resolves to. Unresolved are the channels whose model mapping does not
+// the tariff model (UpstreamTariffModel) of the upstream model each ability of
+// an enabled OpenRouter catalog channel resolves to. Unresolved are the channels whose model mapping does not
 // resolve (invalid JSON or a cycle): while there are any, the requested models
 // are not known.
 func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (requested map[string]bool, unresolved []*BuildChannel, err error) {
@@ -186,7 +186,7 @@ func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (reques
 			}
 			continue
 		}
-		requested[upstream] = true
+		requested[UpstreamTariffModel(upstream, false)] = true
 	}
 	return requested, unresolved, nil
 }
@@ -217,6 +217,19 @@ func CatalogModelLoss(head CatalogSelection, requested map[string]bool, manifest
 // OpenRouterShortcuts are the OpenRouter provider routing shortcuts: a model
 // id with one of these suffixes routes the listed model without it.
 var OpenRouterShortcuts = []string{":nitro", ":floor"}
+
+// UpstreamTariffModel is the upstream catalog model whose endpoint tariffs
+// price a routable model: the model without its OpenRouterShortcuts suffix,
+// and for Batch the :batch variant of that model.
+func UpstreamTariffModel(model string, batch bool) string {
+	for _, shortcut := range OpenRouterShortcuts {
+		model = strings.TrimSuffix(model, shortcut)
+	}
+	if batch {
+		return strings.TrimSuffix(model, ":batch") + ":batch"
+	}
+	return model
+}
 
 // CatalogDocumentReader reads stored catalog documents by hash.
 type CatalogDocumentReader interface {

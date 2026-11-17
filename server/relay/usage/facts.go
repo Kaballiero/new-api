@@ -116,6 +116,7 @@ func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 			AddOnReserveUSD:               p.AddOnReserveUSD,
 			AddOnReserveModel:             p.AddOnReserveModel,
 			ApproximateResearchReserveUSD: p.ApproximateResearchReserveUSD,
+			ReserveSource:                 string(p.ReserveSource),
 		}
 	}
 	if n := info.NativeImage; n != nil {
