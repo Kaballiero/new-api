@@ -217,6 +217,10 @@ func TestNativeImageTariffEstimate(t *testing.T) {
 	resolutions := func(values ...string) map[string]ImageCapability {
 		return map[string]ImageCapability{"resolution": {Type: "enum", Values: values}}
 	}
+	sized := func(parameters map[string]ImageCapability) map[string]ImageCapability {
+		parameters["size"] = ImageCapability{Type: "boolean"}
+		return parameters
+	}
 	flux3 := ImageEndpoint{SupportedParameters: resolutions("1.5K", "1K", "2K", "4K", "768"), Pricing: []ImagePrice{
 		image("output_image", "image", "768", 0.041), image("output_image", "image", "1k", 0.048), image("output_image", "image", "1.5k", 0.07),
 		image("output_image", "image", "2k", 0.1), image("output_image", "image", "4k", 0.607),
@@ -235,7 +239,18 @@ func TestNativeImageTariffEstimate(t *testing.T) {
 	qwen := ImageEndpoint{SupportedParameters: resolutions("1K", "2K"), Pricing: []ImagePrice{
 		image("input_image", "image", "", 0.003), image("output_image", "image", "1k", 0.04), image("output_image", "image", "2k", 0.075),
 	}}
+	riverflowSized := ImageEndpoint{SupportedParameters: sized(resolutions("1K", "2K", "4K")), Pricing: []ImagePrice{
+		image("output_image", "image", "", 0.13), image("output_image", "image", "2k", 0.15), image("output_image", "image", "4k", 0.17),
+	}}
 	flux2 := ImageEndpoint{Pricing: []ImagePrice{image("output_image", "megapixel", "", 0.03)}}
+	flux2Sized := ImageEndpoint{SupportedParameters: sized(map[string]ImageCapability{}), Pricing: flux2.Pricing}
+	flux2Flex := ImageEndpoint{SupportedParameters: sized(map[string]ImageCapability{}), Pricing: []ImagePrice{
+		image("input_image", "megapixel", "", 0.06), image("output_image", "megapixel", "", 0.06),
+	}}
+	minimax := ImageEndpoint{SupportedParameters: sized(resolutions("1K", "2K", "4K")), Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.0000015), image("input_text", "token", "", 0.0000023), image("output_image", "token", "", 0.0000038),
+	}}
+	unknownTier := ImageEndpoint{SupportedParameters: resolutions("1K", "8K"), Pricing: []ImagePrice{image("output_image", "token", "", 0.0000038)}}
 	geminiPro := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K"), Pricing: []ImagePrice{
 		image("input_image", "token", "", 0.000002), image("output_image", "token", "", 0.00012),
 	}}
@@ -261,8 +276,14 @@ func TestNativeImageTariffEstimate(t *testing.T) {
 		{name: "flux-3-image 1K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.048},
 		{name: "flux-3-image 2K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.1},
 		{name: "flux-3-image without a tier", endpoint: flux3, count: 1, payload: map[string]any{}, want: 0.607},
-		{name: "flux-3-image size takes the tier covering its longer side", endpoint: flux3, count: 1, payload: map[string]any{"size": "1500x1000"}, want: 0.07},
-		{name: "flux-3-image size above every tier", endpoint: flux3, count: 1, payload: map[string]any{"size": "8192x1024"}, want: 0.607},
+		{name: "size an endpoint does not declare counts as no size", endpoint: flux3, count: 1, payload: map[string]any{"size": "512x512"}, want: 0.607},
+		{name: "declared size takes the tier covering its longer side", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "1500x1000"}, want: 0.15},
+		{name: "declared size above every tier takes the highest variant", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "8192x1024"}, want: 0.17},
+		{name: "size and resolution take the larger tier", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "4096x4096", "resolution": "1K"}, want: 0.17},
+		{name: "size and resolution take the larger output of the resolution", endpoint: minimax, count: 1, payload: map[string]any{"size": "1024x1024", "resolution": "2K"}, want: 17180*0.0000038 + 1024*0.0000023},
+		{name: "size and resolution take the larger output of the size", endpoint: minimax, count: 1, payload: map[string]any{"size": "3000x2000", "resolution": "1K"}, want: 24576*0.0000038 + 1024*0.0000023},
+		{name: "unknown requested tier keeps 16 MP", endpoint: minimax, count: 1, payload: map[string]any{"resolution": "8K"}, want: 65536*0.0000038 + 1024*0.0000023},
+		{name: "unknown published tier keeps 16 MP", endpoint: unknownTier, count: 1, payload: map[string]any{}, want: 65536 * 0.0000038},
 		{name: "riverflow 1K takes the 2k variant with the unlabeled one", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.15},
 		{name: "riverflow 2K", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.15},
 		{name: "riverflow 4K with a reference", endpoint: riverflow, count: 1, references: 1, payload: map[string]any{"resolution": "4K"}, want: 0.33 + 0.2},
@@ -271,9 +292,12 @@ func TestNativeImageTariffEstimate(t *testing.T) {
 		{name: "grok 2K", endpoint: grok, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.08},
 		{name: "grok 1K times n", endpoint: grok, count: 2, references: 1, payload: map[string]any{"resolution": "1K"}, want: 2*0.06 + 0.01},
 		{name: "qwen 1K times n", endpoint: qwen, count: 3, payload: map[string]any{"resolution": "1K"}, want: 3 * 0.04},
-		{name: "megapixel price of an explicit size", endpoint: flux2, count: 1, payload: map[string]any{"size": "1024x1024"}, want: 0.03 * 1.048576},
+		{name: "megapixel price of a declared size in whole megapixels", endpoint: flux2Sized, count: 1, payload: map[string]any{"size": "1024x1024"}, want: 0.03 * 2},
+		{name: "megapixel price of a small declared size is at least one megapixel", endpoint: flux2Sized, count: 1, payload: map[string]any{"size": "512x512"}, want: 0.03},
+		{name: "megapixel references keep 16 MP each", endpoint: flux2Flex, count: 1, references: 4, payload: map[string]any{"size": "512x512"}, want: 0.06 + 4*16*0.06},
+		{name: "token output without a declared size keeps the largest published tier", endpoint: geminiPro, count: 1, payload: map[string]any{"size": "256x256"}, want: 68720 * 0.00012},
 		{name: "megapixel price without published tiers keeps 16 MP", endpoint: flux2, count: 1, payload: map[string]any{}, want: 0.03 * 16},
-		{name: "token price of a tier", endpoint: geminiPro, count: 1, references: 1, payload: map[string]any{"resolution": "2K"}, want: 17180 * (0.00012 + 0.000002)},
+		{name: "token price of a tier, references keep 16 MP", endpoint: geminiPro, count: 1, references: 1, payload: map[string]any{"resolution": "2K"}, want: 17180*0.00012 + 65536*0.000002},
 		{name: "token price of the largest published tier", endpoint: geminiFlash, count: 1, payload: map[string]any{}, want: 68720 * 0.00006},
 		{name: "token price without published tiers keeps 16 MP", endpoint: gptImage, count: 1, payload: map[string]any{"prompt": "x"}, want: 65536*0.00004 + 1025*0.000005},
 	} {
