@@ -316,3 +316,24 @@ func TestExecuteSourceOrder(t *testing.T) {
 		})
 	}
 }
+
+// Batch prices the :batch variant without checking the output modalities it
+// declares; a synchronous request checks them.
+func TestExecuteBatchSkipsDeclaredOutputModalities(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	for _, batch := range []bool{false, true} {
+		in := textInput("acme/a")
+		in.Batch, in.Modalities = batch, []string{"text"}
+		response := domain.NativeEndpointResponse{OutputModalities: []string{"embeddings"}, Endpoints: []domain.NativePricedEndpoint{
+			{Tag: "provider", MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, `{"prompt":"0.001","completion":"0.002"}`)},
+		}}
+		in.Live = &fakeLive{responses: map[string]domain.NativeEndpointResponse{domain.UpstreamTariffModel("acme/a", batch): response}}
+		estimate, err := liveOnly(deps).Execute(in)
+		if !batch {
+			require.EqualError(t, err, "OpenRouter model does not support requested output modality")
+			continue
+		}
+		require.NoError(t, err)
+		assert.InDelta(t, 1.02, estimate.USD, 1e-9)
+	}
+}

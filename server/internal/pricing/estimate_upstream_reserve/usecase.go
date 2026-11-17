@@ -152,6 +152,11 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 		}
 		modelTariff := tariffsByModel[domain.UpstreamTariffModel(model, in.Batch)]
 		endpoints, declared := modelTariff.response.Endpoints, modelTariff.response.OutputModalities
+		if in.Batch {
+			// Batch does not check the output modalities its :batch variant
+			// declares.
+			declared = nil
+		}
 		if in.Rerank && !slices.Contains(declared, "rerank") {
 			return Estimate{}, errors.New("OpenRouter model does not declare rerank output capability")
 		}
