@@ -596,6 +596,9 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	completionCompleted := `data: {"id":"` + generationID + `","object":"text_completion","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n"
 	completionNonstream := `{"id":"` + generationID + `","object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
 	completionNonstreamWithoutID := `{"object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
+	embedding := func(id, usage string) string {
+		return `{` + id + `"object":"list","model":"vendor/provider-test","data":[{"object":"embedding","index":0,"embedding":[0.25]}],"usage":` + usage + `}`
+	}
 
 	type clientFormat struct {
 		path, body  string
@@ -607,6 +610,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	gemini := clientFormat{"/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini, constant.TaskActionChat}
 	responses := clientFormat{"/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, constant.TaskActionChat}
 	completions := clientFormat{"/v1/completions", `{"model":"vendor/provider-test","prompt":"OK","max_tokens":8}`, relayconstant.RelayModeCompletions, types.RelayFormatOpenAI, constant.TaskActionCompletions}
+	embeddings := clientFormat{"/v1/embeddings", `{"model":"vendor/provider-test","input":"OK"}`, relayconstant.RelayModeEmbeddings, types.RelayFormatEmbedding, constant.TaskActionEmbeddings}
 	for _, tc := range []struct {
 		name     string
 		format   clientFormat
@@ -654,6 +658,10 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), wantErr: missingCost},
 		{name: "completions/completed", format: completions, stream: true, upstream: completion("partial") + completionCompleted, cost: .004, delivered: "partial"},
+
+		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
+		{name: "embeddings/without identity refunds", format: embeddings, upstream: embedding("", `{"prompt_tokens":1,"total_tokens":1}`), wantErr: missingCost},
+		{name: "embeddings/completed", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1,"cost":0.004}`), cost: .004, delivered: "0.25"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
