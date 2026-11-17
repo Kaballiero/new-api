@@ -15,6 +15,11 @@ type UpstreamCatalogTariffs struct {
 	Models    map[string]NativeEndpointResponse
 }
 
+// FreshAt tells whether the catalog data is at most maxAge old at now.
+func (tariffs UpstreamCatalogTariffs) FreshAt(now time.Time, maxAge time.Duration) bool {
+	return !now.After(tariffs.FetchedAt.Add(maxAge))
+}
+
 // CatalogEndpointTariffs are the endpoint tariffs of upstream catalog
 // documents by model id, in the shape of the endpoints OpenRouter publishes at
 // request time. An endpoint of a model is an offer of its document with scope

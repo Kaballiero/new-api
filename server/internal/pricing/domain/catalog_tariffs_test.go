@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -138,5 +139,49 @@ func TestUpstreamTariffModel(t *testing.T) {
 		{"anthropic/claude-sonnet-5.5:nitro", true, "anthropic/claude-sonnet-5.5:batch"},
 	} {
 		assert.Equal(t, tc.want, UpstreamTariffModel(tc.model, tc.batch), tc.model)
+	}
+}
+
+// liveTariffStub discovers one tariff or fails, counting its calls.
+type liveTariffStub struct {
+	tariff string
+	err    error
+	calls  int
+}
+
+func (live *liveTariffStub) Discover(string) (string, error) {
+	live.calls++
+	return live.tariff, live.err
+}
+
+// A model takes its fresh document without asking live, then the live tariff,
+// then its stale document beside the live failure; without a document the
+// live failure is returned.
+func TestModelTariffSourceOrder(t *testing.T) {
+	liveDown := errors.New("live down")
+	for _, tc := range []struct {
+		name       string
+		catalog    map[string]string
+		fresh      bool
+		liveErr    error
+		want       string
+		wantSource ReserveSource
+		wantErr    error
+		wantCalls  int
+	}{
+		{"fresh document", map[string]string{"m": "document"}, true, nil, "document", ReserveSourceCatalog, nil, 0},
+		{"stale document and live", map[string]string{"m": "document"}, false, nil, "live", ReserveSourceLive, nil, 1},
+		{"no document and live", nil, true, nil, "live", ReserveSourceLive, nil, 1},
+		{"stale document and live down", map[string]string{"m": "document"}, false, liveDown, "document", ReserveSourceCatalogStale, liveDown, 1},
+		{"no document and live down", map[string]string{"other": "document"}, true, liveDown, "", "", liveDown, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := &liveTariffStub{tariff: "live", err: tc.liveErr}
+			tariff, source, err := ModelTariff("m", tc.catalog, tc.fresh, live)
+			assert.Equal(t, tc.want, tariff)
+			assert.Equal(t, tc.wantSource, source)
+			assert.Equal(t, tc.wantErr, err)
+			assert.Equal(t, tc.wantCalls, live.calls)
+		})
 	}
 }
