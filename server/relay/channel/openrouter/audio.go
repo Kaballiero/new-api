@@ -24,8 +24,8 @@ import (
 
 // transcriptionReservationPayload describes the outgoing multipart order without
 // counting file bytes as text tokens. Expressions see scalar form fields and a
-// file descriptor: filename, size and seconds, the duration measured from the
-// audio headers (transcriptionSeconds), never invented audio tokens.
+// file descriptor: filename, size and, when the audio headers are readable,
+// seconds (transcriptionSeconds), never invented audio tokens.
 func transcriptionReservationPayload(ctx context.Context, contentType string, body []byte) ([]byte, error) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
@@ -51,11 +51,11 @@ func transcriptionReservationPayload(ctx context.Context, contentType string, bo
 			if err != nil || len(audio) == 0 || len(audio) > 25<<20 {
 				return nil, errors.New("OpenRouter transcription file must contain at most 25 MiB")
 			}
-			seconds, err := transcriptionSeconds(ctx, part.FileName(), audio)
-			if err != nil {
-				return nil, err
+			file := map[string]any{"filename": part.FileName(), "size": len(audio)}
+			if seconds, readable := transcriptionSeconds(ctx, part.FileName(), audio); readable {
+				file["seconds"] = seconds
 			}
-			fields["file"] = map[string]any{"filename": part.FileName(), "size": len(audio), "seconds": seconds}
+			fields["file"] = file
 			fileSeen = true
 			continue
 		}

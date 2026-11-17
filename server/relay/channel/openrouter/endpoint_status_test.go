@@ -551,9 +551,9 @@ func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
 // Speech and transcription on the official API are priced from the catalog
 // unit prices without a channel reserve: a transcription at its seconds × the
 // price of a second, the price of a request-dependent variant at its maximum.
-// A model priced only by tokens measures no quantity it is priced by: the
-// channel reserve covers it, and without one it is refused, never reserved at
-// $0.
+// A model priced only by tokens, or a file whose duration is unreadable,
+// measures no quantity it is priced by: a configured price or the channel
+// reserve covers it, and without one it is refused, never reserved at $0.
 func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 	tokenusage.InitTokenEncoders()
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
@@ -584,6 +584,7 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 	for _, tc := range []struct {
 		name, operation, body string
 		channelReserveUSD     *float64
+		configuredUSD         *float64
 		want                  float64
 		source                pricingdomain.ReserveSource
 		use                   ReserveUse
@@ -595,6 +596,9 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 		{name: "token-only model without a reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_text/million_tokens"},
 		{name: "token-only model with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
 		{name: "a channel reserve above the catalog price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
+		{name: "unreadable duration with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
+		{name: "unreadable duration with a configured price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, configuredUSD: common.GetPointer(.25), want: .25, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
+		{name: "unreadable duration without a cover", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, wantErr: "OpenRouter transcription audio duration is unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var settings dto.ChannelSettings
@@ -608,7 +612,13 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
 			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api", ChannelSetting: settings}
 			e := NewRequestEstimator()
-			cost, err := e.Estimate(info, []byte(tc.body), tc.operation)
+			var cost float64
+			var err error
+			if tc.configuredUSD != nil {
+				cost, err = e.EstimateWithLocalPrice(info, []byte(tc.body), tc.operation, *tc.configuredUSD)
+			} else {
+				cost, err = e.Estimate(info, []byte(tc.body), tc.operation)
+			}
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 				return
@@ -623,8 +633,9 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 
 // The reservation payload of a transcription carries the seconds of its file
 // from the audio headers, rounded up and capped by what the file size holds at
-// 8 kbit/s, so headers claiming a longer duration reserve no more; a duration
-// that cannot be read refuses the request.
+// 8 kbit/s, so headers claiming a longer duration reserve no more. .mpga is
+// read as MP3, a file without a known extension by its magic bytes; a
+// duration that cannot be read leaves the seconds out.
 func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 	// wav is a PCM WAV file of sampleRate 8-bit mono samples a second whose
 	// data chunk header claims claimedBytes and holds dataBytes.
@@ -636,18 +647,26 @@ func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 		binary.LittleEndian.PutUint32(header[40:], claimedBytes)
 		return append(header, make([]byte, dataBytes)...)
 	}
+	// mp3 is frames MPEG-1 Layer III frames of 128 kbit/s at 44.1 kHz, 417
+	// bytes and 1152 samples each.
+	mp3 := func(frames int) []byte {
+		frame := append([]byte{0xFF, 0xFB, 0x90, 0x00}, make([]byte, 413)...)
+		return bytes.Repeat(frame, frames)
+	}
 	for _, tc := range []struct {
 		name, filename string
 		audio          []byte
-		seconds        int64
-		wantErr        string
+		seconds        *int64
 	}{
-		{name: "duration from the headers, rounded up", filename: "speech.wav", audio: wav(8000, 12000, 12000), seconds: 2},
-		{name: "upper-case extension", filename: "SPEECH.WAV", audio: wav(8000, 8000, 8000), seconds: 1},
-		{name: "a huge claimed duration is capped by the file size", filename: "speech.wav", audio: wav(8000, 0x7ffffff0, 16000), seconds: 17},
-		{name: "a low sample rate is capped by the file size", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: 3},
-		{name: "unreadable headers", filename: "speech.wav", audio: []byte("RIFF audio fixture"), wantErr: "OpenRouter transcription audio duration is unreadable"},
-		{name: "a format without a duration reader", filename: "speech.mpga", audio: wav(8000, 8000, 8000), wantErr: "OpenRouter transcription audio duration is unreadable"},
+		{name: "duration from the headers, rounded up", filename: "speech.wav", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
+		{name: "upper-case extension", filename: "SPEECH.WAV", audio: wav(8000, 8000, 8000), seconds: common.GetPointer[int64](1)},
+		{name: "a huge claimed duration is capped by the file size", filename: "speech.wav", audio: wav(8000, 0x7ffffff0, 16000), seconds: common.GetPointer[int64](17)},
+		{name: "a low sample rate is capped by the file size", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: common.GetPointer[int64](3)},
+		{name: "mpga is read as MP3", filename: "speech.mpga", audio: mp3(40), seconds: common.GetPointer[int64](2)},
+		{name: "a file without an extension is sniffed", filename: "speech", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
+		{name: "a mislabeled file is sniffed", filename: "speech.mp3", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
+		{name: "unreadable headers leave the seconds out", filename: "speech.wav", audio: []byte("RIFF audio fixture")},
+		{name: "an unknown format leaves the seconds out", filename: "speech", audio: []byte("not audio at all")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body bytes.Buffer
@@ -660,12 +679,12 @@ func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 			require.NoError(t, writer.Close())
 
 			payload, err := transcriptionReservationPayload(context.Background(), writer.FormDataContentType(), body.Bytes())
-			if tc.wantErr != "" {
-				require.EqualError(t, err, tc.wantErr)
-				return
-			}
 			require.NoError(t, err)
-			want, err := common.Marshal(map[string]any{"model": "openai/whisper-1", "file": map[string]any{"filename": tc.filename, "size": len(tc.audio), "seconds": tc.seconds}})
+			descriptor := map[string]any{"filename": tc.filename, "size": len(tc.audio)}
+			if tc.seconds != nil {
+				descriptor["seconds"] = *tc.seconds
+			}
+			want, err := common.Marshal(map[string]any{"model": "openai/whisper-1", "file": descriptor})
 			require.NoError(t, err)
 			assert.JSONEq(t, string(want), string(payload))
 		})

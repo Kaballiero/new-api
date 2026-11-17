@@ -140,9 +140,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		} `json:"tools"`
 		Plugins []json.RawMessage `json:"plugins"`
 		// File describes a transcription file in the reservation payload
-		// (transcriptionReservationPayload), which always carries its seconds.
+		// (transcriptionReservationPayload); Seconds is nil when its audio
+		// duration is unreadable.
 		File struct {
-			Seconds int64 `json:"seconds"`
+			Seconds *int64 `json:"seconds"`
 		} `json:"file"`
 	}
 	if common.Unmarshal(body, &request) != nil {
@@ -396,8 +397,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, err
 		}
 	} else if operation == "audio/transcriptions" {
-		units = map[pricingdomain.PriceDimension]int64{
-			{Billable: pricingdomain.PriceBillableInputAudio, Unit: pricingdomain.PriceUnitSecond}: request.File.Seconds,
+		// Without seconds no per-second price is measured: only a configured
+		// price or a channel reserve covers the request.
+		units = map[pricingdomain.PriceDimension]int64{}
+		if request.File.Seconds != nil {
+			units[pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableInputAudio, Unit: pricingdomain.PriceUnitSecond}] = *request.File.Seconds
+		} else if reserveUSD == nil {
+			return 0, errors.New("OpenRouter transcription audio duration is unreadable")
 		}
 	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
