@@ -280,7 +280,9 @@ func TestExecuteSourceOrder(t *testing.T) {
 		live    map[string]domain.NativeEndpointResponse
 		only    []string
 		local   bool
-		audio   bool
+		// addOn sets the add-on reserve of the channel.
+		addOn bool
+		audio bool
 		// temperature requires the temperature parameter of the endpoints.
 		temperature bool
 		wantUSD     float64
@@ -312,6 +314,7 @@ func TestExecuteSourceOrder(t *testing.T) {
 		{name: "empty pool of a stale document is refused", models: []string{"acme/a"}, only: []string{"p"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "empty pool of a stale document takes the local cover", models: []string{"acme/a"}, only: []string{"p"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
 		{name: "empty pool of one stale model is refused, not priced by the other", models: []string{"acme/a", "acme/b"}, only: []string{"p"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/b": routedP("0.001", "0.002")}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a", "acme/b"}},
+		{name: "empty pool with an add-on reserve is an unavailable estimate when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, addOn: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter estimate unavailable: OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "require_parameters narrowing is refused when live fails", models: []string{"acme/a"}, temperature: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "require_parameters narrowing takes the local cover when live fails", models: []string{"acme/a"}, temperature: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "audio stays live", models: []string{"acme/a"}, audio: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
@@ -331,6 +334,9 @@ func TestExecuteSourceOrder(t *testing.T) {
 			if tc.local {
 				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &localUSD
 			}
+			if tc.addOn {
+				in.AddOnReserveUSD = &localUSD
+			}
 			if tc.audio {
 				in.Audio, in.TextOutput = true, false
 			}
@@ -342,6 +348,11 @@ func TestExecuteSourceOrder(t *testing.T) {
 			assert.Equal(t, tc.liveAsked, live.asked)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
+				if tc.addOn {
+					var unavailable *domain.EstimateUnavailableError
+					require.ErrorAs(t, err, &unavailable)
+					assert.EqualError(t, unavailable.Cause, "OpenRouter pricing discovery failed")
+				}
 				return
 			}
 			require.NoError(t, err)
