@@ -22,4 +22,5 @@ const (
 	TaskActionChatImage             = constant.TaskActionChatImage
 	TaskActionChat                  = constant.TaskActionChat
 	TaskActionCompletions           = constant.TaskActionCompletions
+	TaskActionEmbeddings            = constant.TaskActionEmbeddings
 )
