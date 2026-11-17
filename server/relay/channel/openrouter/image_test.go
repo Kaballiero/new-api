@@ -1703,6 +1703,13 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
+			if tc.crash == "" {
+				// The task facts carry the reserve source to the reservation log.
+				assert.Equal(t, "manual", task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+				var reservation model.Log
+				require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
+				assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"manual"`)
+			}
 			if tc.crash != "" {
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
 				require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))

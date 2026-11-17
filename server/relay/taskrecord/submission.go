@@ -152,7 +152,11 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 	}
 	if relayInfo.OpenRouterCost != nil {
 		input.CostBasis = record.ToDomainBasis(&relayInfo.OpenRouterCost.Basis)
-		if c != nil {
+		if relayInfo.NativeImage != nil {
+			// A native image order carries only its reserve source, as video
+			// order facts do.
+			input.OrderFacts = map[string]any{"reservation_source": string(relayInfo.OpenRouterCost.ReserveSource)}
+		} else if c != nil {
 			if value, ok := c.Get("openrouter_video_order_facts"); ok {
 				input.OrderFacts, _ = value.(map[string]any)
 			}
