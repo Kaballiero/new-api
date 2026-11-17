@@ -480,8 +480,9 @@ func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
 }
 
 // EstimateRequestReserve on an estimator without a bound request prices the
-// admission reserve from the fresh upstream catalog and never discovers live
-// endpoints: a model outside the catalog is refused without a request.
+// admission reserve from the upstream catalog and never discovers live
+// endpoints: a model outside the catalog is refused without a request, and a
+// stale document is priced and logged without a request context.
 func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
 	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
@@ -493,12 +494,13 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 		require.NoError(t, common.UnmarshalJsonStr(pricing, &prices))
 		return pricingdomain.NativeEndpointResponse{Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", MaxCompletionTokens: 100, Pricing: prices}}, OutputModalities: []string{"text"}}
 	}
-	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
+	models := map[string]pricingdomain.NativeEndpointResponse{
 		"test/model":  tariff(`{"prompt":"0.001","completion":"0.002"}`),
 		"test/search": tariff(`{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`),
-	}})
+	}
 	for _, tc := range []struct {
 		name, model string
+		stale       bool
 		settings    dto.ChannelSettings
 		want        float64
 		configured  bool
@@ -512,8 +514,14 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 		{name: "configured price above the catalog", model: "test/model", settings: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{"test/model": dto.OpenRouterReservationConfiguredPrice}},
 			want: 5, configured: true, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
 		{name: "outside the catalog", model: "other/model", wantErr: "OpenRouter endpoint discovery missing for other/model"},
+		{name: "stale document logged without a request", model: "test/model", stale: true, want: 1.2, source: pricingdomain.ReserveSourceCatalogStale},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			fetchedAt := time.Now()
+			if tc.stale {
+				fetchedAt = fetchedAt.Add(-pricingruntime.CatalogMaxAge() - time.Hour)
+			}
+			pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: fetchedAt, Models: models})
 			e := NewRequestEstimator()
 			info := &relaycommon.RelayInfo{OriginModelName: "public-model", RelayFormat: types.RelayFormatOpenAI}
 			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api", ChannelSetting: tc.settings}
