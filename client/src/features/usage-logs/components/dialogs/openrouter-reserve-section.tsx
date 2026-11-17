@@ -54,6 +54,9 @@ export function OpenRouterReserveSection(props: {
   const configuredReservation = orderFacts?.configured_reservation
   const quantityLabels: Record<string, string> = {
     [OPENROUTER_RESERVATION_QUANTITY.SEARCHES]: t('Reserved web searches'),
+    [OPENROUTER_RESERVATION_QUANTITY.PROMPT_TOKENS]: t(
+      'Reserved prompt tokens'
+    ),
   }
   const quantities = Object.entries(
     info.openrouter_reservation_quantities ?? {}

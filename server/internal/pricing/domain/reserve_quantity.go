@@ -5,5 +5,10 @@ package domain
 // openrouter_reservation_quantities.
 type ReserveQuantity string
 
-// ReserveQuantitySearches is the web searches the request may run.
-const ReserveQuantitySearches ReserveQuantity = "searches"
+const (
+	// ReserveQuantitySearches is the web searches the request may run.
+	ReserveQuantitySearches ReserveQuantity = "searches"
+	// ReserveQuantityPromptTokens is the prompt tokens the state and the
+	// questions of a decisions request count as.
+	ReserveQuantityPromptTokens ReserveQuantity = "prompt_tokens"
+)

@@ -457,6 +457,67 @@ func TestExecutePricesSearches(t *testing.T) {
 	}
 }
 
+// A decisions request is priced from the endpoint tariffs of a fresh catalog
+// document: its prompt tokens at the prompt price, the request price and its
+// searches at the web_search price each, nothing for searches on an endpoint
+// without one. A stale document is priced from live; a missing price is
+// checked against live, then only the manual reserve covers it, otherwise the
+// request is refused; a manual reserve below the priced cost is raised to it.
+func TestExecutePricesDecisions(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	response := func(pricing string) domain.NativeEndpointResponse {
+		return domain.NativeEndpointResponse{OutputModalities: []string{"decisions"}, Endpoints: []domain.NativePricedEndpoint{
+			{Tag: "provider", ModelID: "acme/decide", Pricing: endpointPricing(t, deps, pricing)},
+		}}
+	}
+	// gemini-decision-1: 1000 prompt tokens and 3 searches cost 0.0423.
+	searching := response(`{"prompt":"0.0000003","completion":"0","web_search":"0.014"}`)
+	livePriced := response(`{"prompt":"0.0000006","completion":"0","web_search":"0.014"}`)
+	manual, lowManual := .5, .01
+	for _, tc := range []struct {
+		name       string
+		age        time.Duration
+		catalog    domain.NativeEndpointResponse
+		live       map[string]domain.NativeEndpointResponse
+		manual     *float64
+		wantUSD    float64
+		wantErr    string
+		wantSource domain.ReserveSource
+		liveAsked  []string
+	}{
+		{name: "prompt tokens and searches at the catalog prices", catalog: searching, wantUSD: .0423, wantSource: domain.ReserveSourceCatalog},
+		{name: "request price without a search price", catalog: response(`{"prompt":"0","completion":"0","request":"0.001"}`), wantUSD: .001, wantSource: domain.ReserveSourceCatalog},
+		{name: "stale catalog is priced from live", age: 25 * time.Hour, catalog: searching, live: map[string]domain.NativeEndpointResponse{"acme/decide": livePriced}, wantUSD: .0426, wantSource: domain.ReserveSourceLive, liveAsked: []string{"acme/decide"}},
+		{name: "missing prompt price is checked against live", catalog: response(`{"completion":"0","web_search":"0.014"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": livePriced}, wantUSD: .0426, wantSource: domain.ReserveSourceLive, liveAsked: []string{"acme/decide"}},
+		{name: "missing search price is checked against live", catalog: response(`{"prompt":"0.0000003","completion":"0","web_search":null}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": livePriced}, wantUSD: .0426, wantSource: domain.ReserveSourceLive, liveAsked: []string{"acme/decide"}},
+		{name: "price missing from live takes the manual reserve", catalog: response(`{"completion":"0"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"completion":"0"}`)}, manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual, liveAsked: []string{"acme/decide"}},
+		{name: "search price missing from live takes the manual reserve", catalog: response(`{"prompt":"0","completion":"0","web_search":null}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"prompt":"0","completion":"0","web_search":null}`)}, manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual, liveAsked: []string{"acme/decide"}},
+		{name: "price missing from live without a manual reserve is refused", catalog: response(`{"completion":"0"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"completion":"0"}`)}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/decide"}},
+		{name: "manual reserve below the cost is raised to it", catalog: searching, manual: &lowManual, wantUSD: .0423, wantSource: domain.ReserveSourceManual},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+			catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: now.Add(-tc.age), Models: map[string]domain.NativeEndpointResponse{"acme/decide": tc.catalog}})
+			live := &fakeLive{responses: tc.live}
+			in := Input{
+				Model: "acme/decide", Models: []string{"acme/decide"}, ChannelBaseURL: "https://openrouter.ai/api", Live: live,
+				Decisions: true, PromptTokens: 1000, Searches: 3, Count: 1, DefaultOutputTokens: 8192, MaxTokensLimit: math.MaxInt32 / 2,
+				ApproximateReserveUSD: tc.manual,
+			}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
+			assert.Equal(t, tc.liveAsked, live.asked)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-12)
+			assert.Equal(t, tc.wantSource, estimate.Source)
+		})
+	}
+}
+
 // A speech or rerank request is priced from the unit prices of the endpoints
 // of a fresh catalog document: every non-zero price times its measured
 // quantity, a million_tokens price per million tokens, output audio tokens at

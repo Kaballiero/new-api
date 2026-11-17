@@ -116,14 +116,20 @@ describe('OpenRouter reserve in log details', () => {
       {
         admin_info: {
           openrouter_reservation_source: 'catalog',
-          openrouter_reservation_quantities: { searches: 3 },
+          openrouter_reservation_quantities: {
+            searches: 3,
+            prompt_tokens: 120,
+          },
         },
       },
       true
     )
 
-    const label = within(reserveSection()).getByText('Reserved web searches')
-    expect(label.nextElementSibling?.textContent).toBe('3')
+    const section = within(reserveSection())
+    const searches = section.getByText('Reserved web searches')
+    expect(searches.nextElementSibling?.textContent).toBe('3')
+    const promptTokens = section.getByText('Reserved prompt tokens')
+    expect(promptTokens.nextElementSibling?.textContent).toBe('120')
   })
 
   test('shows a configured price reserve without a warning', () => {

@@ -319,9 +319,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		promptText = append(text, rest...)
 	}
-	prompt := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(promptText), request.Model))
-	if dedicatedAudio || decisions || rerank {
-		prompt = 0
+	var prompt int
+	switch {
+	case decisions:
+		if prompt, searches, err = decisionQuantities(fields, request.Model); err != nil {
+			return 0, err
+		}
+	case !dedicatedAudio && !rerank:
+		prompt = max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(promptText), request.Model))
 	}
 	count := 1
 	if request.N != nil {
@@ -463,7 +468,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
 	e.ReserveSource = estimate.Source
 	e.ReserveQuantities = nil
-	if searches > 0 {
+	switch {
+	case decisions:
+		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches, pricingdomain.ReserveQuantityPromptTokens: prompt}
+	case searches > 0:
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
 	}
 	e.OutputReserve = outputReserve

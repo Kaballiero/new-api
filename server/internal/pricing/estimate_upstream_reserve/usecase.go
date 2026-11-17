@@ -46,10 +46,12 @@ type Input struct {
 	Parameters map[string]json.RawMessage
 	Modalities []string
 	TextOutput bool
-	// ImageOutput, Audio and Decisions name an output whose quantity endpoint
-	// tariffs do not measure; Audio covers Chat audio output and
-	// transcription.
-	ImageOutput, Audio, Decisions bool
+	// ImageOutput and Audio name an output whose quantity endpoint tariffs do
+	// not measure; Audio covers Chat audio output and transcription.
+	ImageOutput, Audio bool
+	// Decisions is a decisions request, priced from its prompt tokens, the
+	// request price and its Searches.
+	Decisions bool
 	// Rerank is a rerank request, priced from its Units.
 	Rerank bool
 	// Units are the measured quantities of an operation priced only from the
@@ -71,7 +73,8 @@ type Input struct {
 	DefaultOutputTokens int
 	MaxTokensLimit      int
 	// Searches are the web searches the request may run on the native search
-	// of the endpoint's provider, at most 32; searchCost prices them.
+	// of the endpoint's provider, at most 32, or a decision model may run, at
+	// most 100; searchCost prices them.
 	Searches int
 	// ManualSearch is a search on an engine without an endpoint price, which
 	// SearchReserveUSD alone covers.
@@ -401,10 +404,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			var cost, promptPrice, outputPrice decimal.Decimal
 			var estimateErr error
 			includesReserve := false
-			if in.Decisions {
-				// State may contain arbitrary structures/media; token estimates are unmeasured.
-				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
-			} else if in.Audio {
+			if in.Audio {
 				// Audio rates may be per character, second, token or song.
 				// Token caps and zero token tariffs do not price those quantities.
 				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
@@ -417,14 +417,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			} else {
 				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
 				if estimateErr == nil {
-					search, reserved, err := u.searchCost(in, tariff, modelTariff)
-					if modelTariff.missesCatalogPrice(err) {
-						return Estimate{}, tariffModel, nil
-					}
-					if err != nil {
-						return Estimate{}, "", err
-					}
-					cost, includesReserve = cost.Add(search), reserved
+					var search decimal.Decimal
+					search, includesReserve, estimateErr = u.searchCost(in, tariff, modelTariff)
+					cost = cost.Add(search)
 				}
 			}
 			if estimateErr != nil {
