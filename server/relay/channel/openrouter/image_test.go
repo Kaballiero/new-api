@@ -207,19 +207,82 @@ func TestNativeImageResponseContract(t *testing.T) {
 	})
 }
 
+// The reserve of an image request prices the variant of its requested tier
+// and the output size it asks for; the price shapes are those OpenRouter
+// publishes at /images/models/{id}/endpoints (catalog v13).
 func TestNativeImageTariffEstimate(t *testing.T) {
-	prices := []ImagePrice{
-		{Billable: "output_image", Unit: "image", CostUSD: 0.04},
-		{Billable: "output_image", Unit: "image", CostUSD: 0.08, Variant: "4k"},
-		{Billable: "input_reference", Unit: "request", CostUSD: 0.005},
-		{Billable: "input_text", Unit: "token", CostUSD: 0.000001},
-		{Billable: "input_font", Unit: "image", CostUSD: 0.03},
+	image := func(billable, unit, variant string, cost float64) ImagePrice {
+		return ImagePrice{Billable: billable, Unit: unit, Variant: variant, CostUSD: cost}
 	}
-	cost, err := EstimateImageCost(prices, 2, 2, map[string]any{"prompt": "red"})
-	require.NoError(t, err)
-	// Highest output variant, one reference request fee, text per output;
-	// no fonts are sent. Actual settlement uses usage.cost instead.
-	assert.InDelta(t, 0.16+0.005+2*1027*0.000001, cost, 1e-12)
+	resolutions := func(values ...string) map[string]ImageCapability {
+		return map[string]ImageCapability{"resolution": {Type: "enum", Values: values}}
+	}
+	flux3 := ImageEndpoint{SupportedParameters: resolutions("1.5K", "1K", "2K", "4K", "768"), Pricing: []ImagePrice{
+		image("output_image", "image", "768", 0.041), image("output_image", "image", "1k", 0.048), image("output_image", "image", "1.5k", 0.07),
+		image("output_image", "image", "2k", 0.1), image("output_image", "image", "4k", 0.607),
+	}}
+	riverflow := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K"), Pricing: []ImagePrice{
+		image("input_font", "image", "", 0.03), image("input_reference", "image", "", 0.2),
+		image("output_image", "image", "", 0.15), image("output_image", "image", "2k", 0.15), image("output_image", "image", "4k", 0.33),
+	}}
+	seedream := ImageEndpoint{SupportedParameters: resolutions("1.5K", "1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.003), image("output_image", "image", "", 0.045), image("output_image", "image", "high_resolution", 0.09),
+	}}
+	grok := ImageEndpoint{SupportedParameters: resolutions("1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.01), image("output_image", "image", "low_1k", 0.04), image("output_image", "image", "low_2k", 0.06),
+		image("output_image", "image", "medium_1k", 0.06), image("output_image", "image", "medium_2k", 0.08),
+	}}
+	qwen := ImageEndpoint{SupportedParameters: resolutions("1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.003), image("output_image", "image", "1k", 0.04), image("output_image", "image", "2k", 0.075),
+	}}
+	flux2 := ImageEndpoint{Pricing: []ImagePrice{image("output_image", "megapixel", "", 0.03)}}
+	geminiPro := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K"), Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.000002), image("output_image", "token", "", 0.00012),
+	}}
+	geminiFlash := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K", "512"), Pricing: []ImagePrice{image("output_image", "token", "", 0.00006)}}
+	gptImage := ImageEndpoint{Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.00001), image("input_text", "token", "", 0.000005), image("output_image", "token", "", 0.00004),
+	}}
+	for _, tc := range []struct {
+		name              string
+		endpoint          ImageEndpoint
+		count, references int
+		payload           map[string]any
+		want              float64
+	}{
+		{
+			name: "highest output variant without a tier, one reference request fee, text per output and no fonts",
+			endpoint: ImageEndpoint{Pricing: []ImagePrice{
+				image("output_image", "image", "", 0.04), image("output_image", "image", "4k", 0.08), image("input_reference", "request", "", 0.005),
+				image("input_text", "token", "", 0.000001), image("input_font", "image", "", 0.03),
+			}},
+			count: 2, references: 2, payload: map[string]any{"prompt": "red"}, want: 0.16 + 0.005 + 2*1027*0.000001,
+		},
+		{name: "flux-3-image 1K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.048},
+		{name: "flux-3-image 2K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.1},
+		{name: "flux-3-image without a tier", endpoint: flux3, count: 1, payload: map[string]any{}, want: 0.607},
+		{name: "flux-3-image size takes the tier covering its longer side", endpoint: flux3, count: 1, payload: map[string]any{"size": "1500x1000"}, want: 0.07},
+		{name: "flux-3-image size above every tier", endpoint: flux3, count: 1, payload: map[string]any{"size": "8192x1024"}, want: 0.607},
+		{name: "riverflow 1K takes the 2k variant with the unlabeled one", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.15},
+		{name: "riverflow 2K", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.15},
+		{name: "riverflow 4K with a reference", endpoint: riverflow, count: 1, references: 1, payload: map[string]any{"resolution": "4K"}, want: 0.33 + 0.2},
+		{name: "seedream high_resolution without resolution variants", endpoint: seedream, count: 1, references: 2, payload: map[string]any{"resolution": "1K"}, want: 0.09 + 2*0.003},
+		{name: "grok 1K takes the highest quality of the tier", endpoint: grok, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.06},
+		{name: "grok 2K", endpoint: grok, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.08},
+		{name: "grok 1K times n", endpoint: grok, count: 2, references: 1, payload: map[string]any{"resolution": "1K"}, want: 2*0.06 + 0.01},
+		{name: "qwen 1K times n", endpoint: qwen, count: 3, payload: map[string]any{"resolution": "1K"}, want: 3 * 0.04},
+		{name: "megapixel price of an explicit size", endpoint: flux2, count: 1, payload: map[string]any{"size": "1024x1024"}, want: 0.03 * 1.048576},
+		{name: "megapixel price without published tiers keeps 16 MP", endpoint: flux2, count: 1, payload: map[string]any{}, want: 0.03 * 16},
+		{name: "token price of a tier", endpoint: geminiPro, count: 1, references: 1, payload: map[string]any{"resolution": "2K"}, want: 17180 * (0.00012 + 0.000002)},
+		{name: "token price of the largest published tier", endpoint: geminiFlash, count: 1, payload: map[string]any{}, want: 68720 * 0.00006},
+		{name: "token price without published tiers keeps 16 MP", endpoint: gptImage, count: 1, payload: map[string]any{"prompt": "x"}, want: 65536*0.00004 + 1025*0.000005},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cost, err := EstimateImageCost(tc.endpoint, tc.count, tc.references, tc.payload)
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
 }
 
 func TestNativeImagePublishedTariffFallback(t *testing.T) {
@@ -1592,6 +1655,14 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				return
 			}
 			require.NotNil(t, info.OpenRouterCost)
+			if tc.crash == "" {
+				// The channel reserve names the reserve as for text.
+				wantSource := pricingdomain.ReserveSourceManual
+				if tc.noReserve {
+					wantSource = pricingdomain.ReserveSourceLive
+				}
+				assert.Equal(t, wantSource, info.OpenRouterCost.ReserveSource)
+			}
 			if tc.noReserve {
 				assert.Empty(t, info.OpenRouterCost.TaskID)
 				assert.False(t, relaycommon.HasOpenRouterSyncTask(info))
@@ -1707,7 +1778,7 @@ func TestNativeImageUnknownReachableTariffFailsClosed(t *testing.T) {
 func TestNativeImageExplicitFreeTariff(t *testing.T) {
 	var prices []ImagePrice
 	require.NoError(t, common.Unmarshal([]byte(`[{"billable":"output_image","unit":"image","cost_usd":0}]`), &prices))
-	cost, err := EstimateImageCost(prices, 1, 0, map[string]any{"prompt": "x"})
+	cost, err := EstimateImageCost(ImageEndpoint{Pricing: prices}, 1, 0, map[string]any{"prompt": "x"})
 	require.NoError(t, err)
 	assert.Zero(t, cost)
 }

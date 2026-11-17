@@ -22,6 +22,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -565,7 +566,7 @@ func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		if common.Unmarshal(value, &size) != nil {
 			return nil, 0, errors.New("invalid image size")
 		}
-		if slices.Contains([]string{"512", "768", "1K", "1.5K", "2K", "4K"}, size) {
+		if _, tier := imageTierSides[size]; tier {
 			if resolution, exists := fields["resolution"]; exists && !bytes.Equal(resolution, value) {
 				return nil, 0, errors.New("size and resolution conflict")
 			}
@@ -753,76 +754,13 @@ func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		}
 		estimate = reserve
 	} else {
-		estimate, err = EstimateImageCost(endpoint.Pricing, int(count), len(references), payload)
+		estimate, err = EstimateImageCost(endpoint, int(count), len(references), payload)
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %v", errImageTariff, err)
 	}
 	body, err := common.Marshal(payload)
 	return body, max(estimate, reserve), err
-}
-
-// EstimateImageCost reserves an estimate; it is never substituted for actual
-// usage.cost. Variant tariffs use the highest published rate, since normalized
-// dimensions and token counts are provider-specific. Final usage reconciles it.
-func EstimateImageCost(prices []ImagePrice, count, references int, payload map[string]any) (float64, error) {
-	if len(prices) == 0 {
-		return 0, errors.New("OpenRouter image endpoint has no published tariff")
-	}
-	rates := map[string]ImagePrice{}
-	for _, price := range prices {
-		if price.missingCost || math.IsNaN(price.CostUSD) || math.IsInf(price.CostUSD, 0) || price.CostUSD < 0 {
-			return 0, errors.New("invalid OpenRouter image tariff")
-		}
-		key := price.Billable + "/" + price.Unit
-		if previous, ok := rates[key]; !ok || price.CostUSD > previous.CostUSD {
-			rates[key] = price
-		}
-	}
-	outputMegapixels := 16.0
-	if size, ok := payload["size"].(string); ok {
-		width, height, _ := strings.Cut(size, "x")
-		w, _ := strconv.ParseFloat(width, 64)
-		h, _ := strconv.ParseFloat(height, 64)
-		outputMegapixels = max(outputMegapixels, w*h/1_000_000)
-	}
-	cost := 0.0
-	for _, price := range rates {
-		quantity := float64(count)
-		switch price.Billable {
-		case "output_image", "input_text":
-		case "input_image", "input_reference":
-			quantity = float64(references)
-		case "input_font":
-			// Fonts are not accepted by this adapter, so this published optional tariff is unused.
-			quantity = 0
-		default:
-			return 0, errors.New("unknown OpenRouter image billable unit")
-		}
-		switch price.Unit {
-		case "image":
-		case "request":
-			if quantity > 0 {
-				quantity = 1
-			}
-		case "megapixel":
-			quantity *= outputMegapixels // Conservative 4K estimate; actual USD is authoritative.
-		case "token":
-			if price.Billable == "input_text" {
-				prompt, _ := payload["prompt"].(string)
-				quantity *= float64(len(prompt) + 1024) // Byte upper estimate plus protocol overhead, not a tokenizer claim.
-			} else {
-				quantity *= math.Ceil(outputMegapixels * 4096) // Reservation estimate, not an asserted token conversion.
-			}
-		default:
-			return 0, errors.New("unknown OpenRouter image pricing unit")
-		}
-		cost += quantity * price.CostUSD
-	}
-	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
-		return 0, errors.New("invalid OpenRouter image cost estimate")
-	}
-	return cost, nil
 }
 
 func (a *ImageAdaptor) ConvertImageRequest(_ *gin.Context, info *relaycommon.RelayInfo, _ dto.ImageRequest) (any, error) {
@@ -856,6 +794,15 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ 
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The live endpoint tariffs price the reserve; a channel reserve of the
+	// model joins every estimate and names it, as for text.
+	if info.OpenRouterCost == nil {
+		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+	}
+	info.OpenRouterCost.ReserveSource = pricingdomain.ReserveSourceLive
+	if info.NativeImage.ReserveUSD > 0 {
+		info.OpenRouterCost.ReserveSource = pricingdomain.ReserveSourceManual
+	}
 	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
 		return nil, err
 	}
