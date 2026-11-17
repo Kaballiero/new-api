@@ -31,23 +31,27 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 	switch info.RelayMode {
 	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
 		if info.NativeImage != nil {
-			return constant.TaskPlatformOpenRouterImage, "image", nil
+			return constant.TaskPlatformOpenRouterImage, constant.TaskActionImage, nil
 		}
 	case relayconstant.RelayModeRerank:
-		return constant.TaskPlatformOpenRouterRerank, "rerank", nil
+		return constant.TaskPlatformOpenRouterRerank, constant.TaskActionRerank, nil
 	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
-		return constant.TaskPlatformOpenRouterAudio, "audio", nil
+		return constant.TaskPlatformOpenRouterAudio, constant.TaskActionAudio, nil
 	case relayconstant.RelayModeChatCompletions:
 		if info.OpenRouterCost != nil && info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio {
-			return constant.TaskPlatformOpenRouterChatImage, "chat-image", nil
+			return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionChatImage, nil
 		}
 		if info.OpenRouterCost != nil && info.OpenRouterCost.BufferedAudio {
-			return constant.TaskPlatformOpenRouterAudio, "audio", nil
+			return constant.TaskPlatformOpenRouterAudio, constant.TaskActionAudio, nil
 		}
 	}
-	// Text of every client format settles through the same chat Task.
+	// Text of every client format settles through the same chat Task; a
+	// legacy completion keeps its own action.
 	if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
-		return constant.TaskPlatformOpenRouterChatImage, "chat", nil
+		if info.RelayMode == relayconstant.RelayModeCompletions {
+			return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionCompletions, nil
+		}
+		return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionChat, nil
 	}
 	return "", "", errors.New("unsupported OpenRouter synchronous operation")
 }

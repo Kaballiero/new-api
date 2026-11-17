@@ -218,17 +218,17 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if info.OpenRouterCost.BufferedAudio {
 		info.OpenRouterCost.ChatImage = false
 	}
-	// A chat completion defers a missing cost in every client format. A
-	// Responses client defers only streams; its nonstream response keeps
-	// requiring a terminal usage.cost.
+	// A chat completion defers a missing cost in every client format, as do a
+	// Responses response and a legacy completion, streamed or not.
 	textOutput := !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions
+		info.OpenRouterCost.ChatText = textOutput && (operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions ||
+			operation == "completions" && info.RelayMode == relayconstant.RelayModeCompletions)
 	case types.RelayFormatClaude, types.RelayFormatGemini:
 		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions"
 	case types.RelayFormatOpenAIResponses:
-		info.OpenRouterCost.ChatText = textOutput && info.IsStream && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
+		info.OpenRouterCost.ChatText = textOutput && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
 	}
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"slices"
 	"strings"
 )
 
@@ -49,6 +50,36 @@ type SyncMetadata struct {
 type SyncModelMetadata struct {
 	ID, CanonicalSlug string
 	ErrorPresent      bool
+}
+
+// SyncGeneration is what /v1/generation reports for the generation of a Task action.
+type SyncGeneration struct {
+	APIType string
+	// BilledCancel accepts the cost of a cancelled generation: a text stream
+	// the client left after content was delivered.
+	BilledCancel bool
+}
+
+// syncGenerations covers the actions whose generation is matched by
+// api_type; an audio generation is not.
+var syncGenerations = map[string]SyncGeneration{
+	TaskActionChatImage:   {APIType: "completions"},
+	TaskActionChat:        {APIType: "completions", BilledCancel: true},
+	TaskActionCompletions: {APIType: "completions", BilledCancel: true},
+	TaskActionRerank:      {APIType: "rerank"},
+}
+
+// ExpectedSyncGeneration returns the generation a Task action must match.
+func ExpectedSyncGeneration(action string) (SyncGeneration, bool) {
+	generation, ok := syncGenerations[action]
+	return generation, ok
+}
+
+var openRouterChatImageActions = []string{TaskActionChatImage, TaskActionChat, TaskActionCompletions}
+
+// IsOpenRouterChatImageAction reports an action of the openrouter-chat-image platform.
+func IsOpenRouterChatImageAction(action string) bool {
+	return slices.Contains(openRouterChatImageActions, action)
 }
 
 func ValidOpenRouterImageCorrelation(id, apiKey string, limit int) bool {
