@@ -111,6 +111,21 @@ describe('OpenRouter reserve in log details', () => {
     expect(section.getByText('0.25 USD · openai/gpt-5-mini')).toBeVisible()
   })
 
+  test('shows the reserved quantities beside the source', () => {
+    renderUsageLog(
+      {
+        admin_info: {
+          openrouter_reservation_source: 'catalog',
+          openrouter_reservation_quantities: { searches: 3 },
+        },
+      },
+      true
+    )
+
+    const label = within(reserveSection()).getByText('Reserved web searches')
+    expect(label.nextElementSibling?.textContent).toBe('3')
+  })
+
   test('shows a configured price reserve without a warning', () => {
     renderUsageLog(
       {

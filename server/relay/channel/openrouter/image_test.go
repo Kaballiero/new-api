@@ -815,7 +815,7 @@ func TestEndpointContextPricingAndRoutingDimensions(t *testing.T) {
 		{"top-level priority includes tier", `{"model":"test/model","max_tokens":10,"service_tier":"priority"}`, 1000, 5.1, false},
 		{"priority slug aliases fast", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai/priority"]}}`, 1000, 5.1, false},
 		{"max price USD per million", `{"model":"test/model","max_tokens":10,"provider":{"max_price":{"prompt":2000}}}`, 999, 1.019, false},
-		{"requested hosted search rejects", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, 999, 0, true},
+		{"requested hosted search is priced per search", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, 999, 1.029, false},
 		{"oversized override cap rejects", `{"model":"test/model","max_tokens":2147483647}`, 999, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -852,7 +852,7 @@ func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 		{"actual chat audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"a","format":"wav"}}]}]}`, "chat/completions", 0, true},
 		{"actual Responses video", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://example.test/v.mp4"}}]}]}`, "responses", 0, true},
 		{"actual Batch audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.test/a.wav"}}]}]}`, "batch_chat/completions", 0, true},
-		{"actual hosted search", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, "chat/completions", 0, true},
+		{"actual hosted search is priced per search", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, "chat/completions", 1.03, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cost, err := estimator.Estimate(info, []byte(tc.body), tc.operation)
@@ -958,21 +958,18 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 		nonstreamInfo                                 bool
 		want                                          float64
 	}{
-		{name: "search without reserve stays closed", extra: search, wantError: "hosted-search quantity is unpriced"},
-		{name: "search configured price alone stays closed", extra: search, local: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
-		{name: "search zero reserve with positive rate", extra: search, reserve: common.GetPointer(0.0), wantError: "hosted-search quantity is unpriced"},
-		{name: "search zero reserve with configured price", extra: search, reserve: common.GetPointer(0.0), local: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
-		{name: "search reserve adds to smaller token estimate", extra: search, reserve: common.GetPointer(0.5), want: 1.52},
-		{name: "search reserve adds to larger token estimate", extra: search, reserve: common.GetPointer(5.0), want: 6.02},
+		{name: "search without reserve is priced per search", extra: search, want: 1.03},
+		{name: "search under configured price alone is priced per search", extra: search + `,"modalities":["text"]`, local: common.GetPointer(0.25), want: 1.03},
+		{name: "search zero reserve with positive rate", extra: search, reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "search zero reserve with configured price", extra: search, reserve: common.GetPointer(0.0), local: common.GetPointer(5.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "priced search takes no channel reserve", extra: search, reserve: common.GetPointer(5.0), want: 1.03},
 		{name: "search reserve without published search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: "absent", want: 6.02},
-		{name: "search reserve adds to token estimate under configured price", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(0.25), want: 1.52},
+		{name: "search without reserve or published search rate stays closed", extra: search, searchRate: "absent", wantError: "hosted-search quantity is unpriced"},
+		{name: "priced search under configured price and reserve", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(0.25), want: 1.03},
 		{name: "configured price above search sum", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(3.0), want: 3},
 		{name: "search reserve invalid search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
-		{name: "search reserve Responses stays closed", extra: `,"max_output_tokens":10,"web_search_options":{}`, operation: "responses", reserve: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
+		{name: "search on Responses is priced per search", extra: `,"max_output_tokens":10,"web_search_options":{}`, operation: "responses", want: 1.03},
 		{name: "search reserve Batch stays closed", extra: search, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), wantError: "hosted search is unavailable for Batch"},
-		{name: "search reserve adds to streamed token estimate", extra: search + `,"stream":true`, reserve: common.GetPointer(5.0), want: 6.02},
-		{name: "search reserve hosted tool stays closed", extra: search + `,"tools":[{"type":"openrouter:web_search"}]`, reserve: common.GetPointer(5.0), wantError: "hosted tool pricing is unavailable"},
-		{name: "search reserve plugin stays closed", extra: `,"max_tokens":10,"plugins":[{"id":"web"}]`, reserve: common.GetPointer(5.0), wantError: "unpriced execution dimensions"},
 		{name: "search with streamed audio output stays closed", extra: audio + `,"web_search_options":{}`, reserve: common.GetPointer(5.0), wantError: "cannot share an approximate reserve"},
 		{name: "search with image output reserve stays closed", extra: `,"max_tokens":10,"modalities":["text","image"],"web_search_options":{}`, reserve: common.GetPointer(5.0), wantError: "cannot share an approximate reserve"},
 		{name: "audio channel reserve", extra: audio, reserve: common.GetPointer(0.3), want: 0.3},
@@ -1037,7 +1034,7 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 	}{
 		{name: "nonstream hold is token estimate", extra: plain, reserve: common.GetPointer(5.0), want: 1.02},
 		{name: "native search adds reserve once", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveAddOn},
-		{name: "native and requested search add reserve once", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveAddOn},
+		{name: "requested search priced per search takes no add-on reserve", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 1.03},
 		{name: "native search without reserve unchanged", extra: plain, nativeSearch: true, want: 1.02},
 		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 1.02},
 		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 1.02},
@@ -1046,11 +1043,11 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 		{name: "multiple outputs", extra: plain + `,"n":2`, reserve: common.GetPointer(5.0), want: 1.04},
 		{name: "image input", extra: plain + `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/i.png"}}]}]`, reserve: common.GetPointer(5.0), want: 1.52},
 		{name: "batch", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "search adds reserve to streamed tool request", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.52, wantUse: ReserveAddOn},
-		{name: "search adds reserve with provider routing and n", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.54, wantUse: ReserveAddOn},
-		{name: "search without reserve stays closed", extra: search + `,"stream":true`, wantError: "hosted-search quantity is unpriced"},
+		{name: "free search of a streamed tool request takes no reserve", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.02},
+		{name: "free search with provider routing and n takes no reserve", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.04},
+		{name: "search without reserve is priced per search", extra: search + `,"stream":true`, want: 1.02},
 		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold},
-		{name: "unpriced dimension search keeps whole reserve", extra: search, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveWholeHold},
+		{name: "unpriced dimension search keeps whole reserve over priced search", extra: search, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold},
 		{name: "unpriced dimension search stream stays closed", extra: search + `,"stream":true`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension search n stays closed", extra: search + `,"n":2`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension search models stays closed", extra: search + `,"models":["test/expensive"]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "endpoint model does not match final model ID"},
@@ -1105,13 +1102,13 @@ func TestEndpointChannelReserveInactiveAudioInputRates(t *testing.T) {
 		reserve                                *float64
 		want                                   float64
 	}{
-		{name: "text search reserve admits published audio input rates", extra: search, reserve: common.GetPointer(5.0), want: 6.02},
+		{name: "text search reserve admits published audio input rates", extra: search, reserve: common.GetPointer(5.0), want: 1.03},
 		{name: "text reserve without search adds native search reserve", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.52},
 		{name: "audio input content under search reserve stays closed", extra: search + audioInput, reserve: common.GetPointer(5.0), wantError: "input media duration quantity is unpriced"},
 		{name: "invalid inactive audio input rate under reserve", extra: search, reserve: common.GetPointer(5.0), audioCacheRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
 		{name: "streamed audio output reserve unchanged", extra: `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`, reserve: common.GetPointer(0.3), want: 0.3},
 		{name: "text without reserve unchanged", extra: `,"max_tokens":10`, want: 1.02},
-		{name: "search without reserve stays closed", extra: search, wantError: "hosted-search quantity is unpriced"},
+		{name: "search without reserve is priced per search", extra: search, want: 1.03},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pricing := map[string]json.RawMessage{

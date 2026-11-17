@@ -6388,6 +6388,7 @@
     "Cost basis": "計價基準",
     "Upstream cost": "上游成本",
     "OpenRouter charge unknown": "OpenRouter 扣費未知",
-    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "請求已到達 OpenRouter，但其成本未確認。處理前請在 OpenRouter 中核對扣費。"
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "請求已到達 OpenRouter，但其成本未確認。處理前請在 OpenRouter 中核對扣費。",
+    "Reserved web searches": "預留網路搜尋次數"
   }
 }

@@ -386,6 +386,77 @@ func TestExecuteBatchSkipsDeclaredOutputModalities(t *testing.T) {
 	}
 }
 
+// Requested searches cost the web_search price of the endpoint each, without
+// the add-on reserve. A price missing from the fresh catalog is checked against
+// live; when live has none either, the search reserve covers the searches, and
+// without it they are refused.
+func TestExecutePricesSearches(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	response := func(prompt, completion, search string) domain.NativeEndpointResponse {
+		pricing := `{"prompt":"` + prompt + `","completion":"` + completion + `"`
+		if search != "" {
+			pricing += `,"web_search":` + search
+		}
+		return domain.NativeEndpointResponse{OutputModalities: []string{"text"}, Endpoints: []domain.NativePricedEndpoint{
+			{Tag: "provider", ModelID: "acme/a", MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, pricing+`}`)},
+		}}
+	}
+	reserve := .5
+	for _, tc := range []struct {
+		name                string
+		searches            int
+		catalog             domain.NativeEndpointResponse
+		live                map[string]domain.NativeEndpointResponse
+		manualSearch        bool
+		searchReserve       bool
+		addOnReserve        bool
+		wantUSD             float64
+		wantErr             string
+		wantSource          domain.ReserveSource
+		wantIncludesReserve bool
+		wantLiveAsked       []string
+	}{
+		{name: "searches cost the catalog price each", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
+		{name: "priced searches take no add-on reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), addOnReserve: true, wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
+		{name: "priced searches take no search reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
+		{name: "a search price missing from the catalog is checked against live", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.07, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
+		{name: "a search price missing from live takes the search reserve", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "")}, searchReserve: true, wantUSD: 2.54, wantSource: domain.ReserveSourceLive, wantIncludesReserve: true, wantLiveAsked: []string{"acme/a"}},
+		{name: "a missing search price takes the search reserve when live fails", searches: 3, catalog: response("0.001", "0.002", ""), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true, wantLiveAsked: []string{"acme/a"}},
+		{name: "a missing search price without a search reserve is refused", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "")}, wantErr: domain.ErrHostedSearchUnpriced.Error(), wantLiveAsked: []string{"acme/a"}},
+		{name: "a null search price is missing", searches: 1, catalog: response("0.001", "0.002", "null"), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.05, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
+		{name: "an invalid search price is refused", searches: 1, catalog: response("0.001", "0.002", `"-1"`), searchReserve: true, wantErr: "invalid OpenRouter endpoint price"},
+		{name: "a search on an engine without an endpoint price takes the search reserve", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "native searches and a search on another engine add both", searches: 3, manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.55, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "a search on another engine without a search reserve is refused", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), wantErr: domain.ErrHostedSearchUnpriced.Error()},
+		{name: "without requested searches the add-on reserve covers native search", catalog: response("0.001", "0.002", `"0.01"`), addOnReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+			catalog.Store(&domain.UpstreamCatalogTariffs{Revision: "revision", FetchedAt: now, Models: map[string]domain.NativeEndpointResponse{"acme/a": tc.catalog}})
+			live := &fakeLive{responses: tc.live}
+			in := textInput("acme/a")
+			in.Live, in.ChannelBaseURL, in.Searches, in.ManualSearch = live, "https://openrouter.ai/api", tc.searches, tc.manualSearch
+			if tc.searchReserve {
+				in.SearchReserveUSD = &reserve
+			}
+			if tc.addOnReserve {
+				in.AddOnReserveUSD = &reserve
+			}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
+			assert.Equal(t, tc.wantLiveAsked, live.asked)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-9)
+			assert.Equal(t, tc.wantSource, estimate.Source)
+			assert.Equal(t, tc.wantIncludesReserve, estimate.IncludesAddOnReserve)
+		})
+	}
+}
+
 // A speech or rerank request is priced from the unit prices of the endpoints
 // of a fresh catalog document: every non-zero price times its measured
 // quantity, a million_tokens price per million tokens, output audio tokens at
