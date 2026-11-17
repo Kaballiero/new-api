@@ -6345,6 +6345,7 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "Chỉ dùng chữ cái, chữ số, _ và -, có thể kèm tiền tố batches/",
     "Provider ownership could not be verified; the Batch is unchanged.": "Không thể xác minh quyền sở hữu tại nhà cung cấp; Batch không thay đổi.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Batch này không còn khôi phục theo ID được nữa; Batch không thay đổi.",
-    "For Gemini use the full name, e.g. batches/abc123": "Với Gemini, dùng tên đầy đủ, ví dụ batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Với Gemini, dùng tên đầy đủ, ví dụ batches/abc123",
+    "Reserved web searches": "Số lượt tìm kiếm web đã giữ"
   }
 }

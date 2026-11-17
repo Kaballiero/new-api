@@ -85,7 +85,11 @@ import {
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
-import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import {
+  OPENROUTER_RESERVATION_QUANTITY,
+  USAGE_BILLING_PATH,
+  type LogOtherData,
+} from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { DetailRow, DetailSection } from './log-detail-layout'
 
@@ -138,6 +142,15 @@ function getUsageBillingPathLabel(
       return adminInfo?.local_count_tokens
         ? t('Local Billing')
         : t('Upstream Response')
+  }
+}
+
+function getReservationQuantityLabel(t: TFunction, quantity: string): string {
+  switch (quantity) {
+    case OPENROUTER_RESERVATION_QUANTITY.SEARCHES:
+      return t('Reserved web searches')
+    default:
+      return quantity
   }
 }
 
@@ -353,6 +366,15 @@ function BillingBreakdown(props: {
       label: t('Billing Path'),
       value: getUsageBillingPathLabel(t, other.admin_info),
     })
+    const reservationQuantities = Object.entries(
+      other.admin_info.openrouter_reservation_quantities ?? {}
+    )
+    for (const [quantity, value] of reservationQuantities) {
+      rows.push({
+        label: getReservationQuantityLabel(t, quantity),
+        value: String(value),
+      })
+    }
   }
 
   const usageFacts =

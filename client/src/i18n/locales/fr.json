@@ -6345,6 +6345,7 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "Utilisez uniquement des lettres, chiffres, _ et -, avec le préfixe batches/ facultatif",
     "Provider ownership could not be verified; the Batch is unchanged.": "L’appartenance chez le fournisseur n’a pas pu être vérifiée ; le Batch est inchangé.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Ce Batch ne peut plus être récupéré par ID ; le Batch est inchangé.",
-    "For Gemini use the full name, e.g. batches/abc123": "Pour Gemini, utilisez le nom complet, par ex. batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Pour Gemini, utilisez le nom complet, par ex. batches/abc123",
+    "Reserved web searches": "Recherches web réservées"
   }
 }

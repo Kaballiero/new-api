@@ -6345,6 +6345,7 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "英数字、_、- のみ使用できます（batches/ 接頭辞は任意）",
     "Provider ownership could not be verified; the Batch is unchanged.": "プロバイダーでの所有権を検証できませんでした。Batchは変更されていません。",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "このBatchはIDで復旧できなくなりました。Batchは変更されていません。",
-    "For Gemini use the full name, e.g. batches/abc123": "Gemini の場合は完全な名前を入力してください（例: batches/abc123）"
+    "For Gemini use the full name, e.g. batches/abc123": "Gemini の場合は完全な名前を入力してください（例: batches/abc123）",
+    "Reserved web searches": "予約したウェブ検索回数"
   }
 }

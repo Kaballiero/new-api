@@ -107,6 +107,12 @@ export const USAGE_BILLING_PATH = {
 export type UsageBillingPath =
   (typeof USAGE_BILLING_PATH)[keyof typeof USAGE_BILLING_PATH]
 
+// Measured quantities an OpenRouter reserve is priced by
+// (admin_info.openrouter_reservation_quantities).
+export const OPENROUTER_RESERVATION_QUANTITY = {
+  SEARCHES: 'searches',
+} as const
+
 export interface ToolSurchargeItem {
   name: string
   count: number
@@ -135,6 +141,7 @@ export interface LogOtherData {
     local_count_tokens?: boolean
     usage_billing_path?: UsageBillingPath | string
     channel_affinity?: ChannelAffinityInfo
+    openrouter_reservation_quantities?: Record<string, number>
     // Top-up audit fields (type=1, admin only)
     payment_method?: string
     callback_payment_method?: string

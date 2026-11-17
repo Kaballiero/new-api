@@ -6345,6 +6345,7 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "仅可使用字母、数字、_ 和 -，可带 batches/ 前缀",
     "Provider ownership could not be verified; the Batch is unchanged.": "无法校验供应商归属；Batch 未更改。",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "此 Batch 已无法按 ID 恢复；Batch 未更改。",
-    "For Gemini use the full name, e.g. batches/abc123": "Gemini 请填写完整名称，例如 batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Gemini 请填写完整名称，例如 batches/abc123",
+    "Reserved web searches": "预留网络搜索次数"
   }
 }

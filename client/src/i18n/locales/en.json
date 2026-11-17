@@ -6345,6 +6345,7 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "Use letters, digits, _ and - only, optionally prefixed with batches/",
     "Provider ownership could not be verified; the Batch is unchanged.": "Provider ownership could not be verified; the Batch is unchanged.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "This Batch can no longer be recovered by ID; the Batch is unchanged.",
-    "For Gemini use the full name, e.g. batches/abc123": "For Gemini use the full name, e.g. batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "For Gemini use the full name, e.g. batches/abc123",
+    "Reserved web searches": "Reserved web searches"
   }
 }
