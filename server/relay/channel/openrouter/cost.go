@@ -303,7 +303,7 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 			return errors.New("OpenRouter cost is not recoverable from generation metadata")
 		}
 	case "upstream_error":
-		// Only output forwarded before the error chunk reached the client.
+		// A non-stream error envelope is refunded with the upstream message.
 		if !info.IsStream {
 			return errors.New("OpenRouter upstream error delivered no output")
 		}
@@ -311,11 +311,13 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return errors.New("OpenRouter cost is not recoverable from generation metadata")
 	}
 	identified := state.GenerationID != "" && !state.IdentityConflict
-	if !identified && !info.IsStream {
-		return errors.New("OpenRouter generation identity is unavailable")
-	}
-	if !identified && !state.ContentDelivered {
-		return errors.New("OpenRouter stream delivered no output")
+	if !identified {
+		if !info.IsStream {
+			return errors.New("OpenRouter generation identity is unavailable")
+		}
+		if !state.ContentDelivered {
+			return errors.New("OpenRouter stream delivered no output")
+		}
 	}
 	hold := info.Billing.GetPreConsumedQuota()
 	info.PriceData.Quota = hold
@@ -350,7 +352,7 @@ func upstreamError(state *relaycommon.OpenRouterCostState) *types.NewAPIError {
 }
 
 // RejectUpstreamError reports a chat text upstream error envelope. Without a
-// Task the controller refunds the hold; a Task retains it for delivered output.
+// Task the controller refunds the hold; a deferred Task retains it.
 // A nil apiErr is rebuilt from the observed envelope.
 func RejectUpstreamError(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) *types.NewAPIError {
 	if apiErr == nil {

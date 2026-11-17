@@ -935,7 +935,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		defer func() {
 			if !info.IsChannelTest && !info.OpenRouterCost.Final && info.IsStream && info.OpenRouterCost.ChatText {
 				if info.OpenRouterCost.UnknownReason == "upstream_error" {
-					// Output delivered before the error keeps its hold in a Task.
+					// A stream with a generation identity or delivered output keeps its hold in a Task.
 					if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
 						logger.LogError(c, fmt.Sprintf("OpenRouter streamed output cost deferral incomplete; task %s retains the hold: %v", info.OpenRouterCost.TaskID, deferErr))
 					}
