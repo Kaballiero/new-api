@@ -13,3 +13,5 @@ func GetEffectivePricing(c *gin.Context) { httpapi.Pricing().GetPersonalPricing.
 func GetEffectivePricingByGroup(c *gin.Context) { httpapi.Pricing().GetGroupPricing.Handle(c) }
 
 func ResetModelRatio(c *gin.Context) { httpapi.Pricing().ResetModelRatios.Handle(c) }
+
+func PreviewChannelReserves(c *gin.Context) { httpapi.Pricing().PreviewChannelReserves.Handle(c) }

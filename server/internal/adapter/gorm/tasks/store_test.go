@@ -459,7 +459,7 @@ func TestTaskDomainRoundTrip(t *testing.T) {
  "reconciliation":{"reserved_quota":1,"reservation_pending":true,"submission_pending":true,"refund_pending":true,"required":true,"settlement_pending":true,"main_applied":true,"target_quota":2,"finalized":true,"has_upstream_cost":true,"upstream_cost_confirmed":true,"upstream_cost_usd":0.1,"upstream_is_byok":false,"upstream_cost_details":"{}","quota_saturation":"marker"},
  "openrouter_sync":{"credential_hash":"credential","config_hash":"config","routing_hash":"routing","credential_index":1,"identity_conflict":true,"upstream_request_id":"upstream","dispatch_prepared":true,"provider_tag":"tag","reservation_source":"upstream","reserve_usd":0.2,"pricing_unknown":true,"revision":2,"request_id":"request","billing_preference":"wallet","planned_quota":3,"lease_until":4,"deadline":5,"metadata_url":"https://example.com/meta","headers":{"Header":["value"]},
  "transport":{"task_plugin_key":"plugin","force_format":true,"thinking_to_content":true,"proxy":"https://example.com","pass_through_body_enabled":true,"system_prompt":"prompt","system_prompt_override":true,"openrouter_model_reserve_usd":{"model":0},"openrouter_reservation_source":{"model":"upstream"},"openrouter_sonar_research_reserve_usd":0,"http_protocol":"http1","http2_connection_shards":1},
- "attempts":6,"next_poll":7,"last_http_status":502,"last_error":"retry","result_ready":true,"result_failed":true,"result_mime_type":"audio/wav","result_size":8,"result_sha256":"sha"}
+ "attempts":6,"next_poll":7,"last_http_status":502,"last_error":"retry","result_ready":true,"result_failed":true,"result_mime_type":"audio/wav","result_size":8,"result_sha256":"sha","alerted_at":9}
  }`), &private))
 	private.OpenRouterAudio = private.OpenRouterSync
 	full := record.Task{ID: 1, CreatedAt: 2, UpdatedAt: 3, TaskID: "task_public", Platform: "plugin", UserId: 4, Group: "group", ChannelId: 5, Quota: 6, Action: "action", Status: record.TaskStatusInProgress, FailReason: "reason", SubmitTime: 7, StartTime: 8, FinishTime: 9, Progress: "50%", Properties: record.Properties{Input: "input", UpstreamModelName: "upstream", OriginModelName: "original"}, Username: "user", PrivateData: private, Data: json.RawMessage(`{"zero":0,"false":false,"empty":{}}`)}
@@ -477,4 +477,36 @@ func TestTaskDomainRoundTrip(t *testing.T) {
 			assert.Equal(t, converted, record.ToDomain(restored))
 		})
 	}
+}
+
+func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
+	store, db := newTaskTestStore(t)
+	manual := func(taskID string, platform constant.TaskPlatform, failReason string, finishTime int64) *record.Task {
+		task := &record.Task{TaskID: taskID, Platform: platform, Action: "chat", Status: record.TaskStatusFailure, FailReason: failReason, FinishTime: finishTime,
+			PrivateData: record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{ReservedQuota: 500, Required: true},
+				OpenRouterSync: &record.OpenRouterSyncTask{Revision: 3, LastError: "missing_generation_identity"}}}
+		insertTask(t, db, task)
+		return task
+	}
+	missingIdentity := manual("task_missing_identity", constant.TaskPlatformOpenRouterChatImage, domain.SyncManualFailReason("missing_generation_identity"), 100)
+	parked := manual("task_parked", constant.TaskPlatformOpenRouterAudio, domain.SyncManualFailReason(domain.SyncReasonAutoReleaseUnavailable), 50)
+	manual("task_unknown_submission", constant.TaskPlatformOpenRouterChatImage, domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown), 100)
+	manual("task_decided", constant.TaskPlatformOpenRouterChatImage, "OpenRouter reservation released by root", 100)
+	manual("task_other_platform", "suno", domain.SyncManualFailReason("missing_generation_identity"), 100)
+
+	holds, err := store.GetManualHolds(0, 10)
+	require.NoError(t, err)
+	require.Len(t, holds, 2)
+	assert.Equal(t, []string{missingIdentity.TaskID, parked.TaskID}, []string{holds[0].TaskID, holds[1].TaskID})
+	assert.True(t, store.HasManualHoldsSince(100))
+	assert.False(t, store.HasManualHoldsSince(101))
+
+	require.NoError(t, store.MarkManualHoldAlerted(missingIdentity.ID, 1234))
+	var saved record.Task
+	require.NoError(t, db.First(&saved, missingIdentity.ID).Error)
+	assert.Equal(t, int64(1234), saved.PrivateData.OpenRouterSync.AlertedAt)
+	assert.Equal(t, 3, saved.PrivateData.OpenRouterSync.Revision)
+	assert.Equal(t, "missing_generation_identity", saved.PrivateData.OpenRouterSync.LastError)
+	assert.Equal(t, 500, saved.PrivateData.Reconciliation.ReservedQuota)
+	assert.Equal(t, missingIdentity.FailReason, saved.FailReason)
 }

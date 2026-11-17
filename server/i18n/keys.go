@@ -737,6 +737,12 @@ const (
 	MsgTasksMJFailure         = "tasks.mj_failure"
 )
 
+// Async-task alerts to the operators use the root user's language.
+const (
+	MsgTasksSyncManualHoldsSubject = "tasks.sync_manual_holds_subject"
+	MsgTasksSyncManualHolds        = "tasks.sync_manual_holds"
+)
+
 // Batch response and recipient log messages.
 const (
 	MsgBatchBatchBusy                           = "batch.batch_busy"
@@ -885,6 +891,7 @@ const (
 	MsgAccountsInviteQuotaInsufficient    = "accounts.invite_quota_insufficient"
 	MsgPricingChannelQueryFailed          = "pricing.channel_query_failed"
 	MsgPricingNoValidUpstream             = "pricing.no_valid_upstream"
+	MsgPricingChannelNotOpenRouter        = "pricing.channel_not_openrouter"
 	MsgChannelMultiKeyNotFound            = "channel.multi_key_not_found"
 	MsgIdentityWeChatAccountDeleted       = "identity.wechat_account_deleted"
 	MsgIdentityWeChatRegistrationDisabled = "identity.wechat_registration_disabled"

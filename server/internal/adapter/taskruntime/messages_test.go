@@ -2,12 +2,14 @@ package taskruntime
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/assert"
@@ -46,4 +48,23 @@ func TestTaskTextUsesRecipientLanguage(t *testing.T) {
 		assert.Equal(t, "操作 GENERATE，按次计费", i18n.Translate(language, i18n.MsgTasksPerCall, map[string]any{"Content": "操作 GENERATE"}))
 		assert.Equal(t, "操作 GENERATE, 计算参数：seconds: 5.00", i18n.Translate(language, i18n.MsgTasksParameters, map[string]any{"Content": "操作 GENERATE", "Parameters": "seconds: 5.00"}))
 	}
+}
+
+func TestManualHoldsNotificationSummarizesHoldsForRoot(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	var holds []*domain.Task
+	for i := range 13 {
+		holds = append(holds, &domain.Task{TaskID: fmt.Sprintf("task_%d", i), Action: "chat", FailReason: domain.SyncManualFailReason("missing_generation_identity"),
+			PrivateData: domain.TaskPrivateData{Reconciliation: &domain.TaskReconciliation{ReservedQuota: 5000}}})
+	}
+	subject, content := ManualHoldsNotification("en", holds)
+	assert.Equal(t, "OpenRouter: reserves need manual reconciliation", subject)
+	assert.True(t, strings.HasPrefix(content, "New OpenRouter reserves in manual reconciliation: 13, $0.130000 held in total."), content)
+	assert.Contains(t, content, "Holds (showing 12/13):\n- task_0 (chat, missing_generation_identity): $0.010000")
+	assert.Contains(t, content, "task_11 ")
+	assert.NotContains(t, content, "task_12")
+
+	subject, content = ManualHoldsNotification("ru", holds[:1])
+	assert.Equal(t, "OpenRouter: резервы ждут ручной сверки", subject)
+	assert.True(t, strings.HasPrefix(content, "Новых резервов OpenRouter в ручной сверке: 1, всего удержано $0.010000."), content)
 }

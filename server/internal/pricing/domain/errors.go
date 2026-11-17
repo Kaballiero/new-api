@@ -49,6 +49,14 @@ var (
 	// ErrHostedSearchUnpriced reports web searches of an OpenRouter request
 	// that neither an endpoint price nor the channel reserve covers.
 	ErrHostedSearchUnpriced = errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
+	// ErrEndpointDiscoveryMissing reports that an estimate needs the live
+	// endpoints of a model the estimator cannot discover: it has no bound
+	// request.
+	ErrEndpointDiscoveryMissing = errors.New("OpenRouter endpoint discovery missing")
+
+	// ErrChannelNotOpenRouter rejects an OpenRouter reserve preview of a
+	// channel of another type.
+	ErrChannelNotOpenRouter = errors.New("channel is not an OpenRouter channel")
 )
 
 // CatalogModelLossError rejects an upstream catalog revision that lost more
