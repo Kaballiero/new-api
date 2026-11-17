@@ -1540,6 +1540,7 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 			assert.Equal(t, tasksrecord.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
 			facts, ok := c.Get("openrouter_video_order_facts")
 			require.True(t, ok)
+			assert.Equal(t, "live", facts.(map[string]any)["reservation_source"], "a channel off the official API is priced live")
 			if tc.measuredMedia {
 				assert.Equal(t, "reference_to_video", facts.(map[string]any)["generation_mode"])
 				assert.Equal(t, map[string]any{"source": "approximate_media", "model": tc.model, "usd": 1.0, "hard_bound": false}, facts.(map[string]any)["reservation"])

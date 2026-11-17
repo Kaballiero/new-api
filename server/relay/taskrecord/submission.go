@@ -84,6 +84,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		if bc.OpenRouterCost != nil {
 			other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
 			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+			if source, ok := bc.OpenRouterOrderFacts["reservation_source"]; ok {
+				other.SetAdmin("openrouter_reservation_source", source)
+			}
 		}
 		logErr = usagestorage.Writer().RecordTaskBillingLogWithError(usageadapter.RecordTaskBillingLogParams{
 			UserId: info.UserId, LogType: usagerecord.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,

@@ -153,10 +153,11 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 	if err != nil {
 		return err
 	}
-	estimate, err := openrouter.EstimateVideo(c, info, body)
+	upstream, err := openrouter.EstimateVideo(c, info, body)
 	if err != nil {
 		return err
 	}
+	estimate := upstream.USD
 	var order openrouter.VideoPriceOrder
 	if err := common.Unmarshal(body, &order); err != nil {
 		return err
@@ -206,6 +207,7 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 	if openrouter.SourceMediaVideo(order.Model) {
 		facts["reservation"] = map[string]any{"source": "approximate_media", "model": order.Model, "usd": estimate, "hard_bound": false}
 	}
+	facts["reservation_source"] = string(upstream.Source)
 	c.Set("openrouter_video_order_facts", facts)
 	info.OpenRouterCost = state
 	info.PriceData.Quota, info.PriceData.QuotaToPreConsume = quota, quota

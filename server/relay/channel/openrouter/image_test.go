@@ -19,14 +19,17 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_video_reserve"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	service "github.com/QuantumNous/new-api/relay/billing"
@@ -338,7 +341,7 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.order.Model = tc.model
-			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
 			if tc.sourceBased || tc.unlisted {
 				// These discovery records have no finite output durations. Do not
 				// fabricate quantities to exercise their monetary SKU.
@@ -389,7 +392,7 @@ func TestHeyGenVideoReservation(t *testing.T) {
 		{name: "audio remains unpriced", order: `{"input_references":[{"type":"image_url"},{"type":"audio_url"}]}`, errorText: "audio reference tariff is unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			model := VideoModelPricing{
+			model := pricingdomain.VideoModelPricing{
 				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15, 16, 30}, SupportedResolutions: []string{"480p", "768p", "1080p", "2K"},
 				PricingSKUs: map[string]string{
 					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_1080p": "0.1", "duration_seconds_2k": "0.1",
@@ -436,10 +439,27 @@ func TestVideoFreshDiscoveryBeforeTransport(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "selected-key", ChannelBaseUrl: server.URL, UpstreamModelName: "runway/gen-4.5"}}
-	cost, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
+	estimate, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
 	require.NoError(t, err)
-	assert.InDelta(t, 3, cost, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
+	assert.InDelta(t, 3, estimate.USD, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
+	assert.Equal(t, pricingdomain.ReserveSourceLive, estimate.Source, "a channel off the official API is priced live")
 	assert.Equal(t, 1, requests)
+}
+
+// A channel on the official API prices a video order from the fresh upstream
+// catalog without reading /videos/models.
+func TestVideoReserveFromUpstreamCatalog(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Videos: map[string]pricingdomain.VideoModelPricing{
+		"runway/gen-4.5": {ID: "runway/gen-4.5", SupportedDurations: []int{5, 10}, PricingSKUs: map[string]string{"cents_per_second_output": "30"}},
+	}})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "selected-key", ChannelBaseUrl: "https://openrouter.ai/api", UpstreamModelName: "runway/gen-4.5"}}
+	estimate, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
+	require.NoError(t, err)
+	assert.Equal(t, estimate_upstream_video_reserve.Estimate{USD: 3, Source: pricingdomain.ReserveSourceCatalog}, estimate)
 }
 
 func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
@@ -463,7 +483,7 @@ func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
 		{"ordinary mp4 output", "runway/gen-4.5", `{"cents_per_second_output":"28"}`, `{"provider":{"options":{"runway":{"output_format":"mp4"}}}}`, 1.4, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			model := VideoModelPricing{ID: tc.model, SupportedDurations: []int{3, 5}, SupportedResolutions: []string{"480p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, SupportedDurations: []int{3, 5}, SupportedResolutions: []string{"480p"}}
 			require.NoError(t, common.Unmarshal([]byte(tc.prices), &model.PricingSKUs))
 			var order VideoPriceOrder
 			require.NoError(t, common.Unmarshal([]byte(tc.order), &order))
@@ -1798,7 +1818,7 @@ func TestSourceMediaVideoReservation(t *testing.T) {
 			}
 			body, err := common.Marshal(fields)
 			require.NoError(t, err)
-			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedResolutions: []string{"720p", "1080p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedResolutions: []string{"720p", "1080p"}}
 			cost, err := estimateSourceMediaVideo(model, body)
 			if tc.errorText != "" {
 				require.ErrorContains(t, err, tc.errorText)
@@ -1826,9 +1846,9 @@ func TestSourceMediaVideoReservation(t *testing.T) {
 		_, err = EstimateVideo(c, info, body)
 		require.ErrorContains(t, err, "explicit approximate")
 		info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"runway/aleph-2": 1}
-		cost, err := EstimateVideo(c, info, body)
+		estimate, err := EstimateVideo(c, info, body)
 		require.NoError(t, err)
-		assert.Equal(t, 1.0, cost)
+		assert.Equal(t, 1.0, estimate.USD)
 		for _, reserve := range []float64{0, -1, math.NaN(), math.Inf(1)} {
 			info.ChannelSetting.OpenRouterModelReserveUSD["runway/aleph-2"] = reserve
 			_, err = EstimateVideo(c, info, body)
