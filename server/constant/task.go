@@ -19,6 +19,16 @@ const (
 	TaskActionRemix            = "remix"
 )
 
+// Actions of the OpenRouter synchronous Tasks.
+const (
+	TaskActionAudio       = "audio"
+	TaskActionImage       = "image"
+	TaskActionRerank      = "rerank"
+	TaskActionChatImage   = "chat-image"
+	TaskActionChat        = "chat"
+	TaskActionCompletions = "completions"
+)
+
 var legacyTaskActionAliases = map[string]string{
 	"generate":          TaskActionImageToVideo,
 	"textGenerate":      TaskActionTextToVideo,

@@ -15,7 +15,8 @@ import (
 
 // catalogV13Documents are real catalog documents of normalization version 13
 // trimmed to the fields the tariffs read, by model id: four text and
-// embeddings documents and two video documents.
+// embeddings documents, two video documents, five speech documents and one
+// transcription document.
 func catalogV13Documents(t *testing.T, deps Capabilities) map[string]*SourceDocument {
 	paths, err := filepath.Glob("testdata/catalog_v13/*.json")
 	require.NoError(t, err)
@@ -27,7 +28,7 @@ func catalogV13Documents(t *testing.T, deps Capabilities) map[string]*SourceDocu
 		require.NoError(t, deps.Codec.Unmarshal(raw, &document))
 		documents[document.ID] = &document
 	}
-	require.Len(t, documents, 6)
+	require.Len(t, documents, 12)
 	return documents
 }
 
@@ -102,6 +103,64 @@ func TestCatalogEndpointTariffsMapEligibleEndpointOffers(t *testing.T) {
 	})
 }
 
+// The unit prices of an endpoint are its model_page components per dimension:
+// amountUSD / quantity, the maximum over the components of a dimension. A null
+// amount stays unknown, and a component without a billable prices an unknown
+// dimension.
+func TestCatalogEndpointUnitPrices(t *testing.T) {
+	deps := catalogTestCapabilities()
+	documents := catalogV13Documents(t, deps)
+	// unitPrices spells the unit prices of the first endpoint of a model as
+	// billable/unit=USD, an unknown price as "unknown".
+	unitPrices := func(document *SourceDocument) []string {
+		tariffs := CatalogEndpointTariffs(deps, map[string]*SourceDocument{document.ID: document})
+		require.Contains(t, tariffs, document.ID)
+		var spelled []string
+		for _, price := range tariffs[document.ID].Endpoints[0].UnitPrices {
+			usd := "unknown"
+			if price.USD != nil {
+				usd = price.USD.String()
+			}
+			spelled = append(spelled, string(price.Dimension.Billable)+"/"+string(price.Dimension.Unit)+"="+usd)
+		}
+		return spelled
+	}
+	for _, tc := range []struct {
+		name, model string
+		want        []string
+	}{
+		{"per character", "deepgram/aura-2", []string{"output_speech/character=0.00003"}},
+		{"per UTF-8 byte", "fish-audio/s1", []string{"output_speech/utf8_byte=0.000015"}},
+		{"per second, the display row per minute", "bytedance-seed/seed-audio-1-0", []string{"output_audio/second=0.0025"}},
+		{"per million tokens", "google/gemini-3.8-flash-tts", []string{"input_text/million_tokens=0.5", "output_audio/million_tokens=9"}},
+		{"a component without a billable is unknown", "elevenlabs/scribe-v2", []string{"input_audio/second=0.0000611111111111", "/=unknown"}},
+		// prompt is 0.000015; the native SKU before the endpoint discount is
+		// the maximum of the dimension.
+		{"the component price, not prompt", "heygen/heygen-voice-1", []string{"output_speech/character=0.00003"}},
+		{"a text endpoint has none", "openai/gpt-5.4", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, unitPrices(documents[tc.model]))
+		})
+	}
+	t.Run("a null amount stays unknown", func(t *testing.T) {
+		document := *documents["deepgram/aura-2"]
+		document.Offers = slices.Clone(document.Offers)
+		document.Offers[0].Components = slices.Clone(document.Offers[0].Components)
+		document.Offers[0].Components[1].AmountUSD = nil
+		assert.Equal(t, []string{"output_speech/character=unknown"}, unitPrices(&document))
+	})
+	t.Run("a generic component is not a unit price", func(t *testing.T) {
+		document := *documents["deepgram/aura-2"]
+		document.Offers = slices.Clone(document.Offers)
+		document.Offers[0].Components = slices.Clone(document.Offers[0].Components)
+		for index := range document.Offers[0].Components {
+			document.Offers[0].Components[index].Provenance = json.RawMessage(`{"scope":"endpoint","source":"generic"}`)
+		}
+		assert.Nil(t, unitPrices(&document))
+	})
+}
+
 // The video tariffs of a document are the /videos/models entry of its
 // eligible endpoint offer as OpenRouter published it; any other shape leaves
 // the model to live pricing.
@@ -168,7 +227,7 @@ func TestCatalogEndpointTagServiceTierMatchesVariant(t *testing.T) {
 			compared[tier]++
 		}
 	}
-	assert.Equal(t, map[ServiceTier]int{ServiceTierDefault: 4, ServiceTierFlex: 2, ServiceTierPriority: 2}, compared)
+	assert.Equal(t, map[ServiceTier]int{ServiceTierDefault: 11, ServiceTierFlex: 2, ServiceTierPriority: 2}, compared)
 }
 
 func TestUpstreamTariffModel(t *testing.T) {
