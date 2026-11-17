@@ -1,9 +1,13 @@
 package openrouter
 
 import (
+	"bytes"
 	"cmp"
+	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -103,7 +107,7 @@ func TestEndpointStatusOperations(t *testing.T) {
 			{"batch embeddings", "batch_embeddings", types.RelayFormatOpenAI, "embeddings", "", false, 1},
 			{"rerank", "rerank", types.RelayFormatRerank, "rerank", `,"query":"hello","documents":["hello"]`, true, .25},
 			{"tts", "audio/speech", types.RelayFormatOpenAIAudio, "speech", `,"input":"hello"`, true, .25},
-			{"stt", "audio/transcriptions", types.RelayFormatOpenAIAudio, "transcription", "", true, .25},
+			{"stt", "audio/transcriptions", types.RelayFormatOpenAIAudio, "transcription", `,"file":{"seconds":60}`, true, .25},
 			{"chat audio music", "chat/completions", types.RelayFormatOpenAI, "audio", `,"modalities":["audio"],"stream":true`, true, .25},
 			{"decisions", "decisions", types.RelayFormatSystemOne, "decisions", `,"state":{},"questions":[]`, true, .25},
 		} {
@@ -544,30 +548,128 @@ func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
 	assert.Nil(t, live.Tariff().UnitPrices)
 }
 
-// Speech on the official API is priced from the catalog unit prices without a
-// channel reserve; transcription still requires one.
-func TestEndpointSpeechReserveFromCatalogUnitPrices(t *testing.T) {
+// Speech and transcription on the official API are priced from the catalog
+// unit prices without a channel reserve: a transcription at its seconds × the
+// price of a second, the price of a request-dependent variant at its maximum.
+// A model priced only by tokens measures no quantity it is priced by: the
+// channel reserve covers it, and without one it is refused, never reserved at
+// $0.
+func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
+	tokenusage.InitTokenEncoders()
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
 	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
-	perCharacter := decimal.RequireFromString("0.00003")
+	price := func(billable pricingdomain.PriceBillable, unit pricingdomain.PriceUnit, usd string) pricingdomain.EndpointUnitPrice {
+		amount := decimal.RequireFromString(usd)
+		return pricingdomain.EndpointUnitPrice{Dimension: pricingdomain.PriceDimension{Billable: billable, Unit: unit}, USD: &amount}
+	}
+	audio := func(model, modality string, prices ...pricingdomain.EndpointUnitPrice) pricingdomain.NativeEndpointResponse {
+		return pricingdomain.NativeEndpointResponse{ID: model, OutputModalities: []string{modality}, Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", ModelID: model, UnitPrices: prices}}}
+	}
 	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
-		"acme/tts": {ID: "acme/tts", OutputModalities: []string{"speech"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
-			Tag: "deepgram", ModelID: "acme/tts", UnitPrices: []pricingdomain.EndpointUnitPrice{
-				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}, USD: &perCharacter},
-			},
-		}}},
+		"acme/tts": audio("acme/tts", "speech", price(pricingdomain.PriceBillableOutputSpeech, pricingdomain.PriceUnitCharacter, "0.00003")),
+		// The unit prices of the catalog documents of whisper-1,
+		// gpt-4o-transcribe and the prompted universal-3-6-pro.
+		"openai/whisper-1": audio("openai/whisper-1", "transcription",
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitMillionTokens, "0"),
+			price("output_text", pricingdomain.PriceUnitMillionTokens, "0"),
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0.0001")),
+		"openai/gpt-4o-transcribe": audio("openai/gpt-4o-transcribe", "transcription",
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0"),
+			price("output_text", pricingdomain.PriceUnitMillionTokens, "10"),
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitMillionTokens, "2.5"),
+			price(pricingdomain.PriceBillableInputText, pricingdomain.PriceUnitMillionTokens, "2.5")),
+		"assemblyai/universal-3-6-pro": audio("assemblyai/universal-3-6-pro", "transcription",
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0.0000972222")),
 	}})
-	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
-	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
-	e := NewRequestEstimator()
-	cost, err := e.Estimate(info, []byte(`{"model":"acme/tts","input":"hello world"}`), "audio/speech")
-	require.NoError(t, err)
-	assert.InDelta(t, .00033, cost, 1e-12)
-	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
-	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+	for _, tc := range []struct {
+		name, operation, body string
+		channelReserveUSD     *float64
+		want                  float64
+		source                pricingdomain.ReserveSource
+		use                   ReserveUse
+		wantErr               string
+	}{
+		{name: "speech per character", operation: "audio/speech", body: `{"model":"acme/tts","input":"hello world"}`, want: .00033, source: pricingdomain.ReserveSourceCatalog},
+		{name: "whisper-1 per second", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, want: .006, source: pricingdomain.ReserveSourceCatalog},
+		{name: "prompted variant at its maximum", operation: "audio/transcriptions", body: `{"model":"assemblyai/universal-3-6-pro","file":{"seconds":3600}}`, want: .34999992, source: pricingdomain.ReserveSourceCatalog},
+		{name: "token-only model without a reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_text/million_tokens"},
+		{name: "token-only model with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
+		{name: "a channel reserve above the catalog price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var settings dto.ChannelSettings
+			if tc.channelReserveUSD != nil {
+				var request struct {
+					Model string `json:"model"`
+				}
+				require.NoError(t, common.UnmarshalJsonStr(tc.body, &request))
+				settings.OpenRouterModelReserveUSD = map[string]float64{request.Model: *tc.channelReserveUSD}
+			}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api", ChannelSetting: settings}
+			e := NewRequestEstimator()
+			cost, err := e.Estimate(info, []byte(tc.body), tc.operation)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+			assert.Equal(t, tc.source, e.ReserveSource)
+			assert.Equal(t, tc.use, e.ReserveUse)
+		})
+	}
+}
 
-	_, err = NewRequestEstimator().Estimate(info, []byte(`{"model":"acme/tts"}`), "audio/transcriptions")
-	require.EqualError(t, err, "OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
+// The reservation payload of a transcription carries the seconds of its file
+// from the audio headers, rounded up and capped by what the file size holds at
+// 8 kbit/s, so headers claiming a longer duration reserve no more; a duration
+// that cannot be read refuses the request.
+func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
+	// wav is a PCM WAV file of sampleRate 8-bit mono samples a second whose
+	// data chunk header claims claimedBytes and holds dataBytes.
+	wav := func(sampleRate, claimedBytes, dataBytes uint32) []byte {
+		header := []byte("RIFF\x00\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x08\x00data\x00\x00\x00\x00")
+		binary.LittleEndian.PutUint32(header[4:], 36+claimedBytes)
+		binary.LittleEndian.PutUint32(header[24:], sampleRate)
+		binary.LittleEndian.PutUint32(header[28:], sampleRate)
+		binary.LittleEndian.PutUint32(header[40:], claimedBytes)
+		return append(header, make([]byte, dataBytes)...)
+	}
+	for _, tc := range []struct {
+		name, filename string
+		audio          []byte
+		seconds        int64
+		wantErr        string
+	}{
+		{name: "duration from the headers, rounded up", filename: "speech.wav", audio: wav(8000, 12000, 12000), seconds: 2},
+		{name: "upper-case extension", filename: "SPEECH.WAV", audio: wav(8000, 8000, 8000), seconds: 1},
+		{name: "a huge claimed duration is capped by the file size", filename: "speech.wav", audio: wav(8000, 0x7ffffff0, 16000), seconds: 17},
+		{name: "a low sample rate is capped by the file size", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: 3},
+		{name: "unreadable headers", filename: "speech.wav", audio: []byte("RIFF audio fixture"), wantErr: "OpenRouter transcription audio duration is unreadable"},
+		{name: "a format without a duration reader", filename: "speech.mpga", audio: wav(8000, 8000, 8000), wantErr: "OpenRouter transcription audio duration is unreadable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			require.NoError(t, writer.WriteField("model", "openai/whisper-1"))
+			file, err := writer.CreateFormFile("file", tc.filename)
+			require.NoError(t, err)
+			_, err = file.Write(tc.audio)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+
+			payload, err := transcriptionReservationPayload(context.Background(), writer.FormDataContentType(), body.Bytes())
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			want, err := common.Marshal(map[string]any{"model": "openai/whisper-1", "file": map[string]any{"filename": tc.filename, "size": len(tc.audio), "seconds": tc.seconds}})
+			require.NoError(t, err)
+			assert.JSONEq(t, string(want), string(payload))
+		})
+	}
 }
 
 // EstimateRequestReserve on an estimator without a bound request prices the

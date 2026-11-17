@@ -25,6 +25,7 @@ var priceUnits = []PriceUnit{PriceUnitCharacter, PriceUnitUTF8Byte, PriceUnitSec
 type PriceBillable string
 
 const (
+	PriceBillableInputAudio   PriceBillable = "input_audio"
 	PriceBillableInputText    PriceBillable = "input_text"
 	PriceBillableOutputAudio  PriceBillable = "output_audio"
 	PriceBillableOutputSpeech PriceBillable = "output_speech"

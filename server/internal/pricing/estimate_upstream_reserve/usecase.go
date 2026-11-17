@@ -47,8 +47,7 @@ type Input struct {
 	Modalities []string
 	TextOutput bool
 	// ImageOutput, Audio, Decisions and Rerank name an output whose quantity
-	// endpoint tariffs do not measure; Audio covers Chat audio output and
-	// transcription.
+	// endpoint tariffs do not measure; Audio covers Chat audio output.
 	ImageOutput, Audio, Decisions, Rerank bool
 	// Units are the measured quantities of an operation priced only from the
 	// unit prices of its endpoints (unitCost); nil for an operation priced

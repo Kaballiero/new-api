@@ -139,6 +139,11 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			Type string `json:"type"`
 		} `json:"tools"`
 		Plugins []json.RawMessage `json:"plugins"`
+		// File describes a transcription file in the reservation payload
+		// (transcriptionReservationPayload), which always carries its seconds.
+		File struct {
+			Seconds int64 `json:"seconds"`
+		} `json:"file"`
 	}
 	if common.Unmarshal(body, &request) != nil {
 		return 0, errors.New("invalid OpenRouter final request")
@@ -234,9 +239,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	speech := operation == "audio/speech"
 	if dedicatedAudio {
-		// Speech is priced from the catalog unit prices; transcription only by
-		// a configured price or a channel reserve.
-		if localUSD == nil && reserveUSD == nil && !speech || info.RelayFormat != types.RelayFormatOpenAIAudio {
+		// Speech and transcription are priced from the catalog unit prices.
+		if info.RelayFormat != types.RelayFormatOpenAIAudio {
 			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
 		}
 		if speech {
@@ -391,6 +395,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		if err != nil {
 			return 0, err
 		}
+	} else if operation == "audio/transcriptions" {
+		units = map[pricingdomain.PriceDimension]int64{
+			{Billable: pricingdomain.PriceBillableInputAudio, Unit: pricingdomain.PriceUnitSecond}: request.File.Seconds,
+		}
 	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
 		Model:          request.Model,
@@ -413,7 +421,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Modalities:            modalities,
 		TextOutput:            textOutput,
 		ImageOutput:           imageOutput,
-		Audio:                 audioOutput || dedicatedAudio && !speech,
+		Audio:                 audioOutput,
 		Decisions:             decisions,
 		Rerank:                rerank,
 		Units:                 units,

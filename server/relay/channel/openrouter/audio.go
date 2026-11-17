@@ -2,6 +2,7 @@ package openrouter
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"mime"
@@ -23,8 +24,9 @@ import (
 
 // transcriptionReservationPayload describes the outgoing multipart order without
 // counting file bytes as text tokens. Expressions see scalar form fields and a
-// file descriptor (filename/size), never invented audio seconds or tokens.
-func transcriptionReservationPayload(contentType string, body []byte) ([]byte, error) {
+// file descriptor: filename, size and seconds, the duration measured from the
+// audio headers (transcriptionSeconds), never invented audio tokens.
+func transcriptionReservationPayload(ctx context.Context, contentType string, body []byte) ([]byte, error) {
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
 		return nil, errors.New("OpenRouter transcription requires multipart/form-data")
@@ -45,11 +47,15 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 			if fileSeen || part.FileName() == "" {
 				return nil, errors.New("OpenRouter transcription requires exactly one audio file")
 			}
-			size, err := io.Copy(io.Discard, io.LimitReader(part, (25<<20)+1))
-			if err != nil || size == 0 || size > 25<<20 {
+			audio, err := io.ReadAll(io.LimitReader(part, (25<<20)+1))
+			if err != nil || len(audio) == 0 || len(audio) > 25<<20 {
 				return nil, errors.New("OpenRouter transcription file must contain at most 25 MiB")
 			}
-			fields["file"] = map[string]any{"filename": part.FileName(), "size": size}
+			seconds, err := transcriptionSeconds(ctx, part.FileName(), audio)
+			if err != nil {
+				return nil, err
+			}
+			fields["file"] = map[string]any{"filename": part.FileName(), "size": len(audio), "seconds": seconds}
 			fileSeen = true
 			continue
 		}
