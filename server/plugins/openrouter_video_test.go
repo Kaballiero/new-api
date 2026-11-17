@@ -421,9 +421,9 @@ func TestOpenRouterVideoUpscaleCreativityThroughHostValidation(t *testing.T) {
 			var order openrouter.VideoPriceOrder
 			require.NoError(t, common.Unmarshal(body, &order))
 			assert.Equal(t, test.wantFact, order.UsageFacts()["creativity"])
-			cost, err := openrouter.EstimateVideo(c, info, body)
+			estimate, err := openrouter.EstimateVideo(c, info, body)
 			require.NoError(t, err)
-			assert.InDelta(t, test.wantDollar, cost, 1e-12)
+			assert.InDelta(t, test.wantDollar, estimate.USD, 1e-12)
 		})
 	}
 }

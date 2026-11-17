@@ -1451,16 +1451,17 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 	previous := *settings
 	t.Cleanup(func() { *settings = previous })
 	for _, tc := range []struct {
-		name, model, expression, sourceKey, errorText          string
-		minimum, want                                          float64
-		omitDuration, unknownTariff, sourceOnly, measuredMedia bool
+		name, model, expression, sourceKey, errorText, reserveSource string
+		minimum, want                                                float64
+		omitDuration, unknownTariff, sourceOnly, measuredMedia       bool
 	}{
-		{name: "measured source preserves cached POST and approximate provenance", model: "runway/aleph-2", expression: `tier("video", u("jobs") * 0.4)`, minimum: 1, want: 1, measuredMedia: true},
-		{name: "USD task units on Veo", model: "google/veo-3.1-lite", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
-		{name: "same contract on Runway", model: "runway/gen-4.5", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
-		{name: "upstream floor protects zero local price", expression: `tier("zero", u("jobs") * 0)`, want: 0.08},
-		{name: "independent minimum", expression: `tier("video", u("jobs") * 0.4)`, minimum: 0.6, want: 0.6},
-		{name: "selector uses final ID", sourceKey: "client-alias", expression: `invalid(`, want: 0.08},
+		{name: "measured source preserves cached POST and approximate provenance", model: "runway/aleph-2", expression: `tier("video", u("jobs") * 0.4)`, minimum: 1, want: 1, measuredMedia: true, reserveSource: "manual"},
+		{name: "USD task units on Veo", model: "google/veo-3.1-lite", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4, reserveSource: "configured_price"},
+		{name: "same contract on Runway", model: "runway/gen-4.5", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4, reserveSource: "configured_price"},
+		{name: "upstream floor protects zero local price", expression: `tier("zero", u("jobs") * 0)`, want: 0.08, reserveSource: "live"},
+		{name: "independent minimum", expression: `tier("video", u("jobs") * 0.4)`, minimum: 0.6, want: 0.6, reserveSource: "configured_price"},
+		{name: "selector uses final ID", sourceKey: "client-alias", expression: `invalid(`, want: 0.08, reserveSource: "live"},
+		{name: "channel reserve names the reserve it raised", sourceKey: "client-alias", expression: `invalid(`, minimum: 0.5, want: 0.5, reserveSource: "manual"},
 		{name: "missing quantity does not become zero", expression: `tier("video", u("source_seconds") ?? 0)`, errorText: "unavailable"},
 		{name: "omitted requested duration stays absent", expression: `tier("video", u("requested_seconds") * 0.1)`, omitDuration: true, errorText: "unavailable"},
 		{name: "token dimensions unavailable", expression: `tier("video", p * 2)`, errorText: "unavailable p"},
@@ -1540,6 +1541,7 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 			assert.Equal(t, tasksrecord.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
 			facts, ok := c.Get("openrouter_video_order_facts")
 			require.True(t, ok)
+			assert.Equal(t, tc.reserveSource, facts.(map[string]any)["reservation_source"])
 			if tc.measuredMedia {
 				assert.Equal(t, "reference_to_video", facts.(map[string]any)["generation_mode"])
 				assert.Equal(t, map[string]any{"source": "approximate_media", "model": tc.model, "usd": 1.0, "hard_bound": false}, facts.(map[string]any)["reservation"])

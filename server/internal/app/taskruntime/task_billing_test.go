@@ -2448,7 +2448,7 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				bc.SettlementMode = record.TaskSettlementOpenRouterCostV2
 				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: record.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
 				bc.TieredSnapshot = nil
-				bc.OpenRouterOrderFacts = map[string]any{"requested_seconds": float64(5), "images": float64(1)}
+				bc.OpenRouterOrderFacts = map[string]any{"requested_seconds": float64(5), "images": float64(1), "reservation_source": "catalog"}
 				if tc.invalidBasis {
 					bc.OpenRouterCost.Version = "unknown_version"
 				}
@@ -2535,6 +2535,9 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				assert.Contains(t, logs[0].Other, bc.SettlementMode)
 				assert.Contains(t, logs[0].Other, "admin_info")
 				assert.NotContains(t, logs[0].Other, "expr_b64")
+				if tc.v2 {
+					assert.Contains(t, logs[0].Other, `"openrouter_reservation_source":"catalog"`)
+				}
 			}
 			r := saved.PrivateData.Reconciliation
 			if tc.logFailure {
@@ -2693,6 +2696,28 @@ func TestOpenRouterCostReservationLogRequired(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The reservation log of an OpenRouter video task names the reserve source
+// its order facts carry.
+func TestOpenRouterCostReservationLogNamesReserveSource(t *testing.T) {
+	taskfixture.Truncate(t)
+	const id = 822
+	taskfixture.SeedUser(t, id, 9950)
+	taskfixture.SeedChannel(t, id)
+	task := taskfixture.MakeTask(id, id, 50, 0, BillingSourceWallet, 0)
+	bc := task.PrivateData.BillingContext
+	bc.SettlementMode = record.TaskSettlementOpenRouterCostV2
+	bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: record.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 1, QuotaPerUnit: 500000, EstimatedUSD: 0.0001}
+	bc.OpenRouterOrderFacts = map[string]any{"jobs": 1, "reservation_source": "catalog_stale"}
+	info := &relaycommon.RelayInfo{UserId: id, OriginModelName: "test-model", UsingGroup: "default", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id}, TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "GENERATE"}, PriceData: types.PriceData{Quota: 50, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}}
+	log := callLogTaskConsumption(t, info, task)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	admin, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "catalog_stale", admin["openrouter_reservation_source"])
+	assert.Equal(t, "catalog_stale", admin["openrouter_order_facts"].(map[string]any)["reservation_source"])
 }
 
 func TestOpenRouterCostPerTaskPolling(t *testing.T) {

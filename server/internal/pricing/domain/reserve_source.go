@@ -18,3 +18,24 @@ const (
 	// ReserveSourceManual is the approximate reserve of the channel model.
 	ReserveSourceManual ReserveSource = "manual"
 )
+
+// ModelTariff takes the tariff a model is priced from in the order of the
+// reserve sources: its catalog document while the catalog is fresh, then the
+// tariff live discovers, then a stale document when live fails. err is the
+// live failure: beside a stale document, or alone with an empty source when
+// the model has no document.
+func ModelTariff[T any](model string, catalog map[string]T, fresh bool, live interface{ Discover(string) (T, error) }) (T, ReserveSource, error) {
+	document, documented := catalog[model]
+	if documented && fresh {
+		return document, ReserveSourceCatalog, nil
+	}
+	tariff, err := live.Discover(model)
+	if err == nil {
+		return tariff, ReserveSourceLive, nil
+	}
+	if !documented {
+		var none T
+		return none, "", err
+	}
+	return document, ReserveSourceCatalogStale, err
+}

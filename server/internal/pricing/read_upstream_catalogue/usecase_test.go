@@ -49,14 +49,15 @@ func (store *fakeStore) Documents(_ context.Context, _ string, hashes []string) 
 }
 
 // fakeCatalog decodes a stored document into a document of its model id with
-// one eligible endpoint offer of provider tag "provider".
+// one eligible endpoint offer of provider tag "provider" and a /videos/models
+// entry.
 type fakeCatalog struct{ domain.CatalogReader }
 
 func (fakeCatalog) DecodeDocument(_ []byte, ref domain.SourceReference) (*domain.SourceDocument, error) {
 	tag := "provider"
 	return &domain.SourceDocument{ID: ref.ID, Modalities: domain.SourceModalities{Output: []string{"text"}}, Offers: []domain.SourceOffer{{
 		Scope: "endpoint", Provider: &domain.SourceProvider{Tag: &tag}, Eligibility: &domain.SourceEligibility{Eligible: true},
-		Facts: []byte(`{"pricing":{"prompt":"0.000001","completion":"0.000002"}}`),
+		Facts: []byte(`{"pricing":{"prompt":"0.000001","completion":"0.000002"},"raw":{"video_api":{"id":"` + ref.ID + `","pricing_skus":{"cents_per_second_output":"12"}}}}`),
 	}}}, nil
 }
 
@@ -99,10 +100,10 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	assert.True(t, cached)
 }
 
-// The tariffs of the published revision are published with the head
-// fetchedAt; a head that moved only its fetchedAt keeps the tariffs of the
-// revision, and a new revision replaces them without changing the previous
-// ones a reader may hold.
+// The endpoint and video tariffs of the published revision are published
+// with the head fetchedAt; a head that moved only its fetchedAt keeps the
+// tariffs of the revision, and a new revision replaces them without changing
+// the previous ones a reader may hold.
 func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
 	model := domain.CatalogModelReference{ID: "acme/model", Hash: domain.CatalogHash([]byte("acme/model"))}
 	next := domain.CatalogModelReference{ID: "acme/next", Hash: domain.CatalogHash([]byte("acme/next"))}
@@ -121,6 +122,7 @@ func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 11, 16, 10, 0, 0, 5e8, time.UTC), first.FetchedAt)
 	require.Contains(t, first.Models, model.ID)
 	assert.Equal(t, "provider", first.Models[model.ID].Endpoints[0].Tag)
+	assert.Equal(t, map[string]domain.VideoModelPricing{model.ID: {ID: model.ID, PricingSKUs: map[string]string{"cents_per_second_output": "12"}}}, first.Videos)
 
 	store.fetchedAt = "2026-11-17T10:00:00Z"
 	_, _, _, err = usecase.Execute(context.Background())
@@ -129,12 +131,15 @@ func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC), touched.FetchedAt)
 	assert.Equal(t, first.Revision, touched.Revision)
 	assert.Equal(t, first.Models[model.ID], touched.Models[model.ID])
+	assert.Equal(t, first.Videos, touched.Videos)
 
 	store.selection = domain.CatalogSelection{NormalizationVersion: "2", Models: []domain.CatalogModelReference{next}}
 	_, _, _, err = usecase.Execute(context.Background())
 	require.NoError(t, err)
 	assert.Contains(t, tariffs.Load().Models, next.ID)
 	assert.NotContains(t, tariffs.Load().Models, model.ID)
+	assert.Contains(t, tariffs.Load().Videos, next.ID)
+	assert.NotContains(t, tariffs.Load().Videos, model.ID)
 	assert.Contains(t, first.Models, model.ID)
 	assert.NotContains(t, first.Models, next.ID)
 
