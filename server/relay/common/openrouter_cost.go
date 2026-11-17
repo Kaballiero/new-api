@@ -33,8 +33,8 @@ type OpenRouterCostState struct {
 	// TaskID transfers financial ownership to the durable Task lifecycle.
 	TaskID string
 	// ChatText marks a plain text generation whose missing cost may be
-	// deferred to the durable Task through its generation identity: an OpenAI
-	// chat completion, or a Messages, Gemini or Responses stream. A Responses
+	// deferred to the durable Task through its generation identity: a chat
+	// completion in any client format, or a Responses stream. A Responses
 	// generation identity is the id of its response object.
 	ChatText bool
 	// ContentDelivered records that a forwarded stream event carried content,

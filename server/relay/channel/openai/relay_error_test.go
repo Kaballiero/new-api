@@ -579,6 +579,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	}
 	chatCompleted := `data: {"id":"` + generationID + `","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n"
 	chatNonstream := `{"id":"` + generationID + `","choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
+	chatNonstreamWithoutID := `{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
 	event := func(payload string) string { return "data: " + payload + "\n\n" }
 	created := event(`{"type":"response.created","response":{"id":"` + generationID + `","object":"response","status":"in_progress","output":[]}}`)
 	delta := func(text string) string {
@@ -610,7 +611,8 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		wantErr                string
 		delivered, undelivered string
 	}{
-		{name: "messages/nonstream keeps requiring terminal cost", format: messages, upstream: chatNonstream, wantErr: missingCost},
+		{name: "messages/nonstream without terminal cost", format: messages, upstream: chatNonstream, deferred: true, delivered: "partial"},
+		{name: "messages/nonstream without identity refunds", format: messages, upstream: chatNonstreamWithoutID, wantErr: missingCost},
 		{name: "messages/abort after content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "messages/abort after message_start with content buffered", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"alpha"}`) + chunk(`{"content":"beta"}`),
@@ -619,7 +621,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		{name: "messages/content in the last chunk without terminal cost", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "messages/completed", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
-		{name: "gemini/nonstream keeps requiring terminal cost", format: gemini, upstream: chatNonstream, wantErr: missingCost},
+		{name: "gemini/nonstream without terminal cost", format: gemini, upstream: chatNonstream, deferred: true, delivered: "partial"},
 		{name: "gemini/abort after content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
@@ -666,7 +668,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 			response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(tc.format.body))
 			require.NoError(t, err)
-			assert.Equal(t, tc.stream, info.OpenRouterCost.ChatText, "Messages, Gemini and Responses defer a missing cost only for streams")
+			assert.Equal(t, tc.stream || tc.format != responses, info.OpenRouterCost.ChatText, "Responses defers a missing cost only for streams")
 			hold := billing.reserved
 			if tc.disconnectAt != "" {
 				c.Writer = &cancelAfterWriter{ResponseWriter: c.Writer, needle: tc.disconnectAt, cancel: cancel}
