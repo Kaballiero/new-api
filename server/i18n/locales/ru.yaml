@@ -644,6 +644,8 @@ tasks.timeout: "Время ожидания задачи истекло ({{.Minu
 tasks.legacy_timeout: "Время ожидания задачи истекло (задача старой системы; автоматического возврата нет, обратитесь к администратору)"
 tasks.mj_timeout: "Время ожидания задачи провайдера истекло (более 1 часа)"
 tasks.mj_failure: "Не удалось создать изображение"
+tasks.sync_manual_holds_subject: "OpenRouter: резервы ждут ручной сверки"
+tasks.sync_manual_holds: "Новых резервов OpenRouter в ручной сверке: {{.Count}}, всего удержано {{.Reserved}}. Резервы удерживаются, пока root не разберёт каждый в деталях задачи в журнале задач.\n\nРезервы (показано {{.Shown}}/{{.Count}}):"
 
 # Batch messages: Chinese locales preserve the previous response bytes.
 batch.batch_busy: "Сверка пакетной задачи уже выполняется"

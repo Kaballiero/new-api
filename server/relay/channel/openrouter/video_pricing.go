@@ -3,31 +3,22 @@ package openrouter
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
-	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_video_reserve"
+	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 )
-
-type VideoModelPricing struct {
-	ID                    string            `json:"id"`
-	PricingSKUs           map[string]string `json:"pricing_skus"`
-	SupportedDurations    []int             `json:"supported_durations"`
-	SupportedSizes        []string          `json:"supported_sizes"`
-	SupportedResolutions  []string          `json:"supported_resolutions"`
-	SupportedAspectRatios []string          `json:"supported_aspect_ratios"`
-}
 
 type VideoPriceOrder struct {
 	Model         string   `json:"model"`
@@ -95,71 +86,57 @@ func (order VideoPriceOrder) UsageFacts() map[string]any {
 	return facts
 }
 
-// EstimateVideo prices the descriptor cached by plugin validation, using fresh
-// operation metadata. It never fetches a client media URL or changes the POST.
-func EstimateVideo(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (float64, error) {
+// EstimateVideo prices the descriptor cached by plugin validation from the
+// video tariff of its model (estimate_upstream_video_reserve: the fresh
+// upstream catalog, otherwise the live /videos/models). It never fetches a
+// client media URL or changes the POST.
+func EstimateVideo(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (estimate_upstream_video_reserve.Estimate, error) {
 	var order VideoPriceOrder
 	if err := common.Unmarshal(body, &order); err != nil || order.Model != info.UpstreamModelName {
-		return 0, errors.New("OpenRouter reservation unavailable: invalid mapped video model")
+		return estimate_upstream_video_reserve.Estimate{}, errors.New("OpenRouter reservation unavailable: invalid mapped video model")
 	}
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/videos/models", nil)
+	estimate, err := pricingruntime.EstimateUpstreamVideoReserve().Execute(estimate_upstream_video_reserve.Input{
+		Model:          order.Model,
+		ChannelBaseURL: info.ChannelBaseUrl,
+		Live:           liveVideoTariffs{c: c, info: info},
+		Order:          videoOrder{order: order, body: body, info: info},
+	})
 	if err != nil {
-		return 0, errors.New("OpenRouter reservation unavailable: invalid video discovery URL")
+		return estimate_upstream_video_reserve.Estimate{}, err
 	}
-	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
-	overrides, err := channel.ResolveHeaderOverride(info, c)
+	if estimate.Source == pricingdomain.ReserveSourceCatalogStale {
+		logger.LogWarn(c, "OpenRouter video reserve priced from a stale upstream catalog: model=%s", order.Model)
+	}
+	return estimate, nil
+}
+
+// videoOrder is the order port of estimate_upstream_video_reserve: the
+// prepared descriptor priced by the documented SKU rules (EstimateVideoOrder),
+// or by its inline source media under the channel reserve of the model.
+type videoOrder struct {
+	order VideoPriceOrder
+	body  []byte
+	info  *relaycommon.RelayInfo
+}
+
+func (o videoOrder) Price(model pricingdomain.VideoModelPricing) (float64, error) {
+	if !SourceMediaVideo(o.order.Model) {
+		return EstimateVideoOrder(model, o.order)
+	}
+	estimate, err := estimateSourceMediaVideo(model, o.body)
 	if err != nil {
 		return 0, err
 	}
-	for key, value := range overrides {
-		req.Header.Set(key, value)
+	// HeyGen requires a public audio URL or an uploaded asset. OR's
+	// normalized audio reference schema does not prove inline upload.
+	if o.order.Model == "heygen/avatar-iv" {
+		return 0, errors.New("OpenRouter Avatar inline audio transport is unconfirmed; source media remains disabled")
 	}
-	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
-	if err != nil {
-		return 0, errors.New("OpenRouter reservation unavailable: video discovery transport")
+	reserve := o.info.ChannelSetting.OpenRouterReserveUSD(o.order.Model)
+	if reserve == nil || *reserve <= 0 || math.IsNaN(*reserve) || math.IsInf(*reserve, 0) {
+		return 0, errors.New("OpenRouter source media requires an explicit approximate openrouter_model_reserve_usd; output rounding is not a proven spending bound")
 	}
-	metadataClient := *client
-	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := metadataClient.Do(req)
-	if err != nil {
-		return 0, errors.New("OpenRouter reservation unavailable: video discovery failed")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("OpenRouter reservation unavailable: video discovery HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
-	if err != nil || len(data) > 4<<20 {
-		return 0, errors.New("OpenRouter reservation unavailable: invalid video discovery response")
-	}
-	var catalog struct {
-		Data []VideoModelPricing `json:"data"`
-	}
-	if err := common.Unmarshal(data, &catalog); err != nil {
-		return 0, errors.New("OpenRouter reservation unavailable: invalid video catalog")
-	}
-	for _, model := range catalog.Data {
-		if model.ID == order.Model {
-			if SourceMediaVideo(order.Model) {
-				estimate, err := estimateSourceMediaVideo(model, body)
-				if err != nil {
-					return 0, err
-				}
-				// HeyGen requires a public audio URL or an uploaded asset. OR's
-				// normalized audio reference schema does not prove inline upload.
-				if order.Model == "heygen/avatar-iv" {
-					return 0, errors.New("OpenRouter Avatar inline audio transport is unconfirmed; source media remains disabled")
-				}
-				reserve := info.ChannelSetting.OpenRouterReserveUSD(order.Model)
-				if reserve == nil || *reserve <= 0 || math.IsNaN(*reserve) || math.IsInf(*reserve, 0) {
-					return 0, errors.New("OpenRouter source media requires an explicit approximate openrouter_model_reserve_usd; output rounding is not a proven spending bound")
-				}
-				return max(estimate, *reserve), nil
-			}
-			return EstimateVideoOrder(model, order)
-		}
-	}
-	return 0, errors.New("OpenRouter reservation unavailable: model absent from fresh video catalog")
+	return max(estimate, *reserve), nil
 }
 
 var videoSKUVariant = regexp.MustCompile(`^(?:(text_to_video|image_to_video)_)?(duration_seconds|long_duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation)(?:_(with_audio|without_audio))?(?:_(360p|480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?$`)
@@ -170,7 +147,7 @@ const heyGenLongDurationThresholdSeconds = 15
 
 // EstimateVideoOrder implements only documented monetary SKU families. Unknown
 // quantities and SKU units fail admission instead of falling back to a tariff.
-func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64, error) {
+func EstimateVideoOrder(model pricingdomain.VideoModelPricing, order VideoPriceOrder) (float64, error) {
 	fail := func(reason string) (float64, error) {
 		return 0, fmt.Errorf("OpenRouter reservation unavailable: %s", reason)
 	}

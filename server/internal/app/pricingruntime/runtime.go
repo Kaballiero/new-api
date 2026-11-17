@@ -12,6 +12,7 @@ import (
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_reserve"
+	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_video_reserve"
 	"github.com/QuantumNous/new-api/internal/pricing/read_catalogue"
 )
 
@@ -43,6 +44,12 @@ func NewCatalogPersistence() catalogrecord.Store {
 // from the upstream catalog tariffs at most CatalogMaxAge old.
 var EstimateUpstreamReserve = sync.OnceValue(func() estimate_upstream_reserve.Usecase {
 	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities(), &UpstreamCatalogTariffs, time.Now, CatalogMaxAge)
+})
+
+// EstimateUpstreamVideoReserve prices the OpenRouter reserve of a video order
+// from the upstream catalog video tariffs at most CatalogMaxAge old.
+var EstimateUpstreamVideoReserve = sync.OnceValue(func() estimate_upstream_video_reserve.Usecase {
+	return estimate_upstream_video_reserve.NewUsecase(&UpstreamCatalogTariffs, time.Now, CatalogMaxAge)
 })
 
 // CatalogMaxAge is PRICING_CATALOG_MAX_AGE_HOURS, read once: 1 to 8760 hours,

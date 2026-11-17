@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +14,8 @@ import (
 )
 
 // catalogV13Documents are real catalog documents of normalization version 13
-// trimmed to the fields the tariffs read, by model id.
+// trimmed to the fields the tariffs read, by model id: four text and
+// embeddings documents and two video documents.
 func catalogV13Documents(t *testing.T, deps Capabilities) map[string]*SourceDocument {
 	paths, err := filepath.Glob("testdata/catalog_v13/*.json")
 	require.NoError(t, err)
@@ -25,7 +27,7 @@ func catalogV13Documents(t *testing.T, deps Capabilities) map[string]*SourceDocu
 		require.NoError(t, deps.Codec.Unmarshal(raw, &document))
 		documents[document.ID] = &document
 	}
-	require.Len(t, documents, 4)
+	require.Len(t, documents, 6)
 	return documents
 }
 
@@ -100,6 +102,52 @@ func TestCatalogEndpointTariffsMapEligibleEndpointOffers(t *testing.T) {
 	})
 }
 
+// The video tariffs of a document are the /videos/models entry of its
+// eligible endpoint offer as OpenRouter published it; any other shape leaves
+// the model to live pricing.
+func TestCatalogVideoTariffsMapTheEligibleVideoEntry(t *testing.T) {
+	deps := catalogTestCapabilities()
+	documents := catalogV13Documents(t, deps)
+	assert.Equal(t, map[string]VideoModelPricing{
+		"alibaba/wan-2.6": {
+			ID: "alibaba/wan-2.6",
+			PricingSKUs: map[string]string{
+				"image_to_video_duration_seconds_1080p": "0.15", "image_to_video_duration_seconds_720p": "0.10",
+				"text_to_video_duration_seconds_1080p": "0.12", "text_to_video_duration_seconds_480p": "0.04", "text_to_video_duration_seconds_720p": "0.08",
+			},
+			SupportedDurations: []int{10, 5}, SupportedSizes: []string{"1080x1920", "1280x720", "1920x1080", "720x1280"},
+			SupportedResolutions: []string{"1080p", "720p"}, SupportedAspectRatios: []string{"16:9", "9:16"},
+		},
+		"runway/gen-4.5": {
+			ID: "runway/gen-4.5", PricingSKUs: map[string]string{"cents_per_second_output": "12"},
+			SupportedDurations: []int{10, 2, 3, 4, 5, 6, 7, 8, 9}, SupportedSizes: []string{"1280x720", "720x1280"},
+			SupportedResolutions: []string{"720p"}, SupportedAspectRatios: []string{"16:9", "9:16"},
+		},
+	}, CatalogVideoTariffs(deps, documents))
+
+	for name, damage := range map[string]func(*SourceDocument){
+		"ineligible offer": func(document *SourceDocument) {
+			document.Offers[0].Eligibility = &SourceEligibility{Eligible: false}
+		},
+		"two entries": func(document *SourceDocument) {
+			document.Offers = append(document.Offers, document.Offers[0])
+		},
+		"malformed entry": func(document *SourceDocument) {
+			document.Offers[0].Facts = json.RawMessage(`{"raw":{"video_api":{"id":"runway/gen-4.5","pricing_skus":{"cents_per_second_output":12}}}}`)
+		},
+		"entry of another model": func(document *SourceDocument) {
+			document.Offers[0].Facts = json.RawMessage(`{"raw":{"video_api":{"id":"runway/gen-4","pricing_skus":{"cents_per_second_output":"12"}}}}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := *catalogV13Documents(t, deps)["runway/gen-4.5"]
+			document.Offers = slices.Clone(document.Offers)
+			damage(&document)
+			assert.Empty(t, CatalogVideoTariffs(deps, map[string]*SourceDocument{document.ID: &document}))
+		})
+	}
+}
+
 // The service tier the gateway reads from an endpoint tag, as for the live
 // endpoints, is the service tier the catalog variant of the offer declares.
 func TestCatalogEndpointTagServiceTierMatchesVariant(t *testing.T) {
@@ -138,5 +186,49 @@ func TestUpstreamTariffModel(t *testing.T) {
 		{"anthropic/claude-sonnet-5.5:nitro", true, "anthropic/claude-sonnet-5.5:batch"},
 	} {
 		assert.Equal(t, tc.want, UpstreamTariffModel(tc.model, tc.batch), tc.model)
+	}
+}
+
+// liveTariffStub discovers one tariff or fails, counting its calls.
+type liveTariffStub struct {
+	tariff string
+	err    error
+	calls  int
+}
+
+func (live *liveTariffStub) Discover(string) (string, error) {
+	live.calls++
+	return live.tariff, live.err
+}
+
+// A model takes its fresh document without asking live, then the live tariff,
+// then its stale document beside the live failure; without a document the
+// live failure is returned.
+func TestModelTariffSourceOrder(t *testing.T) {
+	liveDown := errors.New("live down")
+	for _, tc := range []struct {
+		name       string
+		catalog    map[string]string
+		fresh      bool
+		liveErr    error
+		want       string
+		wantSource ReserveSource
+		wantErr    error
+		wantCalls  int
+	}{
+		{"fresh document", map[string]string{"m": "document"}, true, nil, "document", ReserveSourceCatalog, nil, 0},
+		{"stale document and live", map[string]string{"m": "document"}, false, nil, "live", ReserveSourceLive, nil, 1},
+		{"no document and live", nil, true, nil, "live", ReserveSourceLive, nil, 1},
+		{"stale document and live down", map[string]string{"m": "document"}, false, liveDown, "document", ReserveSourceCatalogStale, liveDown, 1},
+		{"no document and live down", map[string]string{"other": "document"}, true, liveDown, "", "", liveDown, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := &liveTariffStub{tariff: "live", err: tc.liveErr}
+			tariff, source, err := ModelTariff("m", tc.catalog, tc.fresh, live)
+			assert.Equal(t, tc.want, tariff)
+			assert.Equal(t, tc.wantSource, source)
+			assert.Equal(t, tc.wantErr, err)
+			assert.Equal(t, tc.wantCalls, live.calls)
+		})
 	}
 }

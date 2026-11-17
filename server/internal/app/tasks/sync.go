@@ -9,6 +9,9 @@ import (
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	httpadapter "github.com/QuantumNous/new-api/internal/adapter/http/tasksync"
 	runtime "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/channelruntime"
+	"github.com/QuantumNous/new-api/internal/app/notifications"
+	"github.com/QuantumNous/new-api/internal/tasks/alert_sync_reconciliation"
 	"github.com/QuantumNous/new-api/internal/tasks/begin_sync_task"
 	"github.com/QuantumNous/new-api/internal/tasks/commit_sync_reservation"
 	"github.com/QuantumNous/new-api/internal/tasks/complete_sync_task"
@@ -36,6 +39,7 @@ type Reconciler struct {
 	fail       fail_sync_task.Usecase
 	poll       reconcile_sync_task.Usecase
 	release    release_unidentified_sync_holds.Usecase
+	alert      alert_sync_reconciliation.Usecase
 }
 
 func NewReconciler() *Reconciler {
@@ -56,6 +60,7 @@ func NewReconciler() *Reconciler {
 		fail:       fail_sync_task.NewUsecase(store, projection, billing, time.Now),
 		poll:       reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
 		release:    release_unidentified_sync_holds.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
+		alert:      alert_sync_reconciliation.NewUsecase(store, reconciliationAlerts{}, time.Now),
 	}
 }
 func (r *Reconciler) Begin(ctx context.Context, input begin_sync_task.Input) (*domain.Task, error) {
@@ -94,4 +99,16 @@ func (r *Reconciler) Hold(ctx context.Context, input hold_sync_task.Input) error
 }
 func (r *Reconciler) ReleaseUnidentified(ctx context.Context) error {
 	return r.release.Execute(ctx)
+}
+func (r *Reconciler) AlertManualHolds(ctx context.Context) error {
+	return r.alert.Execute(ctx)
+}
+
+// reconciliationAlerts sends the manual hold summary to the Telegram chat in
+// the root user's language, like the upstream catalog alerts.
+type reconciliationAlerts struct{}
+
+func (reconciliationAlerts) ManualHolds(holds []*domain.Task) error {
+	subject, content := runtime.ManualHoldsNotification(channelruntime.RootUserLanguage(), holds)
+	return notifications.TelegramChat(subject, content)
 }

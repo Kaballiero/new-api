@@ -154,6 +154,9 @@ type OpenRouterSyncTask struct {
 	// LastLookupClass is the outcome class of the last cost lookup attempt.
 	LastLookupClass  string                          `json:"last_lookup_class,omitempty"`
 	OperatorDecision *OpenRouterSyncOperatorDecision `json:"operator_decision,omitempty"`
+	// AlertedAt is when the manual hold was reported to the operators; zero
+	// until it is reported.
+	AlertedAt int64 `json:"alerted_at,omitempty"`
 }
 
 // RecordResultReason keeps the first result-path reason; later failures of

@@ -107,7 +107,7 @@ func (u Usecase) Execute(channelID int) (Output, error) {
 	var catalog map[string]domain.NativeEndpointResponse
 	if published := u.catalog.Load(); published != nil {
 		out.FetchedAt = &published.FetchedAt
-		out.CatalogStale = u.now().After(published.FetchedAt.Add(u.maxAge()))
+		out.CatalogStale = !published.FreshAt(u.now(), u.maxAge())
 		if !out.CatalogStale && domain.IsOpenRouterCatalogBaseURL(channel.GetBaseURL()) {
 			catalog = published.Models
 		}

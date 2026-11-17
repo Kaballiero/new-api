@@ -24,6 +24,7 @@
 | hold_sync_task | Сохранение резерва за недоставленный chat-result до ручного решения |
 | apply_sync_operator_decision | POST /api/task/:task_id/openrouter-sync/release и /openrouter-sync/settle; RootAuth, подтверждённая нулевая/явная стоимость и аудит каждой попытки |
 | release_unidentified_sync_holds | Фоновый прогон в async_task_poll (master-only): через час после submit_time освобождает по нулевой стоимости hold с неизвестным исходом отправки и без generation id, если он доступен release оператора. Hold, который не подходит или не может быть рассчитан, один раз помечается `auto_release_unavailable` и остаётся root; если после записи решения не прошёл расчёт, root повторяет тот же release (`cost_usd=0`) |
+| alert_sync_reconciliation | Фоновый прогон в async_task_poll (master-only) после release_unidentified_sync_holds: одной сводкой в Telegram-чат (tg-gateway, язык root) сообщает о hold в ручной сверке, о которых ещё не сообщали, и ставит им `alerted_at` в private JSON. Hold с `submission_outcome_unknown` ждёт автоснятия и попадает в сводку только после `auto_release_unavailable`. Недоставленная сводка повторяется в следующем прогоне. Ещё 2 минуты после перехода hold в ручную сверку async_task_poll планируется даже без незавершённых задач |
 | poll_tasks / poll_midjourney_tasks | Один отменяемый прогон, без собственного scheduler/ticker |
 
 Router и порядок middleware сохранены. Dashboard допускает прежние session/PAT; API-ключи не становятся
@@ -35,7 +36,7 @@ Router и порядок middleware сохранены. Dashboard допуска
 
 Records/codecs и SQL — internal/adapter/gorm/tasks. model/task.go и model/midjourney.go содержат только
 same-name aliases. Таблицы, миграции и индексы прежние; private JSON дополнен первой причиной результата,
-классом последнего lookup и необратимым решением оператора. Чистые domain
+классом последнего lookup, необратимым решением оператора и отметкой о сводке ручных hold. Чистые domain
 facts отделены от records; технические conversion сохраняют raw FX/group presence, null и malformed
 history, а также ссылки на state при обновлении revision. Неполная современная история не становится legacy.
 

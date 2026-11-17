@@ -23,8 +23,8 @@ type DocumentCache interface {
 	Retain(sourceID string, hashes []string)
 }
 
-// Tariffs keeps the endpoint tariffs of the published revision for the
-// reserve estimates; a publication replaces them whole.
+// Tariffs keeps the endpoint and video tariffs of the published revision for
+// the reserve estimates; a publication replaces them whole.
 type Tariffs interface {
 	Load() *domain.UpstreamCatalogTariffs
 	Store(*domain.UpstreamCatalogTariffs)
@@ -58,7 +58,8 @@ func NewUsecase(deps domain.Capabilities, store Store, documents DocumentCache, 
 }
 
 // Execute reads the documents of the published revision and publishes their
-// endpoint tariffs (domain.CatalogEndpointTariffs) with the head fetchedAt. A
+// endpoint and video tariffs (domain.CatalogEndpointTariffs,
+// domain.CatalogVideoTariffs) with the head fetchedAt. A
 // revision is read and mapped once: for a head that moved only its fetchedAt,
 // only the head is read and the documents read last are returned. The
 // published tariffs are loaded before the head and replaced only if no other
@@ -121,6 +122,9 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 		}
 	}
 	u.revisions.Store(&Revision{Revision: head.Revision, Documents: models, Hashes: byID})
-	u.tariffs.CompareAndSwap(published, &domain.UpstreamCatalogTariffs{Revision: head.Revision, FetchedAt: fetchedAt, Models: domain.CatalogEndpointTariffs(u.deps, models)})
+	u.tariffs.CompareAndSwap(published, &domain.UpstreamCatalogTariffs{
+		Revision: head.Revision, FetchedAt: fetchedAt,
+		Models: domain.CatalogEndpointTariffs(u.deps, models), Videos: domain.CatalogVideoTariffs(u.deps, models),
+	})
 	return models, byID, true, nil
 }

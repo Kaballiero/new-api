@@ -34,6 +34,19 @@ func (s SyncStore) ParkUnknownSubmissionHold(task *domain.Task) error {
 	return s.Store.ParkUnknownSubmissionHold(task.ID)
 }
 
+func (s SyncStore) ManualHolds(afterID int64, limit int) ([]*domain.Task, error) {
+	rows, err := s.Store.GetManualHolds(afterID, limit)
+	tasks := make([]*domain.Task, len(rows))
+	for i := range rows {
+		tasks[i] = record.ToDomain(rows[i])
+	}
+	return tasks, err
+}
+
+func (s SyncStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
+	return s.Store.MarkManualHoldAlerted(task.ID, alertedAt)
+}
+
 type SyncProjection struct{}
 
 func (SyncProjection) Project(task *domain.Task) {

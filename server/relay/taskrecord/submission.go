@@ -84,6 +84,9 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		if bc.OpenRouterCost != nil {
 			other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
 			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+			if source, ok := bc.OpenRouterOrderFacts["reservation_source"]; ok {
+				other.SetAdmin("openrouter_reservation_source", source)
+			}
 		}
 		logErr = usagestorage.Writer().RecordTaskBillingLogWithError(usageadapter.RecordTaskBillingLogParams{
 			UserId: info.UserId, LogType: usagerecord.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
@@ -149,7 +152,11 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 	}
 	if relayInfo.OpenRouterCost != nil {
 		input.CostBasis = record.ToDomainBasis(&relayInfo.OpenRouterCost.Basis)
-		if c != nil {
+		if relayInfo.NativeImage != nil {
+			// A native image order carries only its reserve source, as video
+			// order facts do.
+			input.OrderFacts = map[string]any{"reservation_source": string(relayInfo.OpenRouterCost.ReserveSource)}
+		} else if c != nil {
 			if value, ok := c.Get("openrouter_video_order_facts"); ok {
 				input.OrderFacts, _ = value.(map[string]any)
 			}
