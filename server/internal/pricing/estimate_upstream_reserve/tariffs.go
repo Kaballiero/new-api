@@ -1,8 +1,8 @@
 package estimate_upstream_reserve
 
 import (
+	"errors"
 	"slices"
-	"time"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
@@ -26,17 +26,51 @@ type modelTariffs struct {
 	// source is ReserveSourceCatalog, ReserveSourceCatalogStale or
 	// ReserveSourceLive.
 	source domain.ReserveSource
+	// liveUnavailable marks a catalog tariff whose live check failed.
+	liveUnavailable bool
+}
+
+// checksLive tells whether the tariff is a fresh catalog document not checked
+// against live yet.
+func (tariff modelTariffs) checksLive() bool {
+	return tariff.source == domain.ReserveSourceCatalog && !tariff.liveUnavailable
+}
+
+// missesCatalogPrice tells whether err is a price missing from a tariff that
+// checks live.
+func (tariff modelTariffs) missesCatalogPrice(err error) bool {
+	return tariff.checksLive() && errors.Is(err, domain.ErrEndpointPriceMissing)
+}
+
+// liveRecheck asks Execute to price a catalog tariff model from live.
+type liveRecheck struct{ model string }
+
+func (recheck liveRecheck) Error() string {
+	return "OpenRouter catalog tariff needs a live check: " + recheck.model
 }
 
 // requestTariffs are the tariffs of the routable models of a request by tariff
 // model (domain.UpstreamTariffModel).
 type requestTariffs map[string]modelTariffs
 
-// fromCatalog tells whether a routable model is priced from a catalog
-// document.
-func (tariffs requestTariffs) fromCatalog() bool {
+// recheckLive replaces the catalog tariff of a model with its live tariff.
+// When live fails, the document stays and prices the model without a live
+// check.
+func (tariffs requestTariffs) recheckLive(live LiveTariffs, model string) {
+	response, err := live.Discover(model)
+	if err != nil {
+		tariff := tariffs[model]
+		tariff.liveUnavailable = true
+		tariffs[model] = tariff
+		return
+	}
+	tariffs[model] = modelTariffs{response: response, source: domain.ReserveSourceLive}
+}
+
+// hasStaleDocument tells whether a stale catalog document prices a model.
+func (tariffs requestTariffs) hasStaleDocument() bool {
 	for _, tariff := range tariffs {
-		if tariff.source != domain.ReserveSourceLive {
+		if tariff.source == domain.ReserveSourceCatalogStale {
 			return true
 		}
 	}
@@ -48,19 +82,22 @@ func (tariffs requestTariffs) fromCatalog() bool {
 var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogStale, domain.ReserveSourceLive, domain.ReserveSourceCatalog}
 
 // loadTariffs takes the tariffs of every routable model once per tariff model.
-// A channel on the official OpenRouter API takes the catalog document of the
-// model while the catalog data is at most maxAgeHours old: its fetchedAt is
-// the time the data last changed, so a catalog nobody refreshed goes stale and
-// the reserve falls back to live. Otherwise the model is discovered live; when
+// The catalog prices text generation and embeddings, Batch included, on a
+// channel on the official OpenRouter API; rerank, decisions, audio and image
+// output stay live. Such a model takes the catalog document of its tariff
+// model while the catalog data is at most maxAge old: its fetchedAt is the
+// time the data last changed, so a catalog nobody refreshed goes stale and the
+// reserve falls back to live. Otherwise the model is discovered live; when
 // live fails, a stale document of the model is taken, and without one the live
 // error is returned.
 func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	published := u.catalog.Load()
+	liveOperation := in.Rerank || in.Decisions || in.Audio || in.ImageOutput || in.ImageReserveOnly
 	var catalog map[string]domain.NativeEndpointResponse
 	fresh := false
-	if published != nil && domain.IsOpenRouterCatalogBaseURL(in.ChannelBaseURL) {
+	if published != nil && !liveOperation && domain.IsOpenRouterCatalogBaseURL(in.ChannelBaseURL) {
 		catalog = published.Models
-		fresh = !u.now().After(published.FetchedAt.Add(time.Duration(u.maxAgeHours()) * time.Hour))
+		fresh = !u.now().After(published.FetchedAt.Add(u.maxAge()))
 	}
 	tariffs := make(requestTariffs, len(in.Models))
 	for _, model := range in.Models {
@@ -84,28 +121,6 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 		tariffs[tariffModel] = modelTariffs{response: document, source: domain.ReserveSourceCatalogStale}
 	}
 	return tariffs, nil
-}
-
-// recheckLive replaces the fresh catalog tariffs with live ones. It fails when
-// live fails or a model has a stale document: live already failed for it.
-func (tariffs requestTariffs) recheckLive(live LiveTariffs) (requestTariffs, bool) {
-	for _, tariff := range tariffs {
-		if tariff.source == domain.ReserveSourceCatalogStale {
-			return nil, false
-		}
-	}
-	rechecked := make(requestTariffs, len(tariffs))
-	for model, tariff := range tariffs {
-		if tariff.source == domain.ReserveSourceCatalog {
-			response, err := live.Discover(model)
-			if err != nil {
-				return nil, false
-			}
-			tariff = modelTariffs{response: response, source: domain.ReserveSourceLive}
-		}
-		rechecked[model] = tariff
-	}
-	return rechecked, true
 }
 
 // reserveSource names what the reserve of a request is priced from: the

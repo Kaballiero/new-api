@@ -81,52 +81,51 @@ type Estimate struct {
 	IncludesAddOnReserve bool
 	// Source is what the reserve is priced from (reserveSource).
 	Source domain.ReserveSource
+	// StaleCatalog reports that a stale catalog document priced a model,
+	// whatever the Source.
+	StaleCatalog bool
 }
 
 type Usecase struct {
 	deps    domain.Capabilities
 	catalog CatalogTariffs
 	now     func() time.Time
-	// maxAgeHours bounds the age of the catalog data a reserve is priced from.
-	maxAgeHours func() int
+	// maxAge bounds the age of the catalog data a reserve is priced from.
+	maxAge func() time.Duration
 }
 
-func NewUsecase(deps domain.Capabilities, catalog CatalogTariffs, now func() time.Time, maxAgeHours func() int) Usecase {
-	return Usecase{deps: deps, catalog: catalog, now: now, maxAgeHours: maxAgeHours}
+func NewUsecase(deps domain.Capabilities, catalog CatalogTariffs, now func() time.Time, maxAge func() time.Duration) Usecase {
+	return Usecase{deps: deps, catalog: catalog, now: now, maxAge: maxAge}
 }
 
 // Execute prices the reserve from the endpoint tariffs of every routable model
-// (loadTariffs). A catalog price that is missing, or filters that leave no
-// endpoint, are checked against live, so that the client gets the result of
-// live pricing. When live fails, a missing price is priced from the document
-// as live would be, with the local cover, and an empty pool keeps its error.
+// (loadTariffs). A model priced from the fresh catalog is checked against live
+// when a price it needs is missing, when no endpoint of it passes the filters
+// or when provider.require_parameters excludes one of them: it is priced again
+// from live, so that the client gets the result of live pricing. When live
+// fails, the model stays priced from the document as live would price it,
+// with the local cover of a missing price.
 func (u Usecase) Execute(in Input) (Estimate, error) {
 	tariffs, err := u.loadTariffs(in)
 	if err != nil {
 		return Estimate{}, err
 	}
-	estimate, err := u.price(in, tariffs, true)
-	priceMissing := errors.Is(err, domain.ErrEndpointPriceMissing)
-	recheckable := priceMissing || errors.Is(err, domain.ErrNoCompatibleEndpoint)
-	if !recheckable || !tariffs.fromCatalog() {
-		return estimate, err
+	for {
+		estimate, err := u.price(in, tariffs)
+		var recheck liveRecheck
+		if !errors.As(err, &recheck) {
+			return estimate, err
+		}
+		tariffs.recheckLive(in.Live, recheck.model)
 	}
-	live, checked := tariffs.recheckLive(in.Live)
-	if checked {
-		return u.price(in, live, false)
-	}
-	if priceMissing {
-		return u.price(in, tariffs, false)
-	}
-	return Estimate{}, err
 }
 
 // price takes the complete maximum over the eligible endpoints of every
 // routable model. Price strings are USD per token/request/image. An
 // unavailable monetary estimate is a *domain.EstimateUnavailableError; with
-// an add-on reserve it is returned at the first such endpoint. When strict, a
-// missing price of a catalog tariff is returned before any cover.
-func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Estimate, error) {
+// an add-on reserve it is returned at the first such endpoint. A catalog
+// tariff to check against live (modelTariffs.checksLive) is a liveRecheck.
+func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error) {
 	type reservationCandidate struct {
 		tariff       domain.NativePricedEndpoint
 		output       int
@@ -150,7 +149,8 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 		if strings.HasSuffix(model, ":online") {
 			return Estimate{}, errors.New("OpenRouter online routing includes unpriced hosted search")
 		}
-		modelTariff := tariffsByModel[domain.UpstreamTariffModel(model, in.Batch)]
+		tariffModel := domain.UpstreamTariffModel(model, in.Batch)
+		modelTariff := tariffsByModel[tariffModel]
 		endpoints, declared := modelTariff.response.Endpoints, modelTariff.response.OutputModalities
 		if in.Batch {
 			// Batch does not check the output modalities its :batch variant
@@ -185,7 +185,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 		}
 		var candidates []reservationCandidate
 		var flexTariffs []domain.NativePricedEndpoint
-		flexPriceUnknown := false
+		flexPriceUnknown, parametersExcluded := false, false
 		for _, endpoint := range endpoints {
 			tag := strings.ToLower(endpoint.Tag)
 			if base, ok := strings.CutSuffix(tag, "/priority"); ok {
@@ -293,6 +293,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 				}
 				if len(unsupported) > 0 {
 					unsupportedParameters = append(unsupportedParameters, unsupported...)
+					parametersExcluded = true
 					continue
 				}
 				parametersSupported = true
@@ -307,6 +308,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 			}
 			tariffs, pricingErr := u.endpointPricingTariffs(endpoint, in.PromptTokens, in.MaxTokensLimit)
 			if pricingErr != nil {
+				if modelTariff.missesCatalogPrice(pricingErr) {
+					return Estimate{}, liveRecheck{model: tariffModel}
+				}
 				if len(in.Provider.MaxPrice) > 0 {
 					return Estimate{}, pricingErr
 				}
@@ -318,6 +322,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 				excluded := false
 				for key, raw := range in.Provider.MaxPrice {
 					rate, err := domain.ReadEndpointRate(u.deps, tariff.Pricing[key])
+					if modelTariff.missesCatalogPrice(err) {
+						return Estimate{}, liveRecheck{model: tariffModel}
+					}
 					if err != nil {
 						return Estimate{}, err
 					}
@@ -345,6 +352,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 				}
 			}
 		}
+		if modelTariff.checksLive() && (len(candidates) == 0 || parametersExcluded) {
+			return Estimate{}, liveRecheck{model: tariffModel}
+		}
 		// Only flex tariffs surviving the same route, capability, limit and
 		// max-price checks may constrain the default fallback reservation.
 		for _, candidate := range candidates {
@@ -371,6 +381,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
 				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
 					searchRate, err := domain.ReadEndpointRate(u.deps, raw)
+					if modelTariff.missesCatalogPrice(err) {
+						return Estimate{}, liveRecheck{model: tariffModel}
+					}
 					if err != nil {
 						return Estimate{}, err
 					}
@@ -381,8 +394,8 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 				}
 			}
 			if estimateErr != nil {
-				if strict && modelTariff.source != domain.ReserveSourceLive && errors.Is(estimateErr, domain.ErrEndpointPriceMissing) {
-					return Estimate{}, estimateErr
+				if modelTariff.missesCatalogPrice(estimateErr) {
+					return Estimate{}, liveRecheck{model: tariffModel}
 				}
 				var unavailable *domain.EstimateUnavailableError
 				if addOnReserve && errors.As(estimateErr, &unavailable) {
@@ -442,6 +455,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs, strict bool) (Es
 		return Estimate{}, errors.New("OpenRouter estimate overflow")
 	}
 	estimate.Source = reserveSource(in, tariffsByModel)
+	estimate.StaleCatalog = tariffsByModel.hasStaleDocument()
 	return estimate, nil
 }
 

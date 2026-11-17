@@ -1,6 +1,7 @@
 package pricingruntime
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -39,10 +40,18 @@ func NewCatalogPersistence() catalogrecord.Store {
 }
 
 // EstimateUpstreamReserve prices the OpenRouter reserve of a gateway request
-// from the upstream catalog tariffs at most PRICING_CATALOG_MAX_AGE_HOURS
-// (24 by default) old.
+// from the upstream catalog tariffs at most catalogMaxAge old.
 var EstimateUpstreamReserve = sync.OnceValue(func() estimate_upstream_reserve.Usecase {
-	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities(), &UpstreamCatalogTariffs, time.Now, func() int {
-		return common.GetEnvOrDefault("PRICING_CATALOG_MAX_AGE_HOURS", 24)
-	})
+	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities(), &UpstreamCatalogTariffs, time.Now, catalogMaxAge)
+})
+
+// catalogMaxAge is PRICING_CATALOG_MAX_AGE_HOURS, read once: 1 to 8760 hours,
+// 24 by default and for an invalid value.
+var catalogMaxAge = sync.OnceValue(func() time.Duration {
+	hours := common.GetEnvOrDefault("PRICING_CATALOG_MAX_AGE_HOURS", 24)
+	if hours < 1 || hours > 8760 {
+		common.SysError(fmt.Sprintf("PRICING_CATALOG_MAX_AGE_HOURS must be 1..8760, got %d; using 24", hours))
+		hours = 24
+	}
+	return time.Duration(hours) * time.Hour
 })

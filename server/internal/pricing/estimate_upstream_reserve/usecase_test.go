@@ -33,7 +33,7 @@ func (live *fakeLive) Discover(model string) (domain.NativeEndpointResponse, err
 
 // liveOnly is the scenario without a published upstream catalog.
 func liveOnly(deps domain.Capabilities) Usecase {
-	return NewUsecase(deps, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, time.Now, func() int { return 24 })
+	return NewUsecase(deps, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, time.Now, func() time.Duration { return 24 * time.Hour })
 }
 
 // textInput is a nonstream text Chat request of 1000 prompt tokens and
@@ -240,11 +240,12 @@ func TestEndpointGeminiAudioMetadataStrictRates(t *testing.T) {
 	}
 }
 
-// The reserve of every routable model is priced from the fresh catalog
-// document of its tariff model on the official OpenRouter API, otherwise from
-// live, and from a stale document only when live fails. A missing catalog
-// price or an empty pool is checked against live once; when live fails, the
-// missing price falls to the local cover and the empty pool keeps its error.
+// The reserve of every routable model of text generation or embeddings is
+// priced from the fresh catalog document of its tariff model on the official
+// OpenRouter API, otherwise from live, and from a stale document only when live
+// fails. A catalog model with a missing price, with no endpoint passing the
+// filters or with an endpoint require_parameters excludes is checked against
+// live once; when live fails, the document prices it with the local cover.
 func TestExecuteSourceOrder(t *testing.T) {
 	deps := pricingadapter.Capabilities()
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -258,21 +259,33 @@ func TestExecuteSourceOrder(t *testing.T) {
 	catalogPriced := response(endpoint("catalog-provider", "0.001", "0.002"), endpoint("catalog-provider/fast", "0.003", "0.006"))
 	livePriced := response(endpoint("live-provider", "0.002", "0.004"))
 	unpriced := response(domain.NativePricedEndpoint{Tag: "catalog-provider", MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, `{"prompt":"0.001"}`)})
+	routedP := func(prompt, completion string) domain.NativeEndpointResponse {
+		return response(endpoint("p", prompt, completion))
+	}
+	// One endpoint lists temperature, the other does not.
+	partlyParameterized := response(endpoint("catalog-provider", "0.001", "0.002"), endpoint("catalog-provider/turbo", "0.003", "0.006"))
+	partlyParameterized.Endpoints[0].SupportedParameters = []string{"temperature"}
+	liveParameterized := response(endpoint("live-provider", "0.002", "0.004"))
+	liveParameterized.Endpoints[0].SupportedParameters = []string{"temperature"}
 	localUSD := .5
 	for _, tc := range []struct {
-		name      string
-		models    []string
-		batch     bool
-		baseURL   string
-		age       time.Duration
-		catalog   map[string]domain.NativeEndpointResponse
-		live      map[string]domain.NativeEndpointResponse
-		only      []string
-		local     bool
-		wantUSD   float64
-		wantErr   string
-		source    domain.ReserveSource
-		liveAsked []string
+		name    string
+		models  []string
+		batch   bool
+		baseURL string
+		age     time.Duration
+		catalog map[string]domain.NativeEndpointResponse
+		live    map[string]domain.NativeEndpointResponse
+		only    []string
+		local   bool
+		audio   bool
+		// temperature requires the temperature parameter of the endpoints.
+		temperature bool
+		wantUSD     float64
+		wantErr     string
+		source      domain.ReserveSource
+		wantStale   bool
+		liveAsked   []string
 	}{
 		{name: "fresh catalog", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalog},
 		{name: "shortcut prices its listed model", models: []string{"acme/a:nitro"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 3.06, source: domain.ReserveSourceCatalog},
@@ -281,14 +294,20 @@ func TestExecuteSourceOrder(t *testing.T) {
 		{name: "model outside the catalog", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
 		{name: "channel outside the official API", models: []string{"acme/a"}, baseURL: "https://proxy.example/api", catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
 		{name: "stale catalog", models: []string{"acme/a"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
-		{name: "stale catalog when live fails", models: []string{"acme/a"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalogStale, liveAsked: []string{"acme/a"}},
+		{name: "stale catalog when live fails", models: []string{"acme/a"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalogStale, wantStale: true, liveAsked: []string{"acme/a"}},
 		{name: "live fails without a document", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "empty pool is checked against live", models: []string{"acme/a"}, only: []string{"live-provider"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
 		{name: "empty pool keeps its error when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter request has no compatible priced endpoint", liveAsked: []string{"acme/a"}},
 		{name: "missing price is checked against live", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "missing price falls to the local cover when live fails", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "missing price is refused when live fails", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/a"}},
-		{name: "missing price of a stale document is not checked again", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+		{name: "missing price of a stale document is not checked again", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
+		{name: "only the model with an empty pool is checked against live", models: []string{"acme/a", "acme/b"}, only: []string{"p"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced, "acme/b": routedP("0.001", "0.002")}, live: map[string]domain.NativeEndpointResponse{"acme/a": routedP("0.0005", "0.001")}, wantUSD: 1.02, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "a live check takes the maximum of both models", models: []string{"acme/a", "acme/b"}, only: []string{"p"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced, "acme/b": routedP("0.001", "0.002")}, live: map[string]domain.NativeEndpointResponse{"acme/a": routedP("0.002", "0.004")}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "an endpoint require_parameters excludes is checked against live", models: []string{"acme/a"}, temperature: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, live: map[string]domain.NativeEndpointResponse{"acme/a": liveParameterized}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "require_parameters keeps the document when live fails", models: []string{"acme/a"}, temperature: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantUSD: 1.02, source: domain.ReserveSourceCatalog, liveAsked: []string{"acme/a"}},
+		{name: "audio stays live", models: []string{"acme/a"}, audio: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+		{name: "a stale document is reported under a configured price", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
@@ -304,7 +323,14 @@ func TestExecuteSourceOrder(t *testing.T) {
 			if tc.local {
 				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &localUSD
 			}
-			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() int { return 24 }).Execute(in)
+			if tc.audio {
+				in.Audio, in.TextOutput = true, false
+			}
+			if tc.temperature {
+				in.Provider.RequireParameters = true
+				in.Parameters = map[string]json.RawMessage{"temperature": json.RawMessage(`1`)}
+			}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
 			assert.Equal(t, tc.liveAsked, live.asked)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
@@ -313,6 +339,7 @@ func TestExecuteSourceOrder(t *testing.T) {
 			require.NoError(t, err)
 			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-9)
 			assert.Equal(t, tc.source, estimate.Source)
+			assert.Equal(t, tc.wantStale, estimate.StaleCatalog)
 		})
 	}
 }

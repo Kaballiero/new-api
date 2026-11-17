@@ -425,7 +425,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		outputReserve.InputUSD, outputReserve.PromptPriceUSD = estimate.InputUSD, estimate.PromptPriceUSD
 		outputReserve.OutputPriceUSD, outputReserve.OutputTokens = estimate.OutputPriceUSD, estimate.OutputTokens
 	}
-	if estimate.Source == pricingdomain.ReserveSourceCatalogStale {
+	if estimate.StaleCatalog {
 		logger.LogWarn(e.c, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
 	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
