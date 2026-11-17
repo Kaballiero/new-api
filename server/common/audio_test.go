@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func adtsFrame(samplingFrequencyIndex byte, frameLength int) []byte {
 	return frame
 }
 
-func TestGetAudioDurationAACCountsFramesBeforeTrailingBytes(t *testing.T) {
+func TestGetAudioDurationAACCountsValidFramesAroundJunk(t *testing.T) {
 	const sampling16kHzIndex = 8
 	var frames []byte
 	for range 10 {
@@ -38,9 +39,12 @@ func TestGetAudioDurationAACCountsFramesBeforeTrailingBytes(t *testing.T) {
 		stream []byte
 	}{
 		{name: "frames only", stream: frames},
-		{name: "id3v1 tag tail", stream: append(bytes.Clone(frames), id3v1Tag...)},
-		{name: "zero frame length tail", stream: append(bytes.Clone(frames), adtsFrame(sampling16kHzIndex, 0)...)},
-		{name: "truncated frame tail", stream: append(bytes.Clone(frames), adtsFrame(sampling16kHzIndex, 400)[:100]...)},
+		{name: "junk byte mid-stream", stream: slices.Concat(frames[:1000], []byte{0x00}, frames[1000:])},
+		{name: "leading false sync word", stream: slices.Concat(adtsFrame(sampling16kHzIndex, 8000)[:adtsHeaderSize], frames)},
+		{name: "leading reserved sampling frequency index", stream: slices.Concat(adtsFrame(15, 200), frames)},
+		{name: "id3v1 tag tail", stream: slices.Concat(frames, id3v1Tag)},
+		{name: "zero frame length tail", stream: slices.Concat(frames, adtsFrame(sampling16kHzIndex, 0))},
+		{name: "truncated frame tail", stream: slices.Concat(frames, adtsFrame(sampling16kHzIndex, 400)[:100])},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -307,13 +307,14 @@ func getWebMDuration(r io.ReadSeeker) (float64, error) {
 	return 0, errors.New("failed to parse webm file")
 }
 
-// adtsHeaderSize is the ADTS frame header size without CRC; no frame is shorter.
+// adtsHeaderSize is the ADTS header size without CRC, the smallest valid frame length.
 const adtsHeaderSize = 7
 
 // getAACDuration 解析 AAC (ADTS格式) 文件以获取时长。
-// Frames are counted back to back from the first sync word; the scan stops at the
-// first invalid or truncated frame (a trailing ID3v1 tag, padding). Each frame
-// advances the scan by at least adtsHeaderSize bytes.
+// It counts every valid ADTS frame: after a valid frame the scan resumes at the next
+// sync word from the frame's end, after a false sync word one byte later, so leading
+// junk, an ID3 tag or a corrupt region is skipped. Each step moves forward, so the
+// scan is linear in the file size.
 func getAACDuration(r io.ReadSeeker) (float64, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return 0, errors.Wrap(err, "failed to seek aac file")
@@ -325,34 +326,27 @@ func getAACDuration(r io.ReadSeeker) (float64, error) {
 		return 0, errors.Wrap(err, "failed to read aac file")
 	}
 
-	start := codec.FindSyncword(data, 0)
-	if start < 0 {
-		return 0, errors.New("no valid aac frames found")
-	}
-
 	var header codec.ADTS_Frame_Header
 	var totalFrames int64
 	var sampleRate int
-	for offset := start; offset+adtsHeaderSize <= len(data); {
+	for offset := codec.FindSyncword(data, 0); offset >= 0; {
 		frame := data[offset:]
-		// The sync word is 12 one-bits followed by the ID bit and a zero layer.
-		if frame[0] != 0xFF || frame[1]&0xF6 != 0xF0 {
-			break
-		}
-		header.Decode(frame)
-		frameLength := int(header.Variable_Header.Frame_length)
-		if frameLength < adtsHeaderSize || frameLength > len(frame) {
-			break
-		}
-		if sampleRate == 0 {
+		next := offset + 1
+		// FindSyncword matches the 12 sync bits; ADTS also requires a zero layer.
+		if len(frame) >= adtsHeaderSize && frame[1]&0xF6 == 0xF0 {
+			header.Decode(frame)
+			frameLength := int(header.Variable_Header.Frame_length)
 			samplingFrequencyIndex := int(header.Fix_Header.Sampling_frequency_index)
-			if samplingFrequencyIndex >= len(codec.AAC_Sampling_Idx) {
-				return 0, errors.Errorf("invalid adts sampling frequency index %d", samplingFrequencyIndex)
+			frameFits := frameLength >= adtsHeaderSize && frameLength <= len(frame)
+			if frameFits && samplingFrequencyIndex < len(codec.AAC_Sampling_Idx) {
+				if sampleRate == 0 {
+					sampleRate = codec.AACSampleIdxToSample(samplingFrequencyIndex)
+				}
+				totalFrames++
+				next = offset + frameLength
 			}
-			sampleRate = codec.AACSampleIdxToSample(samplingFrequencyIndex)
 		}
-		totalFrames++
-		offset += frameLength
+		offset = codec.FindSyncword(data, next)
 	}
 	if totalFrames == 0 {
 		return 0, errors.New("no valid aac frames found")
