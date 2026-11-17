@@ -307,8 +307,12 @@ func getWebMDuration(r io.ReadSeeker) (float64, error) {
 	return 0, errors.New("failed to parse webm file")
 }
 
+// adtsHeaderSize is the ADTS frame header size without CRC; no frame is shorter.
+const adtsHeaderSize = 7
+
 // getAACDuration 解析 AAC (ADTS格式) 文件以获取时长。
-// 使用 gomedia 库来解析 AAC ADTS 帧
+// Frames must follow each other back to back from the first sync word to the end
+// of the data; each one advances the scan by at least adtsHeaderSize bytes.
 func getAACDuration(r io.ReadSeeker) (float64, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return 0, errors.Wrap(err, "failed to seek aac file")
@@ -320,24 +324,34 @@ func getAACDuration(r io.ReadSeeker) (float64, error) {
 		return 0, errors.Wrap(err, "failed to read aac file")
 	}
 
+	start := codec.FindSyncword(data, 0)
+	if start < 0 {
+		return 0, errors.New("no valid aac frames found")
+	}
+
+	var header codec.ADTS_Frame_Header
 	var totalFrames int64
 	var sampleRate int
-
-	// 使用 gomedia 的 SplitAACFrame 函数来分割 AAC 帧
-	codec.SplitAACFrame(data, func(aac []byte) {
-		// 解析 ADTS 头部以获取采样率信息
-		if len(aac) >= 7 {
-			// 使用 ConvertADTSToASC 来获取音频配置信息
-			asc, err := codec.ConvertADTSToASC(aac)
-			if err == nil && sampleRate == 0 {
-				sampleRate = codec.AACSampleIdxToSample(int(asc.Sample_freq_index))
-			}
-			totalFrames++
+	for offset := start; offset < len(data); {
+		frame := data[offset:]
+		// The sync word is 12 one-bits followed by the ID bit and a zero layer.
+		if len(frame) < adtsHeaderSize || frame[0] != 0xFF || frame[1]&0xF6 != 0xF0 {
+			return 0, errors.Errorf("invalid adts header at offset %d", offset)
 		}
-	})
-
-	if sampleRate == 0 || totalFrames == 0 {
-		return 0, errors.New("no valid aac frames found")
+		header.Decode(frame)
+		frameLength := int(header.Variable_Header.Frame_length)
+		if frameLength < adtsHeaderSize || frameLength > len(frame) {
+			return 0, errors.Errorf("invalid adts frame length %d at offset %d", frameLength, offset)
+		}
+		if sampleRate == 0 {
+			samplingFrequencyIndex := int(header.Fix_Header.Sampling_frequency_index)
+			if samplingFrequencyIndex >= len(codec.AAC_Sampling_Idx) {
+				return 0, errors.Errorf("invalid adts sampling frequency index %d", samplingFrequencyIndex)
+			}
+			sampleRate = codec.AACSampleIdxToSample(samplingFrequencyIndex)
+		}
+		totalFrames++
+		offset += frameLength
 	}
 
 	// 每个 AAC ADTS 帧包含 1024 个采样
