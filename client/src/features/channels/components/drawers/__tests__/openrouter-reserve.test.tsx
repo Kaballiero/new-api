@@ -69,6 +69,7 @@ const reservesPreview: OpenRouterReserves = {
       providers: [
         { tag: 'openai', tier: 'default', usd: 0.0571 },
         { tag: 'azure', tier: 'flex', usd: 0.0312 },
+        { tag: 'groq', tier: 'priority', usd: null },
       ],
     },
     {
@@ -294,6 +295,24 @@ describe('OpenRouter reserve table', () => {
     })
   })
 
+  test('choosing upstream drops the model from the source map', async () => {
+    mockReservesResponse({ success: true, data: reservesPreview })
+    renderReserveForm()
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole('combobox', {
+        name: 'Reservation source for other/reasoner',
+      })
+    )
+    await user.click(await screen.findByRole('option', { name: 'upstream' }))
+    expect(storedValue('source-value')).toEqual({})
+    expect(
+      screen.getByRole('combobox', {
+        name: 'Reservation source for other/reasoner',
+      })
+    ).toHaveTextContent('upstream')
+  })
+
   test('non-positive amount marks the input invalid and blocks the form', async () => {
     mockReservesResponse({ success: true, data: reservesPreview })
     renderReserveForm()
@@ -301,6 +320,7 @@ describe('OpenRouter reserve table', () => {
     fireEvent.change(amount, { target: { value: '0' } })
     fireEvent.blur(amount)
     expect(amount).toHaveAttribute('aria-invalid', 'true')
+    expect(amount).toHaveAccessibleDescription('Enter a positive USD amount')
     expect(
       reserveRow('other/reasoner').getByText('Enter a positive USD amount')
     ).toBeVisible()
@@ -335,6 +355,9 @@ describe('OpenRouter reserve table', () => {
     expect(within(providers).getByText('azure')).toBeVisible()
     expect(within(providers).getByText('flex')).toBeVisible()
     expect(within(providers).getByText('$0.0312')).toBeVisible()
+    const refusedProvider = within(providers).getByText('groq').closest('li')
+    expect(refusedProvider).toHaveTextContent('Refused')
+    expect(refusedProvider).not.toHaveTextContent('$')
   })
 
   test('live-only row says it is priced live and shows its known lower bounds', async () => {

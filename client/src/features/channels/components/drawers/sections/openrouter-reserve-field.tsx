@@ -41,6 +41,7 @@ import { getChannelOpenRouterReserves } from '../../../api'
 import { channelsQueryKeys } from '../../../lib/channel-actions'
 import type { ChannelFormValues } from '../../../lib/channel-form'
 import {
+  OPENROUTER_DEFAULT_RESERVATION_SOURCE,
   mergeOpenRouterReserveRows,
   parseOpenRouterPolicyEntries,
   serializeOpenRouterPolicyEntries,
@@ -60,6 +61,7 @@ type OpenRouterReserveFieldProps = {
 export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
   const { t } = useTranslation()
   const descriptionId = useId()
+  const sourceHintId = useId()
   const errorId = useId()
   const sourceField = useController({
     control: props.control,
@@ -101,20 +103,22 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
   return (
     <FieldSet
       className='gap-2'
-      aria-describedby={
-        fieldErrors.length > 0 ? `${descriptionId} ${errorId}` : descriptionId
-      }
+      aria-describedby={[
+        descriptionId,
+        sourceHintId,
+        ...(fieldErrors.length > 0 ? [errorId] : []),
+      ].join(' ')}
     >
       <FieldLegend variant='label'>{t('OpenRouter reserves')}</FieldLegend>
       <FieldDescription id={descriptionId}>
         {t(
-          'Map exact upstream model IDs to upstream or configured_price. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.'
+          'Reservation source of each upstream model. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.'
         )}{' '}
         {t(
-          'Map exact upstream model IDs to positive minimum holds in USD. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty table disables these holds. Legacy Sonar settings migrate on save.'
+          'Manual reserve: a positive hold in USD for the model. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty manual amount disables the hold for that model. Legacy Sonar settings migrate on save.'
         )}
       </FieldDescription>
-      <FieldDescription>
+      <FieldDescription id={sourceHintId}>
         {t(
           'upstream: OpenRouter prices from the catalog, then live endpoints, then a stale catalog document if live fails. configured_price: the channel price, taking the maximum with the estimate and the manual amount.'
         )}
@@ -166,7 +170,13 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           previewLoaded={preview != null}
           unsaved={unsaved}
           disabled={props.disabled}
-          onSourceChange={sources.setValue}
+          onSourceChange={(model, source) => {
+            if (source === OPENROUTER_DEFAULT_RESERVATION_SOURCE) {
+              sources.remove(model)
+              return
+            }
+            sources.setValue(model, source)
+          }}
           onManualUsdChange={reserves.setValue}
           onManualUsdBlur={reserveField.field.onBlur}
           onRemove={(model) => {

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Trash2 } from 'lucide-react'
+import { useId, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
@@ -58,12 +59,6 @@ const OPENROUTER_LIVE_EXAMPLE_STATUSES = new Set([
 // The gateway refuses the reserve for a reason live prices cannot fix.
 const OPENROUTER_REFUSED_EXAMPLE_STATUS = 'refused'
 
-const usdFormatter = new Intl.NumberFormat(undefined, {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 6,
-})
-
 type OpenRouterReserveTableProps = {
   rows: OpenRouterReserveRow[]
   sourceErrors: Map<string, OpenRouterPolicyEntryError | undefined>
@@ -78,7 +73,23 @@ type OpenRouterReserveTableProps = {
 }
 
 export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const errorIdPrefix = useId()
+  const usdFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat(i18n.language, {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 6,
+      }),
+    [i18n.language]
+  )
+  // Row errors are linked to their controls by these ids.
+  const modelErrorId = (index: number) => `${errorIdPrefix}-${index}-model`
+  const sourceErrorId = (index: number) => `${errorIdPrefix}-${index}-source`
+  const manualErrorId = (index: number) => `${errorIdPrefix}-${index}-manual`
+  const describedBy = (ids: (string | false | undefined)[]) =>
+    ids.filter(Boolean).join(' ') || undefined
   const sourceItems = OPENROUTER_RESERVATION_SOURCES.map((source) => ({
     value: source,
     label: source,
@@ -96,7 +107,7 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
         {
           id: 'model',
           header: t('Upstream model ID'),
-          cell: (row) => {
+          cell: (row, index) => {
             const modelError =
               props.sourceErrors.get(row.model)?.model ??
               props.reserveErrors.get(row.model)?.model
@@ -106,7 +117,11 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
                 {!row.inChannel && (
                   <Badge variant='outline'>{t('Not in channel')}</Badge>
                 )}
-                {modelError && <FieldError>{t(modelError)}</FieldError>}
+                {modelError && (
+                  <FieldError id={modelErrorId(index)}>
+                    {t(modelError)}
+                  </FieldError>
+                )}
               </div>
             )
           },
@@ -115,7 +130,7 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
           id: 'source',
           header: t('Reservation source'),
           className: 'w-44',
-          cell: (row) => {
+          cell: (row, index) => {
             const error = props.sourceErrors.get(row.model)
             return (
               <Field data-invalid={Boolean(error?.value)}>
@@ -133,6 +148,10 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
                       model: row.model,
                     })}
                     aria-invalid={Boolean(error?.model || error?.value)}
+                    aria-describedby={describedBy([
+                      error?.model && modelErrorId(index),
+                      error?.value && sourceErrorId(index),
+                    ])}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -146,7 +165,11 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                {error?.value && <FieldError>{t(error.value)}</FieldError>}
+                {error?.value && (
+                  <FieldError id={sourceErrorId(index)}>
+                    {t(error.value)}
+                  </FieldError>
+                )}
               </Field>
             )
           },
@@ -155,7 +178,7 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
           id: 'manual',
           header: t('Manual reserve, USD'),
           className: 'w-36',
-          cell: (row) => {
+          cell: (row, index) => {
             const error = props.reserveErrors.get(row.model)
             return (
               <Field data-invalid={Boolean(error?.value)}>
@@ -175,8 +198,16 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
                     model: row.model,
                   })}
                   aria-invalid={Boolean(error?.model || error?.value)}
+                  aria-describedby={describedBy([
+                    error?.model && modelErrorId(index),
+                    error?.value && manualErrorId(index),
+                  ])}
                 />
-                {error?.value && <FieldError>{t(error.value)}</FieldError>}
+                {error?.value && (
+                  <FieldError id={manualErrorId(index)}>
+                    {t(error.value)}
+                  </FieldError>
+                )}
               </Field>
             )
           },
@@ -195,7 +226,14 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
           header: t('Example'),
           cell: (row) => {
             const preview = currentPreview(row)
-            if (preview) return <OpenRouterReserveExample item={preview} />
+            if (preview) {
+              return (
+                <OpenRouterReserveExample
+                  item={preview}
+                  usdFormatter={usdFormatter}
+                />
+              )
+            }
             if (props.unsaved || props.previewLoaded) {
               return (
                 <span className='text-muted-foreground text-xs'>
@@ -216,6 +254,7 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
               <OpenRouterReserveProviders
                 model={row.model}
                 providers={preview.providers}
+                usdFormatter={usdFormatter}
               />
             )
           },
@@ -243,7 +282,10 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
   )
 }
 
-function OpenRouterReserveExample(props: { item: OpenRouterReserveItem }) {
+function OpenRouterReserveExample(props: {
+  item: OpenRouterReserveItem
+  usdFormatter: Intl.NumberFormat
+}) {
   const { t } = useTranslation()
   const isLive = OPENROUTER_LIVE_EXAMPLE_STATUSES.has(props.item.example_status)
   const isRefused =
@@ -254,7 +296,7 @@ function OpenRouterReserveExample(props: { item: OpenRouterReserveItem }) {
     }
     return (
       <span className='font-mono text-xs'>
-        {usdFormatter.format(props.item.example_usd)}
+        {props.usdFormatter.format(props.item.example_usd)}
       </span>
     )
   }
@@ -268,14 +310,14 @@ function OpenRouterReserveExample(props: { item: OpenRouterReserveItem }) {
       {props.item.configured_usd != null && (
         <span className='text-muted-foreground'>
           {t('At least {{usd}} by the configured price', {
-            usd: usdFormatter.format(props.item.configured_usd),
+            usd: props.usdFormatter.format(props.item.configured_usd),
           })}
         </span>
       )}
       {props.item.manual_usd != null && (
         <span className='text-muted-foreground'>
           {t('At least {{usd}} by the manual reserve', {
-            usd: usdFormatter.format(props.item.manual_usd),
+            usd: props.usdFormatter.format(props.item.manual_usd),
           })}
         </span>
       )}
@@ -286,6 +328,7 @@ function OpenRouterReserveExample(props: { item: OpenRouterReserveItem }) {
 function OpenRouterReserveProviders(props: {
   model: string
   providers: OpenRouterReserveProvider[]
+  usdFormatter: Intl.NumberFormat
 }) {
   const { t } = useTranslation()
   return (
@@ -315,9 +358,13 @@ function OpenRouterReserveProviders(props: {
                   <Badge variant='outline'>{provider.tier}</Badge>
                 )}
               </span>
-              <span className='font-mono'>
-                {usdFormatter.format(provider.usd)}
-              </span>
+              {provider.usd == null ? (
+                <span className='text-destructive'>{t('Refused')}</span>
+              ) : (
+                <span className='font-mono'>
+                  {props.usdFormatter.format(provider.usd)}
+                </span>
+              )}
             </li>
           ))}
         </ul>

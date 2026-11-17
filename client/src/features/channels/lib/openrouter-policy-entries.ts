@@ -30,6 +30,9 @@ export type OpenRouterPolicyEntryError = {
   value?: string
 }
 
+// The server reserves a model without a source entry from upstream.
+export const OPENROUTER_DEFAULT_RESERVATION_SOURCE = 'upstream'
+
 export const OPENROUTER_RESERVATION_SOURCES = [
   'upstream',
   'configured_price',
@@ -63,18 +66,13 @@ export function validateOpenRouterPolicyEntries(
   entries: OpenRouterPolicyEntry[],
   kind: OpenRouterPolicyKind
 ): OpenRouterPolicyEntryError[] {
-  const counts = new Map<string, number>()
-  for (const entry of entries) {
-    counts.set(entry.model, (counts.get(entry.model) ?? 0) + 1)
-  }
   return entries.map((entry) => {
     const error: OpenRouterPolicyEntryError = {}
+    // Keys come from a stored JSON map, which may hold an empty key.
     if (!entry.model) {
       error.model = 'Enter an upstream model ID'
     } else if (/[\s*]/.test(entry.model)) {
       error.model = 'Model IDs cannot contain spaces or *'
-    } else if ((counts.get(entry.model) ?? 0) > 1) {
-      error.model = 'Duplicate model ID'
     }
     if (kind === 'reserve' && !isPositiveAmount(entry.value)) {
       error.value = 'Enter a positive USD amount'
@@ -113,7 +111,7 @@ export type OpenRouterReserveRow = {
 }
 
 // Rows are the channel's upstream models, then the setting keys the channel
-// no longer has. A model without a source entry is reserved from upstream.
+// no longer has.
 export function mergeOpenRouterReserveRows(
   models: string[],
   sources: OpenRouterPolicyEntry[],
@@ -125,7 +123,9 @@ export function mergeOpenRouterReserveRows(
   return [...new Set([...models, ...settingModels])].map((model) => ({
     model,
     inChannel: channelModels.has(model),
-    source: sources.find((entry) => entry.model === model)?.value ?? 'upstream',
+    source:
+      sources.find((entry) => entry.model === model)?.value ??
+      OPENROUTER_DEFAULT_RESERVATION_SOURCE,
     manualUsd: reserves.find((entry) => entry.model === model)?.value ?? '',
     // A refused model may have no resolved upstream model.
     preview: preview.find(

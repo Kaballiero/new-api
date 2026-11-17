@@ -51,7 +51,6 @@ export const STATIC_I18N_KEYS = [
   'Use exact model IDs with upstream or configured_price',
   'Enter an upstream model ID',
   'Model IDs cannot contain spaces or *',
-  'Duplicate model ID',
   'Enter a positive USD amount',
   'Select upstream or configured_price',
   // Billing expression simulation diagnostics and conditional labels.

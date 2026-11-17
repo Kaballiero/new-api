@@ -254,7 +254,7 @@ export interface CopyChannelResponse {
 export interface OpenRouterReserveProvider {
   tag: string
   tier: string
-  usd: number
+  usd: number | null
 }
 
 export interface OpenRouterReserveItem {

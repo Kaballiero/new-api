@@ -262,23 +262,6 @@ describe('OpenRouter policy table entries', () => {
     }
   )
 
-  test('duplicate model IDs are reported on each row and block the form', () => {
-    const entries = [
-      { model: 'other/reasoner', value: 'upstream' },
-      { model: 'other/reasoner', value: 'configured_price' },
-    ]
-    expect(validateOpenRouterPolicyEntries(entries, 'source')).toEqual([
-      { model: 'Duplicate model ID' },
-      { model: 'Duplicate model ID' },
-    ])
-    const form = reserveForm({})
-    form.openrouter_reservation_source = serializeOpenRouterPolicyEntries(
-      entries,
-      'source'
-    )
-    expect(channelFormSchema.safeParse(form).success).toBe(false)
-  })
-
   test('unknown reservation source is reported', () => {
     expect(
       validateOpenRouterPolicyEntries(
