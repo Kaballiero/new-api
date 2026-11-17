@@ -88,6 +88,7 @@ import {
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { DetailRow, DetailSection } from './log-detail-layout'
+import { OpenRouterReserveSection } from './openrouter-reserve-section'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -890,6 +891,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
               />
             ) : null}
           </DetailSection>
+        ) : null}
+
+        {props.isAdmin && adminInfo ? (
+          <OpenRouterReserveSection adminInfo={adminInfo} />
         ) : null}
 
         {props.isRoot && other?.root_info ? (
