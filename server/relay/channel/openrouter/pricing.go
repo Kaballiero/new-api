@@ -158,7 +158,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	decisions := operation == "decisions"
 	rerank := operation == "rerank"
 	textOutput := operation != "embeddings" && !dedicatedAudio && !decisions && !rerank
-	searches, nativeSearch, err := requestedSearches(body, textOutput)
+	searches, manualSearch, err := requestedSearches(body, textOutput)
 	if err != nil {
 		return 0, err
 	}
@@ -264,7 +264,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	var searchReserveUSD *float64
-	if searches > 0 {
+	if searches > 0 || manualSearch {
 		if imageOutput || audioOutput {
 			return 0, errors.New("OpenRouter hosted search cannot share an approximate reserve with image or audio output")
 		}
@@ -276,11 +276,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		// A search engine other than native has no endpoint price: the
 		// channel reserve alone covers its searches.
-		if !nativeSearch {
-			if searchReserveUSD == nil {
-				return 0, pricingdomain.ErrHostedSearchUnpriced
-			}
-			searches = 0
+		if manualSearch && searchReserveUSD == nil {
+			return 0, pricingdomain.ErrHostedSearchUnpriced
 		}
 	}
 	imageBlocks, err := requestInputImages(fields)
@@ -422,6 +419,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		ApproximateReserveUSD: approximateReserveUSD,
 		AddOnReserveUSD:       addOnReserveUSD,
 		Searches:              searches,
+		ManualSearch:          manualSearch,
 		SearchReserveUSD:      searchReserveUSD,
 	})
 	var unavailable *pricingdomain.EstimateUnavailableError

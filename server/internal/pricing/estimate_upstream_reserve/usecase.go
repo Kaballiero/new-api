@@ -64,8 +64,11 @@ type Input struct {
 	DefaultOutputTokens int
 	MaxTokensLimit      int
 	// Searches are the web searches the request may run on the native search
-	// of the endpoint's provider, at most 30; searchCost prices them.
+	// of the endpoint's provider, at most 32; searchCost prices them.
 	Searches int
+	// ManualSearch is a search on an engine without an endpoint price, which
+	// SearchReserveUSD alone covers.
+	ManualSearch bool
 	// ApproximateReserveUSD is the whole-hold reserve, AddOnReserveUSD the
 	// reserve added for hosted search of a priced endpoint and
 	// SearchReserveUSD the reserve for requested hosted search that no

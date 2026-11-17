@@ -16,10 +16,10 @@ import (
 )
 
 // A request reserves its web searches at the web_search price of the
-// endpoint: the web plugin and web_search_options one each, the
-// openrouter:web_search tool its max_uses or else 30, all together at most
-// max_tool_calls and 30. A search engine other than native has no endpoint
-// price and takes the channel reserve.
+// endpoint: the openrouter:web_search tools their max_uses or else 30, together
+// at most max_tool_calls and 30, plus one for the web plugin and one for
+// web_search_options. A search engine other than native has no endpoint price
+// and adds the channel reserve.
 func TestEndpointWebSearchReserve(t *testing.T) {
 	const tokens = `,"max_tokens":10`
 	const tool = `,"tools":[{"type":"openrouter:web_search"`
@@ -43,6 +43,10 @@ func TestEndpointWebSearchReserve(t *testing.T) {
 		{name: "server tool max_uses above 30 is capped", extra: tool + `,"parameters":{"max_uses":1000000}}]`, want: 1.32, wantSearches: 30},
 		{name: "max_tool_calls caps the searches", extra: tool + `,"parameters":{"max_uses":3}}],"max_tool_calls":2`, want: 1.04, wantSearches: 2},
 		{name: "all sources add up", extra: tool + `,"parameters":{"max_uses":2}},{"type":"function","function":{"name":"f"}}],"plugins":[{"id":"web"}],"web_search_options":{}`, want: 1.06, wantSearches: 4},
+		{name: "max_tool_calls caps only the server tool", extra: tool + `,"parameters":{"max_uses":3}}],"plugins":[{"id":"web"}],"max_tool_calls":1`, want: 1.04, wantSearches: 2},
+		{name: "plugin and web_search_options add to the server tool cap", extra: tool + `}],"plugins":[{"id":"web"}],"web_search_options":{}`, want: 1.34, wantSearches: 32},
+		{name: "two web plugins are one search", extra: `,"plugins":[{"id":"web"},{"id":"web"}]`, want: 1.03, wantSearches: 1},
+		{name: "plugin max_tool_calls stays unchecked", extra: `,"plugins":[{"id":"web"}],"max_tool_calls":0`, want: 1.03, wantSearches: 1},
 		{name: "two server tools are capped at 30", extra: tool + `},{"type":"openrouter:web_search"}]`, want: 1.32, wantSearches: 30},
 		{name: "Responses server tool", extra: `,"max_output_tokens":10` + tool + `,"parameters":{"max_uses":3}}]`, operation: "responses", want: 1.05, wantSearches: 3},
 		{name: "max_tool_calls without search stays unchecked", extra: `,"max_tool_calls":0`, want: 1.02},
@@ -50,15 +54,18 @@ func TestEndpointWebSearchReserve(t *testing.T) {
 		{name: "missing search price takes the channel reserve", extra: `,"plugins":[{"id":"web"}]`, searchAbsent: true, reserve: common.GetPointer(0.5), want: 1.52, wantSearches: 1, wantUse: ReserveAddOn},
 		{name: "missing search price without a reserve stays closed", extra: `,"plugins":[{"id":"web"}]`, searchAbsent: true, wantError: pricingdomain.ErrHostedSearchUnpriced.Error()},
 		{name: "exa engine takes the channel reserve", extra: `,"plugins":[{"id":"web","engine":"exa"}]`, reserve: common.GetPointer(0.5), want: 1.52, wantUse: ReserveAddOn},
-		{name: "parallel engine with native searches takes the channel reserve", extra: tool + `,"parameters":{"engine":"parallel"}}],"web_search_options":{}`, reserve: common.GetPointer(0.5), want: 1.52, wantUse: ReserveAddOn},
+		{name: "native searches beside the parallel engine add the channel reserve", extra: tool + `,"parameters":{"engine":"parallel"}}],"web_search_options":{}`, reserve: common.GetPointer(0.5), want: 1.53, wantSearches: 1, wantUse: ReserveAddOn},
+		{name: "native searches beside the exa engine without a reserve stay closed", extra: `,"plugins":[{"id":"web","engine":"exa"}],"web_search_options":{}`, wantError: pricingdomain.ErrHostedSearchUnpriced.Error()},
+		{name: "stop_server_tools_when with search stays closed", extra: tool + `}],"stop_server_tools_when":{"max_cost":1}`, wantError: "unpriced execution dimensions"},
+		{name: "stop_server_tools_when without search stays unchecked", extra: `,"stop_server_tools_when":{"max_cost":1}`, want: 1.02},
 		{name: "exa engine without a reserve stays closed", extra: `,"plugins":[{"id":"web","engine":"exa"}]`, wantError: pricingdomain.ErrHostedSearchUnpriced.Error()},
 		{name: "zero max_uses", extra: tool + `,"parameters":{"max_uses":0}}]`, wantError: "invalid OpenRouter max_uses"},
 		{name: "negative max_uses", extra: tool + `,"parameters":{"max_uses":-1}}]`, wantError: "invalid OpenRouter max_uses"},
 		{name: "fractional max_uses", extra: tool + `,"parameters":{"max_uses":2.5}}]`, wantError: "invalid OpenRouter max_uses"},
 		{name: "string max_uses", extra: tool + `,"parameters":{"max_uses":"3"}}]`, wantError: "invalid OpenRouter max_uses"},
 		{name: "overflowing max_uses", extra: tool + `,"parameters":{"max_uses":18446744073709551616}}]`, wantError: "invalid OpenRouter max_uses"},
-		{name: "zero max_tool_calls with search", extra: `,"plugins":[{"id":"web"}],"max_tool_calls":0`, wantError: "invalid OpenRouter max_tool_calls"},
-		{name: "fractional max_tool_calls with search", extra: `,"plugins":[{"id":"web"}],"max_tool_calls":1.5`, wantError: "invalid OpenRouter max_tool_calls"},
+		{name: "zero max_tool_calls with a server tool", extra: tool + `}],"max_tool_calls":0`, wantError: "invalid OpenRouter max_tool_calls"},
+		{name: "fractional max_tool_calls with a server tool", extra: tool + `}],"max_tool_calls":1.5`, wantError: "invalid OpenRouter max_tool_calls"},
 		{name: "other plugin stays closed", extra: `,"plugins":[{"id":"web"},{"id":"file-parser"}]`, wantError: "unpriced execution dimensions"},
 		{name: "other hosted tool stays closed", extra: `,"tools":[{"type":"web_search"}]`, wantError: "hosted tool pricing is unavailable"},
 		{name: "online model stays closed", extra: `,"plugins":[{"id":"web"}],"models":["test/model:online"]`, wantError: "online routing includes unpriced hosted search"},

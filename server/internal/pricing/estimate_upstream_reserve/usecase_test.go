@@ -406,6 +406,7 @@ func TestExecutePricesSearches(t *testing.T) {
 		searches            int
 		catalog             domain.NativeEndpointResponse
 		live                map[string]domain.NativeEndpointResponse
+		manualSearch        bool
 		searchReserve       bool
 		addOnReserve        bool
 		wantUSD             float64
@@ -423,7 +424,9 @@ func TestExecutePricesSearches(t *testing.T) {
 		{name: "a missing search price without a search reserve is refused", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "")}, wantErr: domain.ErrHostedSearchUnpriced.Error(), wantLiveAsked: []string{"acme/a"}},
 		{name: "a null search price is missing", searches: 1, catalog: response("0.001", "0.002", "null"), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.05, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
 		{name: "an invalid search price is refused", searches: 1, catalog: response("0.001", "0.002", `"-1"`), searchReserve: true, wantErr: "invalid OpenRouter endpoint price"},
-		{name: "searches of an engine without an endpoint price take the search reserve", catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "a search on an engine without an endpoint price takes the search reserve", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "native searches and a search on another engine add both", searches: 3, manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.55, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "a search on another engine without a search reserve is refused", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), wantErr: domain.ErrHostedSearchUnpriced.Error()},
 		{name: "without requested searches the add-on reserve covers native search", catalog: response("0.001", "0.002", `"0.01"`), addOnReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -431,7 +434,7 @@ func TestExecutePricesSearches(t *testing.T) {
 			catalog.Store(&domain.UpstreamCatalogTariffs{Revision: "revision", FetchedAt: now, Models: map[string]domain.NativeEndpointResponse{"acme/a": tc.catalog}})
 			live := &fakeLive{responses: tc.live}
 			in := textInput("acme/a")
-			in.Live, in.ChannelBaseURL, in.Searches = live, "https://openrouter.ai/api", tc.searches
+			in.Live, in.ChannelBaseURL, in.Searches, in.ManualSearch = live, "https://openrouter.ai/api", tc.searches, tc.manualSearch
 			if tc.searchReserve {
 				in.SearchReserveUSD = &reserve
 			}

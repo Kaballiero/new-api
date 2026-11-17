@@ -10,42 +10,52 @@ import (
 
 // searchCost is the cost of the web searches of a request on an endpoint
 // tariff and whether a channel reserve makes it:
-//   - requested searches cost the web_search price of the endpoint each, with
-//     no add-on reserve on top. A price missing from a fresh catalog tariff is
-//     domain.ErrEndpointPriceMissing, checked against live first; then the
-//     search reserve covers them, without it they are
+//   - requested native searches cost the web_search price of the endpoint
+//     each, with no add-on reserve on top. A price missing from a fresh
+//     catalog tariff is domain.ErrEndpointPriceMissing, checked against live
+//     first; then the search reserve covers them, without it they are
 //     domain.ErrHostedSearchUnpriced;
-//   - the search reserve covers searches no endpoint price measures;
+//   - a search on an engine without an endpoint price adds the search reserve;
 //   - without requested searches, an endpoint with a positive web_search price
 //     may search on its own and the add-on reserve covers it.
 //
 // The channel reserves belong to the model of the request.
 func (u Usecase) searchCost(in Input, endpoint domain.NativePricedEndpoint, tariff modelTariffs) (decimal.Decimal, bool, error) {
-	if in.Searches > 0 {
-		rate, err := domain.ReadEndpointRate(u.deps, endpoint.Pricing["web_search"])
-		if err == nil {
-			return rate.Mul(decimal.NewFromInt(int64(in.Searches))), false, nil
+	if in.Searches == 0 && !in.ManualSearch {
+		raw, published := endpoint.Pricing["web_search"]
+		if !published || in.AddOnReserveUSD == nil {
+			return decimal.Zero, false, nil
 		}
-		if !errors.Is(err, domain.ErrEndpointPriceMissing) || tariff.checksLive() {
+		rate, err := domain.ReadEndpointRate(u.deps, raw)
+		if err != nil || rate.IsZero() {
 			return decimal.Zero, false, err
 		}
-		if in.SearchReserveUSD == nil {
-			return decimal.Zero, false, domain.ErrHostedSearchUnpriced
+		return decimal.NewFromFloat(*in.AddOnReserveUSD), true, nil
+	}
+	cost := decimal.Zero
+	reserves := 0
+	if in.ManualSearch {
+		reserves++
+	}
+	if in.Searches > 0 {
+		rate, err := domain.ReadEndpointRate(u.deps, endpoint.Pricing["web_search"])
+		switch {
+		case err == nil:
+			cost = rate.Mul(decimal.NewFromInt(int64(in.Searches)))
+		case !errors.Is(err, domain.ErrEndpointPriceMissing) || tariff.checksLive():
+			return decimal.Zero, false, err
+		default:
+			reserves++
 		}
 	}
-	if in.SearchReserveUSD != nil {
-		if endpoint.ModelID != "" && endpoint.ModelID != in.Model {
-			return decimal.Zero, false, errors.New("OpenRouter reserve endpoint model does not match final model ID")
-		}
-		return decimal.NewFromFloat(*in.SearchReserveUSD), true, nil
+	if reserves == 0 {
+		return cost, false, nil
 	}
-	raw, published := endpoint.Pricing["web_search"]
-	if !published || in.AddOnReserveUSD == nil {
-		return decimal.Zero, false, nil
+	if in.SearchReserveUSD == nil {
+		return decimal.Zero, false, domain.ErrHostedSearchUnpriced
 	}
-	rate, err := domain.ReadEndpointRate(u.deps, raw)
-	if err != nil || rate.IsZero() {
-		return decimal.Zero, false, err
+	if endpoint.ModelID != "" && endpoint.ModelID != in.Model {
+		return decimal.Zero, false, errors.New("OpenRouter reserve endpoint model does not match final model ID")
 	}
-	return decimal.NewFromFloat(*in.AddOnReserveUSD), true, nil
+	return cost.Add(decimal.NewFromFloat(*in.SearchReserveUSD).Mul(decimal.NewFromInt(int64(reserves)))), true, nil
 }
