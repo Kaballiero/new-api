@@ -114,6 +114,11 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           'Map exact upstream model IDs to positive minimum holds in USD. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty table disables these holds. Legacy Sonar settings migrate on save.'
         )}
       </FieldDescription>
+      <FieldDescription>
+        {t(
+          'upstream: OpenRouter prices from the catalog, then live endpoints, then a stale catalog document if live fails. configured_price: the channel price, taking the maximum with the estimate and the manual amount.'
+        )}
+      </FieldDescription>
       {reservesQuery.isLoading && (
         <LoadingState
           inline

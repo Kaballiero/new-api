@@ -3063,6 +3063,7 @@
     "Select upstream or configured_price": "Select upstream or configured_price",
     "Map exact upstream model IDs to upstream or configured_price. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.": "Map exact upstream model IDs to upstream or configured_price. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.",
     "OpenRouter reserves": "OpenRouter reserves",
+    "upstream: OpenRouter prices from the catalog, then live endpoints, then a stale catalog document if live fails. configured_price: the channel price, taking the maximum with the estimate and the manual amount.": "upstream: OpenRouter prices from the catalog, then live endpoints, then a stale catalog document if live fails. configured_price: the channel price, taking the maximum with the estimate and the manual amount.",
     "Reservation source for {{model}}": "Reservation source for {{model}}",
     "Manual reserve, USD": "Manual reserve, USD",
     "Manual reserve, USD for {{model}}": "Manual reserve, USD for {{model}}",

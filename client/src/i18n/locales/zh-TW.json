@@ -3063,6 +3063,7 @@
     "Select upstream or configured_price": "請選擇 upstream 或 configured_price",
     "Map exact upstream model IDs to upstream or configured_price. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.": "將傳送至上游的精確模型 ID 對應至 upstream 或 configured_price。預設值為 upstream。configured_price 僅對支援的操作使用已設定的 NewAPI 價格或運算式。端點和供應商檢查仍然適用。最終依 OpenRouter 實際成本扣費。",
     "OpenRouter reserves": "OpenRouter 預留",
+    "upstream: OpenRouter prices from the catalog, then live endpoints, then a stale catalog document if live fails. configured_price: the channel price, taking the maximum with the estimate and the manual amount.": "upstream：OpenRouter 價格，先取目錄，再取即時端點，即時失敗時使用過期的目錄文件。configured_price：渠道自身價格，與估算值和手動金額取最大值。",
     "Reservation source for {{model}}": "{{model}} 的預留來源",
     "Manual reserve, USD": "手動預留（美元）",
     "Manual reserve, USD for {{model}}": "{{model}} 的手動預留（美元）",
