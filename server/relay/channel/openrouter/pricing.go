@@ -390,7 +390,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	case speech:
 		units, err = speechUnits(body, request.Model)
 	case rerank:
-		units, err = rerankUnits(body, request.Model)
+		units, err = rerankUnits(body)
 	}
 	if err != nil {
 		return 0, err

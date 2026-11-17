@@ -529,19 +529,11 @@ func TestSpeechUnits(t *testing.T) {
 // A rerank request is measured in Cohere search units, one per query with up
 // to 100 documents, a document longer than 500 tokens with the query split
 // into chunks that count as documents, and in input tokens by the Voyage rule,
-// the query tokens times the documents plus the document tokens; a document
-// object counts as its JSON text.
+// the query tokens times the documents plus the document tokens. The tokens of
+// a text are its UTF-8 bytes, a bound that holds for long single words too; a
+// document object counts as its JSON text.
 func TestRerankUnits(t *testing.T) {
-	const model = "cohere/rerank-v3.5"
-	// textOf is a text of exactly tokens tokens.
-	textOf := func(tokens int) string {
-		for characters := 1; ; characters++ {
-			text := strings.Repeat("字", characters)
-			if tokenusage.CountTextToken(text, model) == tokens {
-				return text
-			}
-		}
-	}
+	textOf := func(bytes int) string { return strings.Repeat("a", bytes) }
 	documentsOf := func(count int, document any) []any {
 		documents := make([]any, count)
 		for i := range documents {
@@ -549,10 +541,6 @@ func TestRerankUnits(t *testing.T) {
 		}
 		return documents
 	}
-	object := map[string]any{"text": textOf(10)}
-	encodedObject, err := common.Marshal(object)
-	require.NoError(t, err)
-	objectTokens := int64(tokenusage.CountTextToken(string(encodedObject), model))
 	for _, tc := range []struct {
 		name             string
 		query            string
@@ -564,16 +552,19 @@ func TestRerankUnits(t *testing.T) {
 		{name: "a document of 501 tokens is two chunks", documents: documentsOf(50, textOf(501)), searches: 1, tokens: 25050},
 		{name: "51 documents of 501 tokens are two searches", documents: documentsOf(51, textOf(501)), searches: 2, tokens: 25551},
 		{name: "a document of 1500 tokens is three chunks", documents: documentsOf(34, textOf(1500)), searches: 2, tokens: 51000},
+		{name: "a long single word counts every byte", documents: documentsOf(3, textOf(20000)), searches: 2, tokens: 60000},
+		{name: "a multi-byte character counts its bytes", documents: documentsOf(100, strings.Repeat("字", 167)), searches: 2, tokens: 50100},
 		{name: "the query shortens the chunks", query: textOf(100), documents: documentsOf(50, textOf(401)), searches: 1, tokens: 50*100 + 50*401},
 		{name: "the query splits a document of 401 tokens", query: textOf(100), documents: documentsOf(51, textOf(401)), searches: 2, tokens: 51*100 + 51*401},
+		{name: "a query of 500 tokens makes every document token a chunk", query: textOf(500), documents: documentsOf(1, textOf(101)), searches: 2, tokens: 500 + 101},
 		{name: "101 documents are two searches", query: textOf(3), documents: documentsOf(101, textOf(2)), searches: 2, tokens: 101*3 + 101*2},
-		{name: "a document object counts as its JSON text", documents: []any{object, textOf(5)}, searches: 1, tokens: objectTokens + 5},
+		{name: "a document object counts as its JSON text", documents: []any{map[string]any{"text": textOf(10)}, textOf(5)}, searches: 1, tokens: int64(len(`{"text":"aaaaaaaaaa"}`)) + 5},
 		{name: "no documents is one search", query: textOf(3), searches: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body, err := common.Marshal(map[string]any{"model": model, "query": tc.query, "documents": tc.documents})
+			body, err := common.Marshal(map[string]any{"model": "cohere/rerank-v3.5", "query": tc.query, "documents": tc.documents})
 			require.NoError(t, err)
-			units, err := rerankUnits(body, model)
+			units, err := rerankUnits(body)
 			require.NoError(t, err)
 			assert.Equal(t, map[pricingdomain.PriceDimension]int64{
 				{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}:           tc.searches,
@@ -581,7 +572,7 @@ func TestRerankUnits(t *testing.T) {
 			}, units)
 		})
 	}
-	_, err = rerankUnits([]byte(`{"query":{}}`), model)
+	_, err := rerankUnits([]byte(`{"query":{}}`))
 	require.EqualError(t, err, "invalid OpenRouter rerank request")
 }
 

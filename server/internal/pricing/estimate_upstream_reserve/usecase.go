@@ -404,7 +404,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			} else if in.Units != nil {
 				// The output audio tokens are the endpoint output cap, the
 				// default output bound without one.
-				cost, estimateErr = unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
+				cost, estimateErr = u.unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {
