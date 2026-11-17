@@ -6,8 +6,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_reserve"
 	"github.com/QuantumNous/new-api/internal/pricing/read_catalogue"
 )
 
@@ -34,3 +36,8 @@ func GetModelQuotaTypes(name string) []int {
 func NewCatalogPersistence() catalogrecord.Store {
 	return catalogstore.NewCatalogPersistence(MutateModelPricingOptions)
 }
+
+// EstimateUpstreamReserve prices the OpenRouter reserve of a gateway request.
+var EstimateUpstreamReserve = sync.OnceValue(func() estimate_upstream_reserve.Usecase {
+	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities())
+})

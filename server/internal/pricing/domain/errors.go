@@ -54,6 +54,15 @@ func (e CatalogModelLossError) Error() string {
 	return fmt.Sprintf("upstream catalog revision lost too many published models: remote_revision=%s lost=%d published=%d head=%s", e.RemoteRevision, len(e.Lost), e.Published, e.HeadRemoteRevision)
 }
 
+// EstimateUnavailableError is a monetary metadata failure, not a route or
+// transport failure. Only an explicit local reserve policy may cover it.
+type EstimateUnavailableError struct{ Cause error }
+
+func (e *EstimateUnavailableError) Error() string {
+	return "OpenRouter estimate unavailable: " + e.Cause.Error()
+}
+func (e *EstimateUnavailableError) Unwrap() error { return e.Cause }
+
 // InvalidQuery marks cause as a rejected pricing query: errors.Is(err,
 // ErrInvalidQuery) holds, errors.Unwrap returns cause and the message is the
 // text of cause.

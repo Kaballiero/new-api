@@ -2,7 +2,6 @@ package upstream
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -165,7 +164,7 @@ func NewNativeNormalizer() *domain.NativeNormalizer {
 			}
 			return out, err
 		},
-		ReadPrice: func(raw json.RawMessage) (float64, error) { return openrouter.ReadEndpointPrice(raw) }, PublishedMuseImage: func(name string) (domain.NativeImageEndpoint, bool) {
+		PublishedMuseImage: func(name string) (domain.NativeImageEndpoint, bool) {
 			v, ok := openrouter.PublishedMuseImageEndpoint(name)
 			return NativeImageEndpoint(v), ok
 		}, PublishedImage: func(name string, v domain.NativeImageEndpoint) domain.NativeImageEndpoint {

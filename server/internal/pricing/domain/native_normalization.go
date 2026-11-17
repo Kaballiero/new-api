@@ -46,7 +46,6 @@ type NativeNormalizationRuntime struct {
 	Capabilities       Capabilities
 	DecodeEndpoint     func([]byte) (NativeEndpointResponse, error)
 	DecodeImage        func([]byte) (NativeImageResponse, error)
-	ReadPrice          func(json.RawMessage) (float64, error)
 	PublishedMuseImage func(string) (NativeImageEndpoint, bool)
 	PublishedImage     func(string, NativeImageEndpoint) NativeImageEndpoint
 }
@@ -309,7 +308,7 @@ func (normalizer *NativeNormalizer) NormalizeEndpointPricing(upstream, operation
 					component = "reasoning_output"
 				case "web_search":
 					component, unit, multiplier = "web_search", "search", 1
-					amount, err := normalizer.runtime.ReadPrice(vector[key])
+					amount, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key])
 					if err != nil {
 						return nil, err
 					}
@@ -328,7 +327,7 @@ func (normalizer *NativeNormalizer) NormalizeEndpointPricing(upstream, operation
 					continue
 				case "audio", "input_audio_cache":
 					if !slices.Contains(response.Data.InputModalities, "audio") {
-						if _, err := normalizer.runtime.ReadPrice(vector[key]); err != nil {
+						if _, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key]); err != nil {
 							return nil, err
 						}
 						continue
@@ -339,20 +338,20 @@ func (normalizer *NativeNormalizer) NormalizeEndpointPricing(upstream, operation
 					}
 				case "audio_output":
 					if !slices.Contains(response.Data.OutputModalities, "audio") {
-						if _, err := normalizer.runtime.ReadPrice(vector[key]); err != nil {
+						if _, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key]); err != nil {
 							return nil, err
 						}
 						continue
 					}
 					component = "audio_output"
 				case "image_output":
-					if _, err := normalizer.runtime.ReadPrice(vector[key]); err != nil {
+					if _, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key]); err != nil {
 						return nil, err
 					}
 
 					continue
 				default:
-					amount, err := normalizer.runtime.ReadPrice(vector[key])
+					amount, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key])
 					if err != nil {
 						return nil, err
 					}
@@ -361,7 +360,7 @@ func (normalizer *NativeNormalizer) NormalizeEndpointPricing(upstream, operation
 					}
 					continue
 				}
-				amount, err := normalizer.runtime.ReadPrice(vector[key])
+				amount, err := ReadEndpointPrice(normalizer.runtime.Capabilities, vector[key])
 				if err != nil {
 					return nil, err
 				}
@@ -403,7 +402,7 @@ func (normalizer *NativeNormalizer) NormalizeImagePricing(upstream string, body 
 		variants := map[string]bool{"": true}
 		for priceIndex, price := range endpoint.Pricing {
 			if index < len(rawResponse.Endpoints) && !published {
-				if _, err := normalizer.runtime.ReadPrice(rawResponse.Endpoints[index].Pricing[priceIndex]["cost_usd"]); err != nil {
+				if _, err := ReadEndpointPrice(normalizer.runtime.Capabilities, rawResponse.Endpoints[index].Pricing[priceIndex]["cost_usd"]); err != nil {
 					return nil, err
 				}
 			}

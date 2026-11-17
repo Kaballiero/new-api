@@ -1,4 +1,4 @@
-package openrouter
+package estimate_upstream_reserve
 
 import (
 	"bytes"
@@ -8,8 +8,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 const maxEndpointPricingOverrides = 128
@@ -24,24 +23,24 @@ type endpointPricingOverride struct {
 	prices       map[string]json.RawMessage
 }
 
-func endpointPricingClock(raw json.RawMessage) (int, error) {
+func (u Usecase) endpointPricingClock(raw json.RawMessage) (int, error) {
 	var clock int
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || common.Unmarshal(raw, &clock) != nil || clock < 0 || clock > 2359 || clock%100 >= 60 {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || u.deps.Codec.Unmarshal(raw, &clock) != nil || clock < 0 || clock > 2359 || clock%100 >= 60 {
 		return 0, errors.New("invalid OpenRouter pricing UTC time")
 	}
 	return clock/100*60 + clock%100, nil
 }
 
-func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoint, error) {
+func (u Usecase) endpointPricingTariffs(endpoint domain.NativePricedEndpoint, prompt, maxTokensLimit int) ([]domain.NativePricedEndpoint, error) {
 	prices := maps.Clone(endpoint.Pricing)
 	raw, hasOverrides := prices["overrides"]
 	delete(prices, "overrides")
 	endpoint.Pricing = prices
 	if !hasOverrides || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return []PricedEndpoint{endpoint}, nil
+		return []domain.NativePricedEndpoint{endpoint}, nil
 	}
 	var declarations []map[string]json.RawMessage
-	if common.Unmarshal(raw, &declarations) != nil || len(declarations) > maxEndpointPricingOverrides {
+	if u.deps.Codec.Unmarshal(raw, &declarations) != nil || len(declarations) > maxEndpointPricingOverrides {
 		return nil, errors.New("invalid OpenRouter endpoint pricing overrides")
 	}
 	weekdays := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
@@ -53,7 +52,7 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 		override := endpointPricingOverride{prices: make(map[string]json.RawMessage)}
 		threshold, thresholdExists := declaration["min_prompt_tokens"]
 		override.thresholdSet = thresholdExists
-		if thresholdExists && (bytes.Equal(bytes.TrimSpace(threshold), []byte("null")) || common.Unmarshal(threshold, &override.threshold) != nil || override.threshold < 0 || override.threshold > helper.MaxTokensLimit) {
+		if thresholdExists && (bytes.Equal(bytes.TrimSpace(threshold), []byte("null")) || u.deps.Codec.Unmarshal(threshold, &override.threshold) != nil || override.threshold < 0 || override.threshold > maxTokensLimit) {
 			return nil, errors.New("invalid OpenRouter pricing override token threshold")
 		}
 		start, startExists := declaration["utc_start"]
@@ -63,11 +62,11 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 		}
 		if startExists {
 			var err error
-			override.start, err = endpointPricingClock(start)
+			override.start, err = u.endpointPricingClock(start)
 			if err != nil {
 				return nil, err
 			}
-			override.end, err = endpointPricingClock(end)
+			override.end, err = u.endpointPricingClock(end)
 			if err != nil {
 				return nil, err
 			}
@@ -80,7 +79,7 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 		}
 		rawDays, daysExist := declaration["utc_days"]
 		if daysExist {
-			if common.Unmarshal(rawDays, &override.days) != nil || len(override.days) == 0 || len(override.days) > len(weekdays) {
+			if u.deps.Codec.Unmarshal(rawDays, &override.days) != nil || len(override.days) == 0 || len(override.days) > len(weekdays) {
 				return nil, errors.New("invalid OpenRouter pricing UTC days")
 			}
 			for index, day := range override.days {
@@ -102,7 +101,7 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 			default:
 				return nil, fmt.Errorf("OpenRouter pricing override has unsupported dimension %s", key)
 			}
-			if _, err := readRate(value); err != nil {
+			if _, err := domain.ReadEndpointRate(u.deps, value); err != nil {
 				return nil, err
 			}
 			override.prices[key] = value
@@ -110,7 +109,7 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 		overrides = append(overrides, override)
 	}
 	if !hasCalendar {
-		tariffs := []PricedEndpoint{endpoint}
+		tariffs := []domain.NativePricedEndpoint{endpoint}
 		for _, override := range overrides {
 			if prompt < override.threshold {
 				continue
@@ -127,7 +126,7 @@ func endpointPricingTariffs(endpoint PricedEndpoint, prompt int) ([]PricedEndpoi
 	if len(minutes)*len(days) > maxEndpointPricingCalendarContexts {
 		return nil, errors.New("OpenRouter pricing calendar context limit exceeded")
 	}
-	tariffs := make([]PricedEndpoint, 0, len(minutes)*len(days))
+	tariffs := make([]domain.NativePricedEndpoint, 0, len(minutes)*len(days))
 	for _, minute := range minutes {
 		for _, day := range days {
 			variant := endpoint
