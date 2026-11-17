@@ -19,14 +19,17 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_video_reserve"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	service "github.com/QuantumNous/new-api/relay/billing"
@@ -204,19 +207,109 @@ func TestNativeImageResponseContract(t *testing.T) {
 	})
 }
 
+// The reserve of an image request prices the variant of its requested tier
+// and the output size it asks for; the price shapes are those OpenRouter
+// publishes at /images/models/{id}/endpoints (catalog v13).
 func TestNativeImageTariffEstimate(t *testing.T) {
-	prices := []ImagePrice{
-		{Billable: "output_image", Unit: "image", CostUSD: 0.04},
-		{Billable: "output_image", Unit: "image", CostUSD: 0.08, Variant: "4k"},
-		{Billable: "input_reference", Unit: "request", CostUSD: 0.005},
-		{Billable: "input_text", Unit: "token", CostUSD: 0.000001},
-		{Billable: "input_font", Unit: "image", CostUSD: 0.03},
+	image := func(billable, unit, variant string, cost float64) ImagePrice {
+		return ImagePrice{Billable: billable, Unit: unit, Variant: variant, CostUSD: cost}
 	}
-	cost, err := EstimateImageCost(prices, 2, 2, map[string]any{"prompt": "red"})
-	require.NoError(t, err)
-	// Highest output variant, one reference request fee, text per output;
-	// no fonts are sent. Actual settlement uses usage.cost instead.
-	assert.InDelta(t, 0.16+0.005+2*1027*0.000001, cost, 1e-12)
+	resolutions := func(values ...string) map[string]ImageCapability {
+		return map[string]ImageCapability{"resolution": {Type: "enum", Values: values}}
+	}
+	sized := func(parameters map[string]ImageCapability) map[string]ImageCapability {
+		parameters["size"] = ImageCapability{Type: "boolean"}
+		return parameters
+	}
+	flux3 := ImageEndpoint{SupportedParameters: resolutions("1.5K", "1K", "2K", "4K", "768"), Pricing: []ImagePrice{
+		image("output_image", "image", "768", 0.041), image("output_image", "image", "1k", 0.048), image("output_image", "image", "1.5k", 0.07),
+		image("output_image", "image", "2k", 0.1), image("output_image", "image", "4k", 0.607),
+	}}
+	riverflow := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K"), Pricing: []ImagePrice{
+		image("input_font", "image", "", 0.03), image("input_reference", "image", "", 0.2),
+		image("output_image", "image", "", 0.15), image("output_image", "image", "2k", 0.15), image("output_image", "image", "4k", 0.33),
+	}}
+	seedream := ImageEndpoint{SupportedParameters: resolutions("1.5K", "1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.003), image("output_image", "image", "", 0.045), image("output_image", "image", "high_resolution", 0.09),
+	}}
+	grok := ImageEndpoint{SupportedParameters: resolutions("1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.01), image("output_image", "image", "low_1k", 0.04), image("output_image", "image", "low_2k", 0.06),
+		image("output_image", "image", "medium_1k", 0.06), image("output_image", "image", "medium_2k", 0.08),
+	}}
+	qwen := ImageEndpoint{SupportedParameters: resolutions("1K", "2K"), Pricing: []ImagePrice{
+		image("input_image", "image", "", 0.003), image("output_image", "image", "1k", 0.04), image("output_image", "image", "2k", 0.075),
+	}}
+	riverflowSized := ImageEndpoint{SupportedParameters: sized(resolutions("1K", "2K", "4K")), Pricing: []ImagePrice{
+		image("output_image", "image", "", 0.13), image("output_image", "image", "2k", 0.15), image("output_image", "image", "4k", 0.17),
+	}}
+	flux2 := ImageEndpoint{Pricing: []ImagePrice{image("output_image", "megapixel", "", 0.03)}}
+	flux2Sized := ImageEndpoint{SupportedParameters: sized(map[string]ImageCapability{}), Pricing: flux2.Pricing}
+	flux2Flex := ImageEndpoint{SupportedParameters: sized(map[string]ImageCapability{}), Pricing: []ImagePrice{
+		image("input_image", "megapixel", "", 0.06), image("output_image", "megapixel", "", 0.06),
+	}}
+	minimax := ImageEndpoint{SupportedParameters: sized(resolutions("1K", "2K", "4K")), Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.0000015), image("input_text", "token", "", 0.0000023), image("output_image", "token", "", 0.0000038),
+	}}
+	unknownTier := ImageEndpoint{SupportedParameters: resolutions("1K", "8K"), Pricing: []ImagePrice{image("output_image", "token", "", 0.0000038)}}
+	geminiPro := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K"), Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.000002), image("output_image", "token", "", 0.00012),
+	}}
+	geminiFlash := ImageEndpoint{SupportedParameters: resolutions("1K", "2K", "4K", "512"), Pricing: []ImagePrice{image("output_image", "token", "", 0.00006)}}
+	gptImage := ImageEndpoint{Pricing: []ImagePrice{
+		image("input_image", "token", "", 0.00001), image("input_text", "token", "", 0.000005), image("output_image", "token", "", 0.00004),
+	}}
+	for _, tc := range []struct {
+		name              string
+		endpoint          ImageEndpoint
+		count, references int
+		payload           map[string]any
+		want              float64
+	}{
+		{
+			name: "highest output variant without a tier, one reference request fee, text per output and no fonts",
+			endpoint: ImageEndpoint{Pricing: []ImagePrice{
+				image("output_image", "image", "", 0.04), image("output_image", "image", "4k", 0.08), image("input_reference", "request", "", 0.005),
+				image("input_text", "token", "", 0.000001), image("input_font", "image", "", 0.03),
+			}},
+			count: 2, references: 2, payload: map[string]any{"prompt": "red"}, want: 0.16 + 0.005 + 2*1027*0.000001,
+		},
+		{name: "flux-3-image 1K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.048},
+		{name: "flux-3-image 2K", endpoint: flux3, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.1},
+		{name: "flux-3-image without a tier", endpoint: flux3, count: 1, payload: map[string]any{}, want: 0.607},
+		{name: "size an endpoint does not declare counts as no size", endpoint: flux3, count: 1, payload: map[string]any{"size": "512x512"}, want: 0.607},
+		{name: "undeclared size raises the requested tier", endpoint: flux3, count: 1, payload: map[string]any{"size": "4096x4096", "resolution": "1K"}, want: 0.607},
+		{name: "undeclared size never lowers the requested tier", endpoint: flux3, count: 1, payload: map[string]any{"size": "512x512", "resolution": "2K"}, want: 0.1},
+		{name: "undeclared size raises the output", endpoint: flux2, count: 1, payload: map[string]any{"size": "8192x8192"}, want: 0.03 * 68},
+		{name: "declared size takes the tier covering its longer side", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "1500x1000"}, want: 0.15},
+		{name: "declared size above every tier takes the highest variant", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "8192x1024"}, want: 0.17},
+		{name: "size and resolution take the larger tier", endpoint: riverflowSized, count: 1, payload: map[string]any{"size": "4096x4096", "resolution": "1K"}, want: 0.17},
+		{name: "size and resolution take the larger output of the resolution", endpoint: minimax, count: 1, payload: map[string]any{"size": "1024x1024", "resolution": "2K"}, want: 17180*0.0000038 + 1024*0.0000023},
+		{name: "size and resolution take the larger output of the size", endpoint: minimax, count: 1, payload: map[string]any{"size": "3000x2000", "resolution": "1K"}, want: 24576*0.0000038 + 1024*0.0000023},
+		{name: "unknown requested tier keeps 16 MP", endpoint: minimax, count: 1, payload: map[string]any{"resolution": "8K"}, want: 65536*0.0000038 + 1024*0.0000023},
+		{name: "unknown published tier keeps 16 MP", endpoint: unknownTier, count: 1, payload: map[string]any{}, want: 65536 * 0.0000038},
+		{name: "riverflow 1K takes the 2k variant with the unlabeled one", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.15},
+		{name: "riverflow 2K", endpoint: riverflow, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.15},
+		{name: "riverflow 4K with a reference", endpoint: riverflow, count: 1, references: 1, payload: map[string]any{"resolution": "4K"}, want: 0.33 + 0.2},
+		{name: "seedream high_resolution without resolution variants", endpoint: seedream, count: 1, references: 2, payload: map[string]any{"resolution": "1K"}, want: 0.09 + 2*0.003},
+		{name: "grok 1K takes the highest quality of the tier", endpoint: grok, count: 1, payload: map[string]any{"resolution": "1K"}, want: 0.06},
+		{name: "grok 2K", endpoint: grok, count: 1, payload: map[string]any{"resolution": "2K"}, want: 0.08},
+		{name: "grok 1K times n", endpoint: grok, count: 2, references: 1, payload: map[string]any{"resolution": "1K"}, want: 2*0.06 + 0.01},
+		{name: "qwen 1K times n", endpoint: qwen, count: 3, payload: map[string]any{"resolution": "1K"}, want: 3 * 0.04},
+		{name: "megapixel price of a declared size in whole megapixels", endpoint: flux2Sized, count: 1, payload: map[string]any{"size": "1024x1024"}, want: 0.03 * 2},
+		{name: "megapixel price of a small declared size is at least one megapixel", endpoint: flux2Sized, count: 1, payload: map[string]any{"size": "512x512"}, want: 0.03},
+		{name: "megapixel references keep 16 MP each", endpoint: flux2Flex, count: 1, references: 4, payload: map[string]any{"size": "512x512"}, want: 0.06 + 4*16*0.06},
+		{name: "token output without a declared size keeps the largest published tier", endpoint: geminiPro, count: 1, payload: map[string]any{"size": "256x256"}, want: 68720 * 0.00012},
+		{name: "megapixel price without published tiers keeps 16 MP", endpoint: flux2, count: 1, payload: map[string]any{}, want: 0.03 * 16},
+		{name: "token price of a tier, references keep 16 MP", endpoint: geminiPro, count: 1, references: 1, payload: map[string]any{"resolution": "2K"}, want: 17180*0.00012 + 65536*0.000002},
+		{name: "token price of the largest published tier", endpoint: geminiFlash, count: 1, payload: map[string]any{}, want: 68720 * 0.00006},
+		{name: "token price without published tiers keeps 16 MP", endpoint: gptImage, count: 1, payload: map[string]any{"prompt": "x"}, want: 65536*0.00004 + 1025*0.000005},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cost, err := EstimateImageCost(tc.endpoint, tc.count, tc.references, tc.payload)
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
 }
 
 func TestNativeImagePublishedTariffFallback(t *testing.T) {
@@ -338,7 +431,7 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.order.Model = tc.model
-			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
 			if tc.sourceBased || tc.unlisted {
 				// These discovery records have no finite output durations. Do not
 				// fabricate quantities to exercise their monetary SKU.
@@ -389,7 +482,7 @@ func TestHeyGenVideoReservation(t *testing.T) {
 		{name: "audio remains unpriced", order: `{"input_references":[{"type":"image_url"},{"type":"audio_url"}]}`, errorText: "audio reference tariff is unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			model := VideoModelPricing{
+			model := pricingdomain.VideoModelPricing{
 				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15, 16, 30}, SupportedResolutions: []string{"480p", "768p", "1080p", "2K"},
 				PricingSKUs: map[string]string{
 					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_1080p": "0.1", "duration_seconds_2k": "0.1",
@@ -436,10 +529,27 @@ func TestVideoFreshDiscoveryBeforeTransport(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "selected-key", ChannelBaseUrl: server.URL, UpstreamModelName: "runway/gen-4.5"}}
-	cost, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
+	estimate, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
 	require.NoError(t, err)
-	assert.InDelta(t, 3, cost, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
+	assert.InDelta(t, 3, estimate.USD, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
+	assert.Equal(t, pricingdomain.ReserveSourceLive, estimate.Source, "a channel off the official API is priced live")
 	assert.Equal(t, 1, requests)
+}
+
+// A channel on the official API prices a video order from the fresh upstream
+// catalog without reading /videos/models.
+func TestVideoReserveFromUpstreamCatalog(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Videos: map[string]pricingdomain.VideoModelPricing{
+		"runway/gen-4.5": {ID: "runway/gen-4.5", SupportedDurations: []int{5, 10}, PricingSKUs: map[string]string{"cents_per_second_output": "30"}},
+	}})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "selected-key", ChannelBaseUrl: "https://openrouter.ai/api", UpstreamModelName: "runway/gen-4.5"}}
+	estimate, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
+	require.NoError(t, err)
+	assert.Equal(t, estimate_upstream_video_reserve.Estimate{USD: 3, Source: pricingdomain.ReserveSourceCatalog}, estimate)
 }
 
 func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
@@ -463,7 +573,7 @@ func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
 		{"ordinary mp4 output", "runway/gen-4.5", `{"cents_per_second_output":"28"}`, `{"provider":{"options":{"runway":{"output_format":"mp4"}}}}`, 1.4, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			model := VideoModelPricing{ID: tc.model, SupportedDurations: []int{3, 5}, SupportedResolutions: []string{"480p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, SupportedDurations: []int{3, 5}, SupportedResolutions: []string{"480p"}}
 			require.NoError(t, common.Unmarshal([]byte(tc.prices), &model.PricingSKUs))
 			var order VideoPriceOrder
 			require.NoError(t, common.Unmarshal([]byte(tc.order), &order))
@@ -1572,6 +1682,14 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				return
 			}
 			require.NotNil(t, info.OpenRouterCost)
+			if tc.crash == "" {
+				// The channel reserve names the reserve as for text.
+				wantSource := pricingdomain.ReserveSourceManual
+				if tc.noReserve {
+					wantSource = pricingdomain.ReserveSourceLive
+				}
+				assert.Equal(t, wantSource, info.OpenRouterCost.ReserveSource)
+			}
 			if tc.noReserve {
 				assert.Empty(t, info.OpenRouterCost.TaskID)
 				assert.False(t, relaycommon.HasOpenRouterSyncTask(info))
@@ -1588,6 +1706,13 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
+			if tc.crash == "" {
+				// The task facts carry the reserve source to the reservation log.
+				assert.Equal(t, "manual", task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+				var reservation model.Log
+				require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
+				assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"manual"`)
+			}
 			if tc.crash != "" {
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
 				require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))
@@ -1687,7 +1812,7 @@ func TestNativeImageUnknownReachableTariffFailsClosed(t *testing.T) {
 func TestNativeImageExplicitFreeTariff(t *testing.T) {
 	var prices []ImagePrice
 	require.NoError(t, common.Unmarshal([]byte(`[{"billable":"output_image","unit":"image","cost_usd":0}]`), &prices))
-	cost, err := EstimateImageCost(prices, 1, 0, map[string]any{"prompt": "x"})
+	cost, err := EstimateImageCost(ImageEndpoint{Pricing: prices}, 1, 0, map[string]any{"prompt": "x"})
 	require.NoError(t, err)
 	assert.Zero(t, cost)
 }
@@ -1798,7 +1923,7 @@ func TestSourceMediaVideoReservation(t *testing.T) {
 			}
 			body, err := common.Marshal(fields)
 			require.NoError(t, err)
-			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedResolutions: []string{"720p", "1080p"}}
+			model := pricingdomain.VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedResolutions: []string{"720p", "1080p"}}
 			cost, err := estimateSourceMediaVideo(model, body)
 			if tc.errorText != "" {
 				require.ErrorContains(t, err, tc.errorText)
@@ -1826,9 +1951,9 @@ func TestSourceMediaVideoReservation(t *testing.T) {
 		_, err = EstimateVideo(c, info, body)
 		require.ErrorContains(t, err, "explicit approximate")
 		info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"runway/aleph-2": 1}
-		cost, err := EstimateVideo(c, info, body)
+		estimate, err := EstimateVideo(c, info, body)
 		require.NoError(t, err)
-		assert.Equal(t, 1.0, cost)
+		assert.Equal(t, 1.0, estimate.USD)
 		for _, reserve := range []float64{0, -1, math.NaN(), math.Inf(1)} {
 			info.ChannelSetting.OpenRouterModelReserveUSD["runway/aleph-2"] = reserve
 			_, err = EstimateVideo(c, info, body)

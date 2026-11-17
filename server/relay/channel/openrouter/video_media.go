@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/abema/go-mp4"
@@ -45,7 +46,7 @@ type videoMediaReference struct {
 // estimateSourceMediaVideo only reads immutable inline bytes that remain in the
 // cached POST. Output rounding/minimums are not fully published: callers must
 // require an explicit approximate reserve even after these quantities validate.
-func estimateSourceMediaVideo(model VideoModelPricing, body []byte) (float64, error) {
+func estimateSourceMediaVideo(model pricingdomain.VideoModelPricing, body []byte) (float64, error) {
 	var order struct {
 		VideoPriceOrder
 		Prompt          string                `json:"prompt"`

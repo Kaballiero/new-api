@@ -212,6 +212,9 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	if bc.OpenRouterCost != nil {
 		other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
 		other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+		if source, ok := bc.OpenRouterOrderFacts["reservation_source"]; ok {
+			other.SetAdmin("openrouter_reservation_source", source)
+		}
 	} else if bc.TieredSnapshot != nil {
 		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
 	}

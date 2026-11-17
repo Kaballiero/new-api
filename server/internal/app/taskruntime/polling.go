@@ -52,12 +52,18 @@ func NewPolling() *Polling {
 	}
 }
 
+// manualHoldAlertWindow keeps scheduling passes after a request parks a hold
+// in manual reconciliation, so an otherwise idle system still reports it.
+const manualHoldAlertWindow = 2 * time.Minute
+
 // HasTasks also schedules a pass when an unknown-submission hold has outlived
-// the auto-release delay, so an otherwise idle system still releases it.
+// the auto-release delay, so an otherwise idle system still releases it, and
+// when a hold was recently parked for root.
 func (p *Polling) HasTasks() bool {
 	unfinished := p.store.HasUnfinishedSyncTasks()
 	dueHolds := p.store.HasUnknownSubmissionHolds(time.Now().Add(-domain.OpenRouterSyncAutoReleaseDelay).Unix())
-	return unfinished || dueHolds
+	newManualHolds := p.store.HasManualHoldsSince(time.Now().Add(-manualHoldAlertWindow).Unix())
+	return unfinished || dueHolds || newManualHolds
 }
 func (p *Polling) HasMidjourney() bool { return p.store.HasUnfinishedMidjourneyTasks() }
 
@@ -65,6 +71,9 @@ func (p *Polling) RunTasks(ctx context.Context, report func(processed, total int
 	summary, _ := p.tasks.Execute(ctx, report)
 	if err := p.reconciler.ReleaseUnidentified(ctx); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("OpenRouter sync automatic release pass failed: %v", err))
+	}
+	if err := p.reconciler.AlertManualHolds(ctx); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("OpenRouter sync manual hold alert failed: %v", err))
 	}
 	return summary
 }

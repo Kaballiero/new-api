@@ -83,7 +83,7 @@ var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogS
 // time the data last changed, so a catalog nobody refreshed goes stale and the
 // reserve falls back to live. Otherwise the model is discovered live; when
 // live fails, a stale document of the model is taken, and without one the live
-// error is returned.
+// error is returned (domain.ModelTariff).
 func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	published := u.catalog.Load()
 	liveOperation := in.Rerank || in.Decisions || in.Audio || in.ImageOutput || in.ImageReserveOnly
@@ -91,7 +91,7 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	fresh := false
 	if published != nil && !liveOperation && domain.IsOpenRouterCatalogBaseURL(in.ChannelBaseURL) {
 		catalog = published.Models
-		fresh = !u.now().After(published.FetchedAt.Add(u.maxAge()))
+		fresh = published.FreshAt(u.now(), u.maxAge())
 	}
 	tariffs := make(requestTariffs, len(in.Models))
 	for _, model := range in.Models {
@@ -99,20 +99,11 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 		if _, loaded := tariffs[tariffModel]; loaded {
 			continue
 		}
-		document, documented := catalog[tariffModel]
-		if documented && fresh {
-			tariffs[tariffModel] = modelTariffs{response: document, source: domain.ReserveSourceCatalog}
-			continue
-		}
-		response, err := in.Live.Discover(tariffModel)
-		if err == nil {
-			tariffs[tariffModel] = modelTariffs{response: response, source: domain.ReserveSourceLive}
-			continue
-		}
-		if !documented {
+		response, source, err := domain.ModelTariff(tariffModel, catalog, fresh, in.Live)
+		if source == "" {
 			return nil, err
 		}
-		tariffs[tariffModel] = modelTariffs{response: document, source: domain.ReserveSourceCatalogStale, liveErr: err}
+		tariffs[tariffModel] = modelTariffs{response: response, source: source, liveErr: err}
 	}
 	return tariffs, nil
 }
