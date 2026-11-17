@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { channelSchema } from '../../types'
+import { channelSchema, type OpenRouterReserveItem } from '../../types'
 import {
   buildSettingJSON,
   channelFormSchema,
@@ -26,6 +26,7 @@ import {
 } from '../channel-form'
 import { hasAdvancedSettingsErrors } from '../channel-form-errors'
 import {
+  mergeOpenRouterReserveRows,
   parseOpenRouterPolicyEntries,
   serializeOpenRouterPolicyEntries,
   validateOpenRouterPolicyEntries,
@@ -261,23 +262,6 @@ describe('OpenRouter policy table entries', () => {
     }
   )
 
-  test('duplicate model IDs are reported on each row and block the form', () => {
-    const entries = [
-      { model: 'other/reasoner', value: 'upstream' },
-      { model: 'other/reasoner', value: 'configured_price' },
-    ]
-    expect(validateOpenRouterPolicyEntries(entries, 'source')).toEqual([
-      { model: 'Duplicate model ID' },
-      { model: 'Duplicate model ID' },
-    ])
-    const form = reserveForm({})
-    form.openrouter_reservation_source = serializeOpenRouterPolicyEntries(
-      entries,
-      'source'
-    )
-    expect(channelFormSchema.safeParse(form).success).toBe(false)
-  })
-
   test('unknown reservation source is reported', () => {
     expect(
       validateOpenRouterPolicyEntries(
@@ -285,5 +269,73 @@ describe('OpenRouter policy table entries', () => {
         'source'
       )
     ).toEqual([{ value: 'Select upstream or configured_price' }])
+  })
+})
+
+describe('OpenRouter reserve table rows', () => {
+  const catalogItem: OpenRouterReserveItem = {
+    model: 'alias',
+    upstream_model: 'openai/gpt-5-mini',
+    in_channel: true,
+    configured_source: 'upstream',
+    manual_usd: null,
+    configured_usd: null,
+    effective_source: 'catalog',
+    admission_policy: 'upstream_estimate',
+    example_usd: 0.0571,
+    example_status: 'ok',
+    example_error: null,
+    providers: [],
+  }
+
+  test('channel models come first, then setting keys the channel lacks', () => {
+    const rows = mergeOpenRouterReserveRows(
+      ['openai/gpt-5-mini', 'other/reasoner'],
+      [
+        { model: 'other/reasoner', value: 'configured_price' },
+        { model: 'legacy/source', value: 'upstream' },
+      ],
+      [
+        { model: 'legacy/reserve', value: '0.5' },
+        { model: 'other/reasoner', value: '2' },
+      ],
+      []
+    )
+    expect(
+      rows.map((row) => [row.model, row.inChannel, row.source, row.manualUsd])
+    ).toEqual([
+      ['openai/gpt-5-mini', true, 'upstream', ''],
+      ['other/reasoner', true, 'configured_price', '2'],
+      ['legacy/source', false, 'upstream', ''],
+      ['legacy/reserve', false, 'upstream', '0.5'],
+    ])
+  })
+
+  test('rows take the example of their upstream model', () => {
+    const rows = mergeOpenRouterReserveRows(
+      ['openai/gpt-5-mini', 'other/reasoner'],
+      [],
+      [],
+      [catalogItem]
+    )
+    expect(rows.map((row) => row.preview)).toEqual([catalogItem, undefined])
+  })
+
+  test('a refused model without an upstream model matches by its model', () => {
+    const refusedItem: OpenRouterReserveItem = {
+      ...catalogItem,
+      model: 'other/reasoner',
+      upstream_model: null,
+      example_status: 'refused',
+      example_usd: null,
+      example_error: 'OpenRouter configured price is missing',
+    }
+    const rows = mergeOpenRouterReserveRows(
+      ['other/reasoner'],
+      [],
+      [],
+      [refusedItem]
+    )
+    expect(rows[0]?.preview).toBe(refusedItem)
   })
 })

@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { OpenRouterReserveItem } from '../types'
+
 export type OpenRouterPolicyKind = 'reserve' | 'source'
 
 export type OpenRouterPolicyEntry = {
@@ -27,6 +29,9 @@ export type OpenRouterPolicyEntryError = {
   model?: string
   value?: string
 }
+
+// The server reserves a model without a source entry from upstream.
+export const OPENROUTER_DEFAULT_RESERVATION_SOURCE = 'upstream'
 
 export const OPENROUTER_RESERVATION_SOURCES = [
   'upstream',
@@ -61,18 +66,13 @@ export function validateOpenRouterPolicyEntries(
   entries: OpenRouterPolicyEntry[],
   kind: OpenRouterPolicyKind
 ): OpenRouterPolicyEntryError[] {
-  const counts = new Map<string, number>()
-  for (const entry of entries) {
-    counts.set(entry.model, (counts.get(entry.model) ?? 0) + 1)
-  }
   return entries.map((entry) => {
     const error: OpenRouterPolicyEntryError = {}
+    // Keys come from a stored JSON map, which may hold an empty key.
     if (!entry.model) {
       error.model = 'Enter an upstream model ID'
     } else if (/[\s*]/.test(entry.model)) {
       error.model = 'Model IDs cannot contain spaces or *'
-    } else if ((counts.get(entry.model) ?? 0) > 1) {
-      error.model = 'Duplicate model ID'
     }
     if (kind === 'reserve' && !isPositiveAmount(entry.value)) {
       error.value = 'Enter a positive USD amount'
@@ -100,4 +100,36 @@ export function serializeOpenRouterPolicyEntries(
     policy[entry.model] = kind === 'reserve' ? Number(entry.value) : entry.value
   }
   return JSON.stringify(policy, null, 2)
+}
+
+export type OpenRouterReserveRow = {
+  model: string
+  inChannel: boolean
+  source: string
+  manualUsd: string
+  preview: OpenRouterReserveItem | undefined
+}
+
+// Rows are the channel's upstream models, then the setting keys the channel
+// no longer has.
+export function mergeOpenRouterReserveRows(
+  models: string[],
+  sources: OpenRouterPolicyEntry[],
+  reserves: OpenRouterPolicyEntry[],
+  preview: OpenRouterReserveItem[]
+): OpenRouterReserveRow[] {
+  const channelModels = new Set(models)
+  const settingModels = [...sources, ...reserves].map((entry) => entry.model)
+  return [...new Set([...models, ...settingModels])].map((model) => ({
+    model,
+    inChannel: channelModels.has(model),
+    source:
+      sources.find((entry) => entry.model === model)?.value ??
+      OPENROUTER_DEFAULT_RESERVATION_SOURCE,
+    manualUsd: reserves.find((entry) => entry.model === model)?.value ?? '',
+    // A refused model may have no resolved upstream model.
+    preview: preview.find(
+      (item) => (item.upstream_model ?? item.model) === model
+    ),
+  }))
 }
