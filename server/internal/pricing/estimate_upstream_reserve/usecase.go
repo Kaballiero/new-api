@@ -63,9 +63,13 @@ type Input struct {
 	OutputLimit         *int
 	DefaultOutputTokens int
 	MaxTokensLimit      int
+	// Searches are the web searches the request may run on the native search
+	// of the endpoint's provider, at most 30; searchCost prices them.
+	Searches int
 	// ApproximateReserveUSD is the whole-hold reserve, AddOnReserveUSD the
 	// reserve added for hosted search of a priced endpoint and
-	// SearchReserveUSD the reserve for requested hosted search.
+	// SearchReserveUSD the reserve for requested hosted search that no
+	// endpoint price covers (searchCost).
 	ApproximateReserveUSD, AddOnReserveUSD, SearchReserveUSD *float64
 }
 
@@ -77,7 +81,7 @@ type Estimate struct {
 	InputUSD, PromptPriceUSD, OutputPriceUSD decimal.Decimal
 	OutputTokens                             int
 	// IncludesAddOnReserve reports that the maximum endpoint cost includes the
-	// add-on reserve.
+	// add-on or the search reserve.
 	IncludesAddOnReserve bool
 	// Source is what the reserve is priced from (reserveSource).
 	Source domain.ReserveSource
@@ -303,7 +307,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				}
 				parametersSupported = true
 			}
-			if approximateReserve || in.SearchReserveUSD != nil {
+			if approximateReserve {
 				if in.Model == "perplexity/sonar-deep-research" && tag != "perplexity" {
 					return Estimate{}, "", errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
@@ -401,18 +405,15 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {
 				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
-				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
-					searchRate, err := domain.ReadEndpointRate(u.deps, raw)
+				if estimateErr == nil {
+					search, reserved, err := u.searchCost(in, tariff, modelTariff)
 					if modelTariff.missesCatalogPrice(err) {
 						return Estimate{}, tariffModel, nil
 					}
 					if err != nil {
 						return Estimate{}, "", err
 					}
-					if in.SearchReserveUSD == nil && !searchRate.IsZero() {
-						cost = cost.Add(decimal.NewFromFloat(*in.AddOnReserveUSD))
-						includesReserve = true
-					}
+					cost, includesReserve = cost.Add(search), reserved
 				}
 			}
 			if estimateErr != nil {
@@ -462,12 +463,6 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			return Estimate{}, "", fmt.Errorf("%w: %s", domain.ErrNoCompatibleEndpoint, strings.Join(reasons, "; "))
 		}
 		return Estimate{}, "", domain.ErrNoCompatibleEndpoint
-	}
-	if in.SearchReserveUSD != nil {
-		maximum = maximum.Add(decimal.NewFromFloat(*in.SearchReserveUSD))
-		if outputReserve {
-			estimate.InputUSD = estimate.InputUSD.Add(decimal.NewFromFloat(*in.SearchReserveUSD))
-		}
 	}
 	if approximateReserve {
 		maximum = decimal.Max(maximum, decimal.NewFromFloat(*in.ApproximateReserveUSD))

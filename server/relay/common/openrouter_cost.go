@@ -56,6 +56,9 @@ type OpenRouterCostState struct {
 	// ReserveSource is what the reserve is priced from; empty for a reserve
 	// the estimator did not price.
 	ReserveSource pricingdomain.ReserveSource
+	// ReserveQuantities are the measured quantities the reserve is priced by;
+	// nil without any.
+	ReserveQuantities map[pricingdomain.ReserveQuantity]int
 	// OutputReserve is set for a text reserve priced from endpoint tariffs.
 	OutputReserve *OpenRouterOutputReserve
 }

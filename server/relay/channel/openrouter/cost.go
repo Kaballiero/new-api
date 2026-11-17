@@ -184,7 +184,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err != nil {
 		return nil, err
 	}
-	info.OpenRouterCost = &relaycommon.OpenRouterCostState{OutputReserve: estimator.OutputReserve, ReserveSource: estimator.ReserveSource}
+	info.OpenRouterCost = &relaycommon.OpenRouterCostState{OutputReserve: estimator.OutputReserve, ReserveSource: estimator.ReserveSource, ReserveQuantities: estimator.ReserveQuantities}
 	if local != nil {
 		info.OpenRouterCost.ConfiguredReserveUSD = common.GetPointer(local.USD)
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model

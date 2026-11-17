@@ -46,6 +46,9 @@ var (
 	// ErrEndpointPriceMissing reports an OpenRouter endpoint price that is
 	// absent or null: unknown, not zero. Its text is that of an invalid price.
 	ErrEndpointPriceMissing = errors.New("invalid OpenRouter endpoint price")
+	// ErrHostedSearchUnpriced reports web searches of an OpenRouter request
+	// that neither an endpoint price nor the channel reserve covers.
+	ErrHostedSearchUnpriced = errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
 )
 
 // CatalogModelLossError rejects an upstream catalog revision that lost more
