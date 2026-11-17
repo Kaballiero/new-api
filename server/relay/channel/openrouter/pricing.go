@@ -242,7 +242,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if dedicatedAudio {
 		// Speech and transcription are priced from the catalog unit prices.
 		if info.RelayFormat != types.RelayFormatOpenAIAudio {
-			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
+			return 0, errors.New("OpenRouter audio endpoint requires OpenAI Audio format")
 		}
 		if speech {
 			modalities = []string{"speech"}

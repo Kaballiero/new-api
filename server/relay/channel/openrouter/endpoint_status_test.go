@@ -633,9 +633,11 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 
 // The reservation payload of a transcription carries the seconds of its file
 // from the audio headers, rounded up and capped by what the file size holds at
-// 8 kbit/s, so headers claiming a longer duration reserve no more. .mpga is
-// read as MP3, a file without a known extension by its magic bytes; a
-// duration that cannot be read leaves the seconds out.
+// 8 kbit/s, so headers claiming a longer duration reserve no more, and never
+// below the longest duration any reader yields: the reader of the extension
+// (.mpga is MP3), the reader its magic bytes name, and for WAV the bytes after
+// the data chunk header. A duration that cannot be read leaves the seconds
+// out.
 func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 	// wav is a PCM WAV file of sampleRate 8-bit mono samples a second whose
 	// data chunk header claims claimedBytes and holds dataBytes.
@@ -664,6 +666,8 @@ func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 		{name: "a low sample rate is capped by the file size", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: common.GetPointer[int64](3)},
 		{name: "mpga is read as MP3", filename: "speech.mpga", audio: mp3(40), seconds: common.GetPointer[int64](2)},
 		{name: "a file without an extension is sniffed", filename: "speech", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
+		{name: "a header claiming a shorter duration is reserved by its data", filename: "speech.wav", audio: wav(8000, 4000, 16000), seconds: common.GetPointer[int64](2)},
+		{name: "the extension reader cannot shorten the magic-byte reader", filename: "speech.mp3", audio: append(wav(8000, 834, 0), append(mp3(2), make([]byte, 16000)...)...), seconds: common.GetPointer[int64](3)},
 		{name: "a mislabeled file is sniffed", filename: "speech.mp3", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
 		{name: "unreadable headers leave the seconds out", filename: "speech.wav", audio: []byte("RIFF audio fixture")},
 		{name: "an unknown format leaves the seconds out", filename: "speech", audio: []byte("not audio at all")},
