@@ -1058,7 +1058,8 @@ func requestInputImages(fields map[string]json.RawMessage) ([]json.RawMessage, e
 }
 
 // Cohere Embed image tokens, measured on OpenRouter: a grid of 32 px cells,
-// at least 2x2 and at most 49x49 after downscaling, plus 4 tokens per image.
+// at least 2x2 and at most 49x49 after downscaling, plus 4 tokens per image on
+// embed-5-fast and 2 on embed-5-pro. The reserve adds 4 for both.
 const (
 	cohereEmbedImageCellPixels      = 32
 	cohereEmbedImageMinCellsPerSide = 2
