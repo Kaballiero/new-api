@@ -2,8 +2,11 @@ package estimate_upstream_reserve
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -12,14 +15,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeLive is the live endpoints of a gateway by tariff model; a model it does
+// not publish fails discovery. Asked records the discovered models.
+type fakeLive struct {
+	responses map[string]domain.NativeEndpointResponse
+	asked     []string
+}
+
+func (live *fakeLive) Discover(model string) (domain.NativeEndpointResponse, error) {
+	live.asked = append(live.asked, model)
+	response, published := live.responses[model]
+	if !published {
+		return domain.NativeEndpointResponse{}, errors.New("OpenRouter pricing discovery failed")
+	}
+	return response, nil
+}
+
+// liveOnly is the scenario without a published upstream catalog.
+func liveOnly(deps domain.Capabilities) Usecase {
+	return NewUsecase(deps, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, time.Now, func() int { return 24 })
+}
+
 // textInput is a nonstream text Chat request of 1000 prompt tokens and
-// max_tokens 10 to model, routed to endpoints, as the gateway passes it.
+// max_tokens 10 to model, routed to the live endpoints, as the gateway passes
+// it.
 func textInput(model string, endpoints ...domain.NativePricedEndpoint) Input {
 	outputLimit := 10
 	return Input{
 		Model:               model,
 		Models:              []string{model},
-		Endpoints:           map[string][]domain.NativePricedEndpoint{model: endpoints},
+		Live:                &fakeLive{responses: map[string]domain.NativeEndpointResponse{model: {ID: model, Endpoints: endpoints}}},
 		TextOutput:          true,
 		PromptTokens:        1000,
 		Count:               1,
@@ -66,7 +91,7 @@ func TestEndpointFlexFallbackPriceBounds(t *testing.T) {
 			if tc.local {
 				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &localUSD
 			}
-			estimate, err := NewUsecase(deps).Execute(in)
+			estimate, err := liveOnly(deps).Execute(in)
 			if tc.fail {
 				require.Error(t, err)
 				return
@@ -88,7 +113,7 @@ func TestEndpointOneHourCacheOverrideAndWholeEndpointBound(t *testing.T) {
 		want   float64
 	}{{999, 4.997}, {1000, 7.5}} {
 		in.PromptTokens = scenario.prompt
-		estimate, err := NewUsecase(deps).Execute(in)
+		estimate, err := liveOnly(deps).Execute(in)
 		require.NoError(t, err)
 		assert.InDelta(t, scenario.want, estimate.USD, 1e-12)
 	}
@@ -115,7 +140,7 @@ func TestEndpointOneHourCacheStrictRateAndUnknownDimensions(t *testing.T) {
 			if scenario.key != "" {
 				prices[scenario.key] = json.RawMessage(scenario.rate)
 			}
-			estimate, err := NewUsecase(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: prices}))
+			estimate, err := liveOnly(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: prices}))
 			if scenario.fail {
 				require.Error(t, err)
 				return
@@ -139,7 +164,7 @@ func TestEndpointCalendarAdmissionWholeReachableTariffs(t *testing.T) {
 		{"calendar threshold equality retains actual base", `[{"min_prompt_tokens":1000,"utc_start":0,"utc_end":1200,"prompt":"0.003","completion":"0.002"}]`, 2},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			estimate, err := NewUsecase(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.1"`), "overrides": json.RawMessage(scenario.overrides)}}))
+			estimate, err := liveOnly(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.1"`), "overrides": json.RawMessage(scenario.overrides)}}))
 			require.NoError(t, err)
 			assert.InDelta(t, scenario.want, estimate.USD, 1e-12)
 		})
@@ -167,7 +192,7 @@ func TestEndpointCalendarAdmissionRejectsMalformedConditions(t *testing.T) {
 		`{"prompt":"0.002"}`,
 	} {
 		t.Run(declaration, func(t *testing.T) {
-			_, err := NewUsecase(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "overrides": json.RawMessage("[" + declaration + "]")}}))
+			_, err := liveOnly(deps).Execute(textInput("test/model", domain.NativePricedEndpoint{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "overrides": json.RawMessage("[" + declaration + "]")}}))
 			require.Error(t, err)
 		})
 	}
@@ -190,7 +215,7 @@ func TestEndpointSavedNativeCalendarAndGeminiMetadata(t *testing.T) {
 	} {
 		t.Run(scenario.model, func(t *testing.T) {
 			endpoint := domain.NativePricedEndpoint{ModelID: scenario.model, Tag: scenario.tag, ContextLength: scenario.contextLength, MaxCompletionTokens: scenario.maxCompletionTokens, Pricing: endpointPricing(t, deps, scenario.pricing)}
-			estimate, err := NewUsecase(deps).Execute(textInput(scenario.model, endpoint))
+			estimate, err := liveOnly(deps).Execute(textInput(scenario.model, endpoint))
 			require.NoError(t, err)
 			assert.InDelta(t, scenario.want, estimate.USD, 1e-12)
 		})
@@ -203,7 +228,7 @@ func TestEndpointGeminiAudioMetadataStrictRates(t *testing.T) {
 		for _, rate := range []string{`"0"`, `null`, `"-1"`, `"NaN"`, `"Infinity"`} {
 			t.Run(key+"/"+rate, func(t *testing.T) {
 				prices := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), key: json.RawMessage(rate)}
-				estimate, err := NewUsecase(deps).Execute(textInput("google/gemini-2.5-pro", domain.NativePricedEndpoint{ModelID: "google/gemini-2.5-pro", Tag: "google-ai-studio", MaxCompletionTokens: 10, Pricing: prices}))
+				estimate, err := liveOnly(deps).Execute(textInput("google/gemini-2.5-pro", domain.NativePricedEndpoint{ModelID: "google/gemini-2.5-pro", Tag: "google-ai-studio", MaxCompletionTokens: 10, Pricing: prices}))
 				if rate != `"0"` {
 					require.Error(t, err)
 					return
@@ -212,5 +237,82 @@ func TestEndpointGeminiAudioMetadataStrictRates(t *testing.T) {
 				assert.InDelta(t, 1.02, estimate.USD, 1e-12)
 			})
 		}
+	}
+}
+
+// The reserve of every routable model is priced from the fresh catalog
+// document of its tariff model on the official OpenRouter API, otherwise from
+// live, and from a stale document only when live fails. A missing catalog
+// price or an empty pool is checked against live once; when live fails, the
+// missing price falls to the local cover and the empty pool keeps its error.
+func TestExecuteSourceOrder(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	endpoint := func(tag, prompt, completion string) domain.NativePricedEndpoint {
+		return domain.NativePricedEndpoint{Tag: tag, MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, `{"prompt":"`+prompt+`","completion":"`+completion+`"}`)}
+	}
+	response := func(endpoints ...domain.NativePricedEndpoint) domain.NativeEndpointResponse {
+		return domain.NativeEndpointResponse{Endpoints: endpoints, OutputModalities: []string{"text"}}
+	}
+	// The catalog prices a model at 1.02, live at 2.04.
+	catalogPriced := response(endpoint("catalog-provider", "0.001", "0.002"), endpoint("catalog-provider/fast", "0.003", "0.006"))
+	livePriced := response(endpoint("live-provider", "0.002", "0.004"))
+	unpriced := response(domain.NativePricedEndpoint{Tag: "catalog-provider", MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, `{"prompt":"0.001"}`)})
+	localUSD := .5
+	for _, tc := range []struct {
+		name      string
+		models    []string
+		batch     bool
+		baseURL   string
+		age       time.Duration
+		catalog   map[string]domain.NativeEndpointResponse
+		live      map[string]domain.NativeEndpointResponse
+		only      []string
+		local     bool
+		wantUSD   float64
+		wantErr   string
+		source    domain.ReserveSource
+		liveAsked []string
+	}{
+		{name: "fresh catalog", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalog},
+		{name: "shortcut prices its listed model", models: []string{"acme/a:nitro"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 3.06, source: domain.ReserveSourceCatalog},
+		{name: "batch prices the batch variant", models: []string{"acme/a"}, batch: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": livePriced, "acme/a:batch": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalog},
+		{name: "one discovery per tariff model", models: []string{"acme/a", "acme/a:floor", "acme/b"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/b": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/b"}},
+		{name: "model outside the catalog", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "channel outside the official API", models: []string{"acme/a"}, baseURL: "https://proxy.example/api", catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "stale catalog", models: []string{"acme/a"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "stale catalog when live fails", models: []string{"acme/a"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalogStale, liveAsked: []string{"acme/a"}},
+		{name: "live fails without a document", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
+		{name: "empty pool is checked against live", models: []string{"acme/a"}, only: []string{"live-provider"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
+		{name: "empty pool keeps its error when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter request has no compatible priced endpoint", liveAsked: []string{"acme/a"}},
+		{name: "missing price is checked against live", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+		{name: "missing price falls to the local cover when live fails", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+		{name: "missing price is refused when live fails", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/a"}},
+		{name: "missing price of a stale document is not checked again", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+			catalog.Store(&domain.UpstreamCatalogTariffs{Revision: "revision", FetchedAt: now.Add(-tc.age), Models: tc.catalog})
+			live := &fakeLive{responses: tc.live}
+			in := textInput(tc.models[len(tc.models)-1])
+			in.Models, in.Batch, in.Live = tc.models, tc.batch, live
+			in.ChannelBaseURL = "https://openrouter.ai/api/"
+			if tc.baseURL != "" {
+				in.ChannelBaseURL = tc.baseURL
+			}
+			in.Provider.Only = tc.only
+			if tc.local {
+				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &localUSD
+			}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() int { return 24 }).Execute(in)
+			assert.Equal(t, tc.liveAsked, live.asked)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-9)
+			assert.Equal(t, tc.source, estimate.Source)
+		})
 	}
 }

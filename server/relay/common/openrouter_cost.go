@@ -52,6 +52,9 @@ type OpenRouterCostState struct {
 	ConfiguredReserveUSD          *float64
 	ConfiguredReserveModel        string
 	ConfiguredReserveExprHash     string
+	// ReserveSource is what the reserve is priced from: a pricing
+	// ReserveSource value, empty for a reserve the estimator did not price.
+	ReserveSource string
 	// OutputReserve is set for a text reserve priced from endpoint tariffs.
 	OutputReserve *OpenRouterOutputReserve
 }

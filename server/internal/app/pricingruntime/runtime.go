@@ -2,6 +2,7 @@ package pricingruntime
 
 import (
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
@@ -37,7 +38,11 @@ func NewCatalogPersistence() catalogrecord.Store {
 	return catalogstore.NewCatalogPersistence(MutateModelPricingOptions)
 }
 
-// EstimateUpstreamReserve prices the OpenRouter reserve of a gateway request.
+// EstimateUpstreamReserve prices the OpenRouter reserve of a gateway request
+// from the upstream catalog tariffs at most PRICING_CATALOG_MAX_AGE_HOURS
+// (24 by default) old.
 var EstimateUpstreamReserve = sync.OnceValue(func() estimate_upstream_reserve.Usecase {
-	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities())
+	return estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities(), &UpstreamCatalogTariffs, time.Now, func() int {
+		return common.GetEnvOrDefault("PRICING_CATALOG_MAX_AGE_HOURS", 24)
+	})
 })

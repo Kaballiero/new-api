@@ -128,52 +128,35 @@ func (s *admission) Estimate(body, provider []byte) (float64, error) {
 	}
 	fields := s.fields
 	s.info.SetEstimatePromptTokens(promptTokens)
-	// OpenRouter publishes dedicated :batch endpoint prices. Discover once
-	// per possible final model; never infer a universal synchronous discount.
-	models, modelErr := openrouter.ModelsFromRequest(body)
-	if modelErr != nil {
-		return 0, modelErr
-	}
-	if len(models) == 0 {
-		models = []string{s.facts.UpstreamModel}
-	}
+	// OpenRouter publishes dedicated :batch endpoint prices; the estimate
+	// prices the :batch variant of every possible final model and never
+	// infers a universal synchronous discount.
 	adaptor := relay.GetAdaptor(s.info.ApiType)
 	if adaptor == nil {
 		return 0, &domain.RuleError{Kind: domain.OpenRouterAdaptorUnsupported}
 	}
 	adaptor.Init(s.info)
-	for _, name := range models {
-		batchModel := strings.TrimSuffix(name, ":batch") + ":batch"
-		if err = s.estimator.Discover(s.c, s.info, adaptor, batchModel); err != nil {
-			break
+	s.estimator.Bind(s.c, adaptor)
+	pricingBody := body
+	// Envelope routing applies to every item for admission, but remains
+	// separate from each item's native payload on the wire.
+	_, itemProvider := fields["provider"]
+	if _, present := fields["model"]; !present || len(provider) > 0 || itemProvider {
+		var prepared map[string]json.RawMessage
+		if err = common.Unmarshal(body, &prepared); err != nil {
+			return 0, err
 		}
-		s.estimator.Models[name] = s.estimator.Models[batchModel]
-	}
-	if err == nil {
-		pricingBody := body
-		// Envelope routing applies to every item for admission, but remains
-		// separate from each item's native payload on the wire.
-		_, itemProvider := fields["provider"]
-		if _, present := fields["model"]; !present || len(provider) > 0 || itemProvider {
-			var prepared map[string]json.RawMessage
-			if err = common.Unmarshal(body, &prepared); err == nil {
-				prepared["model"], _ = common.Marshal(s.facts.UpstreamModel)
-				if len(provider) > 0 {
-					prepared["provider"] = provider
-				} else {
-					delete(prepared, "provider")
-				}
-				pricingBody, err = common.Marshal(prepared)
-			}
+		prepared["model"], _ = common.Marshal(s.facts.UpstreamModel)
+		if len(provider) > 0 {
+			prepared["provider"] = provider
+		} else {
+			delete(prepared, "provider")
 		}
-		if err == nil {
-			estimate, estimateErr := s.estimator.Estimate(s.info, pricingBody, "batch_"+strings.TrimPrefix(s.request.Endpoint, "/v1/"))
-			err = estimateErr
-			return estimate, err
+		if pricingBody, err = common.Marshal(prepared); err != nil {
+			return 0, err
 		}
 	}
-	return 0, err
-
+	return s.estimator.Estimate(s.info, pricingBody, "batch_"+strings.TrimPrefix(s.request.Endpoint, "/v1/"))
 }
 func (s *admission) ConfigHash() (string, error) {
 	return batchaccount.BatchChannelConfigHash(s.channel)

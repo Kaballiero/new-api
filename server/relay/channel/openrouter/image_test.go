@@ -26,6 +26,7 @@ import (
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	service "github.com/QuantumNous/new-api/relay/billing"
@@ -723,6 +724,7 @@ func TestEndpointContextPricingAndRoutingDimensions(t *testing.T) {
 func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 	estimator := NewRequestEstimator()
 	estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "image": json.RawMessage(`"1"`), "web_search": json.RawMessage(`"0.01"`)}}}
+	estimator.Models["test/model:batch"] = estimator.Models["test/model"]
 	info := &relaycommon.RelayInfo{}
 	info.SetEstimatePromptTokens(1000)
 	schema := `"tools":[{"type":"function","function":{"name":"inspect_record","parameters":{"type":"object","properties":{"audio_url":{"type":"string"},"input_audio":{"type":"string"},"video_url":{"type":"string"},"web_search_options":{"type":"string"},"image_url":{"type":"string"},"input_image":{"type":"string"}}}}}]`
@@ -813,6 +815,7 @@ func TestEndpointCohereEmbedImageTokens(t *testing.T) {
 			if tc.secondTag != "" {
 				estimator.Models[model] = append(estimator.Models[model], endpoint(model, tc.secondTag))
 			}
+			estimator.Models[model+":batch"] = estimator.Models[model]
 			fallback := ""
 			if tc.fallback != "" {
 				estimator.Models[tc.fallback] = []PricedEndpoint{endpoint(tc.fallback, "cohere")}
@@ -958,6 +961,7 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 			}
 			estimator := NewRequestEstimator()
 			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", ModelID: "test/model", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: pricing}}
+			estimator.Models["test/model:batch"] = estimator.Models["test/model"]
 			estimator.Models["test/expensive"] = []PricedEndpoint{{Tag: "other", ModelID: "test/expensive", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.002"`), "completion": json.RawMessage(`"0.004"`)}}}
 			estimator.OutputModalities["test/model"] = []string{"text"}
 			operation := tc.operation
@@ -1044,7 +1048,8 @@ func TestEndpointOneHourCachePublishedSyncAndBatchPricing(t *testing.T) {
 			var prices map[string]json.RawMessage
 			require.NoError(t, common.Unmarshal([]byte(scenario.pricing), &prices))
 			estimator := NewRequestEstimator()
-			estimator.Models[scenario.model] = []PricedEndpoint{{Tag: "anthropic", MaxCompletionTokens: 100, Pricing: prices}}
+			batch := strings.HasPrefix(scenario.operation, "batch_")
+			estimator.Models[pricingdomain.UpstreamTariffModel(scenario.model, batch)] = []PricedEndpoint{{Tag: "anthropic", MaxCompletionTokens: 100, Pricing: prices}}
 			info := &relaycommon.RelayInfo{}
 			info.SetEstimatePromptTokens(1000)
 			for _, cache := range []string{"", `,"cache_control":{"type":"ephemeral"}`, `,"cache_control":{"type":"ephemeral","ttl":"1h"}`, `,"messages":[{"role":"user","content":[{"type":"text","text":"hour prefix","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"short prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]`} {

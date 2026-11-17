@@ -136,6 +136,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.SetEstimatePromptTokens(tokens)
 	}
 	estimator := NewRequestEstimator()
+	estimator.Bind(c, adaptor)
 	models, err := ModelsFromRequest(body)
 	if err != nil {
 		return nil, err
@@ -150,11 +151,6 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		}
 		if source == dto.OpenRouterReservationConfiguredPrice && len(models) != 1 {
 			return nil, errors.New("OpenRouter configured price reserve only supports one nonstream text chat response")
-		}
-	}
-	for _, model := range models {
-		if err := estimator.Discover(c, info, adaptor, model); err != nil {
-			return nil, err
 		}
 	}
 	var local *helper.ModelReservationEstimate
@@ -188,7 +184,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err != nil {
 		return nil, err
 	}
-	info.OpenRouterCost = &relaycommon.OpenRouterCostState{OutputReserve: estimator.OutputReserve}
+	info.OpenRouterCost = &relaycommon.OpenRouterCostState{OutputReserve: estimator.OutputReserve, ReserveSource: string(estimator.ReserveSource)}
 	if local != nil {
 		info.OpenRouterCost.ConfiguredReserveUSD = common.GetPointer(local.USD)
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model

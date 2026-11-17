@@ -358,6 +358,11 @@ func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.Req
 			other.SetAdmin("openrouter_generation_id", state.GenerationID)
 		}
 		other.SetAdmin("reserved_quota", request.FinalPreConsumedQuota)
+		if state.ReserveSource != "" {
+			other.SetAdmin("openrouter_reservation_source", state.ReserveSource)
+		}
+		// A configured price names the reserve, also one the estimator did
+		// not price.
 		if state.ConfiguredReserveUSD != nil {
 			other.SetAdmin("openrouter_reservation_source", "configured_price")
 			other.SetAdmin("openrouter_configured_reserve_usd", *state.ConfiguredReserveUSD)

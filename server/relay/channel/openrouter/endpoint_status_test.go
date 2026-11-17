@@ -1,13 +1,17 @@
 package openrouter
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -103,6 +107,7 @@ func TestEndpointStatusOperations(t *testing.T) {
 				var endpoint PricedEndpoint
 				require.NoError(t, common.Unmarshal([]byte(fmt.Sprintf(`{"tag":"provider","model_id":"test/model","status":%d,"context_length":10000,"max_completion_tokens":100,"pricing":{"prompt":"0.001","completion":"0.002"}}`, status)), &endpoint))
 				e.Models["test/model"] = []PricedEndpoint{endpoint}
+				e.Models["test/model:batch"] = e.Models["test/model"]
 				e.OutputModalities["test/model"] = []string{tc.modality}
 				info := &relaycommon.RelayInfo{RelayFormat: tc.format, IsStream: tc.modality == "audio"}
 				info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
@@ -193,6 +198,7 @@ func TestEndpointDefaultOutputCap(t *testing.T) {
 			require.NoError(t, common.UnmarshalJsonStr(`{"tag":"provider","model_id":"test/model",`+tc.limits+`"pricing":{"prompt":"0.000001","completion":"0.000002"}}`, &endpoint))
 			e := NewRequestEstimator()
 			e.Models["test/model"] = []PricedEndpoint{endpoint}
+			e.Models["test/model:batch"] = e.Models["test/model"]
 			info := &relaycommon.RelayInfo{RelayFormat: tc.format}
 			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
 			info.SetEstimatePromptTokens(1000)
@@ -293,13 +299,13 @@ func TestEndpointStatusRequestDiscovery(t *testing.T) {
 	gets := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
-		assert.Equal(t, "/v1/models/test/model/endpoints", r.URL.Path)
+		assert.Equal(t, "/v1/models/test/model:batch/endpoints", r.URL.Path)
 		gets++
 		status := -2
 		if gets > 1 {
 			status = 0
 		}
-		_, err := fmt.Fprintf(w, `{"data":{"id":"test/model","endpoints":[{"tag":"provider","status":%d,"max_completion_tokens":100,"pricing":{"prompt":"0.001","completion":"0.002"}}]}}`, status)
+		_, err := fmt.Fprintf(w, `{"data":{"id":"test/model:batch","endpoints":[{"tag":"provider","status":%d,"max_completion_tokens":100,"pricing":{"prompt":"0.001","completion":"0.002"}}]}}`, status)
 		assert.NoError(t, err)
 	}))
 	defer server.Close()
@@ -309,17 +315,18 @@ func TestEndpointStatusRequestDiscovery(t *testing.T) {
 	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL}
 	info.SetEstimatePromptTokens(1000)
 	e := NewRequestEstimator()
+	e.Bind(c, &imageTestAdaptor{})
 	for range 3 {
-		require.NoError(t, e.Discover(c, info, &imageTestAdaptor{}, "test/model"))
 		_, err := e.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), "batch_chat/completions")
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 1, gets)
-	assert.Equal(t, -2, *e.Models["test/model"][0].Status)
+	assert.Equal(t, -2, *e.Models["test/model:batch"][0].Status)
+	assert.Equal(t, pricingdomain.ReserveSourceLive, e.ReserveSource)
 	next := NewRequestEstimator()
-	require.NoError(t, next.Discover(c, info, &imageTestAdaptor{}, "test/model"))
+	require.NoError(t, next.Discover(c, info, &imageTestAdaptor{}, "test/model:batch"))
 	assert.Equal(t, 2, gets)
-	assert.Equal(t, 0, *next.Models["test/model"][0].Status)
+	assert.Equal(t, 0, *next.Models["test/model:batch"][0].Status)
 }
 
 func TestEndpointStatusMonetaryBoundary(t *testing.T) {
@@ -424,6 +431,46 @@ func TestEndpointMissingTagWithProviderRestriction(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.InDelta(t, 1.02, cost, 1e-9)
+		})
+	}
+}
+
+// A channel on the official OpenRouter API prices a routable model from the
+// fresh upstream catalog without discovering it live, and Batch from its
+// :batch variant; another channel does not read the catalog.
+func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	tariff := func(prompt, completion string) pricingdomain.NativeEndpointResponse {
+		var pricing map[string]json.RawMessage
+		require.NoError(t, common.UnmarshalJsonStr(`{"prompt":"`+prompt+`","completion":"`+completion+`"}`, &pricing))
+		return pricingdomain.NativeEndpointResponse{Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", MaxCompletionTokens: 100, Pricing: pricing}}, OutputModalities: []string{"text"}}
+	}
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
+		"test/model": tariff("0.001", "0.002"), "test/model:batch": tariff("0.0005", "0.001"),
+	}})
+	for _, tc := range []struct {
+		name, operation, baseURL, wantErr string
+		want                              float64
+	}{
+		{name: "sync", operation: "chat/completions", baseURL: "https://openrouter.ai/api", want: 1.02},
+		{name: "batch", operation: "batch_chat/completions", baseURL: "https://openrouter.ai/api", want: .51},
+		{name: "other channel", operation: "chat/completions", baseURL: "https://proxy.example/api", wantErr: "OpenRouter endpoint discovery missing for test/model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewRequestEstimator()
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: tc.baseURL}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := e.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), tc.operation)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+			assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
+			assert.Empty(t, e.Models)
 		})
 	}
 }

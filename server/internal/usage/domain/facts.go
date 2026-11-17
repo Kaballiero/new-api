@@ -50,6 +50,7 @@ type OpenRouterCostState struct {
 	ConfiguredReserveExprHash               string
 	ApproximateReserveModel                 string
 	AddOnReserveModel                       string
+	ReserveSource                           string
 }
 type NativeImage struct {
 	EstimatedCostUSD float64

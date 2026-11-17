@@ -998,6 +998,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				require.NoError(t, common.Unmarshal(metadata, &discovered))
 				estimator := openrouter.NewRequestEstimator()
 				estimator.Models[requestedModel] = discovered.Data.Endpoints
+				estimator.Models[requestedModel+":batch"] = discovered.Data.Endpoints
 				_, err := estimator.Estimate(info, []byte(body), operation)
 				require.ErrorContains(t, err, tc.wantError)
 				assert.Zero(t, transport.posts)
@@ -1276,8 +1277,10 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 			if tc.noPolicy || tc.wrongPolicy || tc.source == dto.OpenRouterReservationUpstream {
 				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0)
+				assert.Equal(t, "live", info.OpenRouterCost.ReserveSource)
 			} else {
 				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.Equal(t, "configured_price", info.OpenRouterCost.ReserveSource)
 				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)

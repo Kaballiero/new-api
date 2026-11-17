@@ -6,12 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"image"
-	"io"
 	"math"
-	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -21,7 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_reserve"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -73,7 +69,8 @@ const (
 )
 
 // RequestEstimator is request-scoped discovery, reused for all items in a
-// batch. It deliberately has no global cache or routing lifecycle.
+// batch. It deliberately has no global cache or routing lifecycle. Models and
+// OutputModalities keep the live discoveries by upstream tariff model.
 type RequestEstimator struct {
 	Models           map[string][]PricedEndpoint
 	OutputModalities map[string][]string
@@ -81,10 +78,14 @@ type RequestEstimator struct {
 	// by the last successful estimate.
 	ReserveUse   ReserveUse
 	ReserveModel string
+	// ReserveSource is what the last successful estimate is priced from.
+	ReserveSource pricingdomain.ReserveSource
 	// OutputReserve bounds the last successful estimate when it is a text
 	// reserve priced from endpoint tariffs; nil otherwise.
 	OutputReserve *relaycommon.OpenRouterOutputReserve
 	reserve       estimate_upstream_reserve.Usecase
+	c             *gin.Context
+	adaptor       channel.Adaptor
 }
 
 func NewRequestEstimator() *RequestEstimator {
@@ -93,77 +94,6 @@ func NewRequestEstimator() *RequestEstimator {
 		OutputModalities: make(map[string][]string),
 		reserve:          pricingruntime.EstimateUpstreamReserve(),
 	}
-}
-
-func (e *RequestEstimator) Discover(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, model string) error {
-	if _, ok := e.Models[model]; ok {
-		return nil
-	}
-	discoveryModel := strings.TrimSuffix(strings.TrimSuffix(model, ":nitro"), ":floor")
-	parts := strings.SplitN(discoveryModel, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return errors.New("invalid OpenRouter model identity")
-	}
-	endpoint := strings.TrimRight(info.ChannelBaseUrl, "/") + "/v1/models/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/endpoints"
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	if err = adaptor.SetupRequestHeader(c, &req.Header, info); err != nil {
-		return err
-	}
-	overrides, err := channel.ResolveHeaderOverride(info, c)
-	if err != nil {
-		return err
-	}
-	for key, value := range overrides {
-		req.Header.Set(key, value)
-	}
-	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
-	if err != nil {
-		return errors.New("OpenRouter pricing discovery transport unavailable")
-	}
-	metadataClient := *client
-	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := metadataClient.Do(req)
-	if err != nil {
-		return errors.New("OpenRouter pricing discovery failed")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("OpenRouter pricing discovery HTTP %d", resp.StatusCode)
-	}
-	var result struct {
-		Data struct {
-			ID           string `json:"id"`
-			Architecture struct {
-				OutputModalities []string `json:"output_modalities"`
-			} `json:"architecture"`
-			Endpoints []PricedEndpoint `json:"endpoints"`
-		} `json:"data"`
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
-	if err != nil || len(data) > 2<<20 {
-		return errors.New("OpenRouter pricing discovery exceeds limit")
-	}
-	if err := common.Unmarshal(data, &result); err != nil {
-		return errors.New("invalid OpenRouter endpoint discovery metadata")
-	}
-	if len(result.Data.Endpoints) == 0 {
-		return errors.New("OpenRouter model has no available endpoints")
-	}
-	if result.Data.ID == "" && info.RelayFormat == types.RelayFormatSystemOne {
-		return errors.New("OpenRouter decisions discovery model identity is missing")
-	}
-	if result.Data.ID != "" && result.Data.ID != discoveryModel {
-		return errors.New("OpenRouter pricing discovery model mismatch")
-	}
-	e.Models[model] = result.Data.Endpoints
-	if e.OutputModalities == nil {
-		e.OutputModalities = make(map[string][]string)
-	}
-	e.OutputModalities[model] = result.Data.Architecture.OutputModalities
-	return nil
 }
 
 // Estimate takes the complete maximum over eligible endpoints, preserving the
@@ -443,26 +373,16 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		outputReserve = &relaycommon.OpenRouterOutputReserve{ExplicitLimit: outputLimit != nil, LimitField: limitField}
 	}
-	// One conversion per routable model; an undiscovered model stays absent.
-	endpoints := make(map[string][]pricingdomain.NativePricedEndpoint, len(models))
-	for _, model := range models {
-		discovered, ok := e.Models[model]
-		if !ok {
-			continue
-		}
-		if _, converted := endpoints[model]; converted {
-			continue
-		}
-		endpoints[model] = make([]pricingdomain.NativePricedEndpoint, len(discovered))
-		for i, endpoint := range discovered {
-			endpoints[model][i] = pricingdomain.NativePricedEndpoint(endpoint)
-		}
+	var channelBaseURL string
+	if info.ChannelMeta != nil {
+		channelBaseURL = info.ChannelBaseUrl
 	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
-		Model:            request.Model,
-		Models:           models,
-		Endpoints:        endpoints,
-		OutputModalities: e.OutputModalities,
+		Model:          request.Model,
+		Models:         models,
+		Batch:          batch,
+		ChannelBaseURL: channelBaseURL,
+		Live:           liveTariffs{estimator: e, info: info},
 		Provider: estimate_upstream_reserve.Provider{
 			Only:              request.Provider.Only,
 			Ignore:            request.Provider.Ignore,
@@ -505,7 +425,11 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		outputReserve.InputUSD, outputReserve.PromptPriceUSD = estimate.InputUSD, estimate.PromptPriceUSD
 		outputReserve.OutputPriceUSD, outputReserve.OutputTokens = estimate.OutputPriceUSD, estimate.OutputTokens
 	}
+	if estimate.Source == pricingdomain.ReserveSourceCatalogStale {
+		logger.LogWarn(e.c, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
+	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
+	e.ReserveSource = estimate.Source
 	e.OutputReserve = outputReserve
 	if approximateReserve {
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
