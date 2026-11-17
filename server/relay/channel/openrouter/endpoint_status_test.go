@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -525,6 +526,65 @@ func TestSpeechUnits(t *testing.T) {
 	}
 }
 
+// A rerank request is measured in Cohere search units, one per query with up
+// to 100 documents, a document longer than 500 tokens with the query split
+// into chunks that count as documents, and in input tokens by the Voyage rule,
+// the query tokens times the documents plus the document tokens; a document
+// object counts as its JSON text.
+func TestRerankUnits(t *testing.T) {
+	const model = "cohere/rerank-v3.5"
+	// textOf is a text of exactly tokens tokens.
+	textOf := func(tokens int) string {
+		for characters := 1; ; characters++ {
+			text := strings.Repeat("字", characters)
+			if tokenusage.CountTextToken(text, model) == tokens {
+				return text
+			}
+		}
+	}
+	documentsOf := func(count int, document any) []any {
+		documents := make([]any, count)
+		for i := range documents {
+			documents[i] = document
+		}
+		return documents
+	}
+	object := map[string]any{"text": textOf(10)}
+	encodedObject, err := common.Marshal(object)
+	require.NoError(t, err)
+	objectTokens := int64(tokenusage.CountTextToken(string(encodedObject), model))
+	for _, tc := range []struct {
+		name             string
+		query            string
+		documents        []any
+		searches, tokens int64
+	}{
+		{name: "100 documents of 499 tokens are one search", documents: documentsOf(100, textOf(499)), searches: 1, tokens: 49900},
+		{name: "100 documents of 500 tokens are one search", documents: documentsOf(100, textOf(500)), searches: 1, tokens: 50000},
+		{name: "a document of 501 tokens is two chunks", documents: documentsOf(50, textOf(501)), searches: 1, tokens: 25050},
+		{name: "51 documents of 501 tokens are two searches", documents: documentsOf(51, textOf(501)), searches: 2, tokens: 25551},
+		{name: "a document of 1500 tokens is three chunks", documents: documentsOf(34, textOf(1500)), searches: 2, tokens: 51000},
+		{name: "the query shortens the chunks", query: textOf(100), documents: documentsOf(50, textOf(401)), searches: 1, tokens: 50*100 + 50*401},
+		{name: "the query splits a document of 401 tokens", query: textOf(100), documents: documentsOf(51, textOf(401)), searches: 2, tokens: 51*100 + 51*401},
+		{name: "101 documents are two searches", query: textOf(3), documents: documentsOf(101, textOf(2)), searches: 2, tokens: 101*3 + 101*2},
+		{name: "a document object counts as its JSON text", documents: []any{object, textOf(5)}, searches: 1, tokens: objectTokens + 5},
+		{name: "no documents is one search", query: textOf(3), searches: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := common.Marshal(map[string]any{"model": model, "query": tc.query, "documents": tc.documents})
+			require.NoError(t, err)
+			units, err := rerankUnits(body, model)
+			require.NoError(t, err)
+			assert.Equal(t, map[pricingdomain.PriceDimension]int64{
+				{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}:           tc.searches,
+				{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: tc.tokens,
+			}, units)
+		})
+	}
+	_, err = rerankUnits([]byte(`{"query":{}}`), model)
+	require.EqualError(t, err, "invalid OpenRouter rerank request")
+}
+
 // Tariff maps every field of a live endpoint onto the domain tariff of the
 // same name; a field added to PricedEndpoint must be mapped too.
 func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
@@ -544,23 +604,46 @@ func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
 	assert.Nil(t, live.Tariff().UnitPrices)
 }
 
-// Speech on the official API is priced from the catalog unit prices without a
-// channel reserve; transcription still requires one.
-func TestEndpointSpeechReserveFromCatalogUnitPrices(t *testing.T) {
+// Speech and rerank on the official API are priced from the catalog unit
+// prices without a channel reserve; transcription still requires one, and a
+// rerank model without catalog unit prices is refused without a reserve.
+func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
 	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
 	perCharacter := decimal.RequireFromString("0.00003")
+	perSearch := decimal.RequireFromString("0.002")
 	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
 		"acme/tts": {ID: "acme/tts", OutputModalities: []string{"speech"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
 			Tag: "deepgram", ModelID: "acme/tts", UnitPrices: []pricingdomain.EndpointUnitPrice{
 				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}, USD: &perCharacter},
 			},
 		}}},
+		"acme/rerank": {ID: "acme/rerank", OutputModalities: []string{"rerank"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
+			Tag: "cohere", ModelID: "acme/rerank", UnitPrices: []pricingdomain.EndpointUnitPrice{
+				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}, USD: &perSearch},
+			},
+		}}},
 	}})
+	rerankInfo := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatRerank}
+	rerankInfo.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
+	documents := strings.Repeat(`"hello",`, 100) + `"hello"`
+	e := NewRequestEstimator()
+	cost, err := e.Estimate(rerankInfo, []byte(`{"model":"acme/rerank","query":"hi","documents":[`+documents+`]}`), "rerank")
+	require.NoError(t, err)
+	assert.InDelta(t, .004, cost, 1e-12)
+	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
+	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+
+	e = NewRequestEstimator()
+	e.Models["other/rerank"] = []PricedEndpoint{{Tag: "cohere", ModelID: "other/rerank", Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0"`), "completion": json.RawMessage(`"0"`)}}}
+	e.OutputModalities["other/rerank"] = []string{"rerank"}
+	_, err = e.Estimate(rerankInfo, []byte(`{"model":"other/rerank","query":"hi","documents":["hello"]}`), "rerank")
+	require.EqualError(t, err, "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown")
+
 	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
 	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
-	e := NewRequestEstimator()
-	cost, err := e.Estimate(info, []byte(`{"model":"acme/tts","input":"hello world"}`), "audio/speech")
+	e = NewRequestEstimator()
+	cost, err = e.Estimate(info, []byte(`{"model":"acme/tts","input":"hello world"}`), "audio/speech")
 	require.NoError(t, err)
 	assert.InDelta(t, .00033, cost, 1e-12)
 	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)

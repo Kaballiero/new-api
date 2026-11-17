@@ -2357,14 +2357,10 @@ func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {
 			// discovery/transport failure must never satisfy the contract check.
 			require.NoError(t, openrouter.NewRequestEstimator().Discover(c, info, &Adaptor{}, model))
 			assert.Equal(t, 1, transport.gets)
-			// No configured price or explicit reserve: enabling Rerank may move
-			// the financial rejection past discovery, but must not permit a POST.
+			// No configured price or explicit reserve: live publishes no unit
+			// prices, so the rerank reserve is refused without a POST.
 			response, err := (&Adaptor{}).DoRequest(c, info, bytes.NewReader(body))
-			require.Error(t, err)
-			require.Contains(t, []string{
-				"OpenRouter operation lacks a validated cost reservation contract",
-				"OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format",
-			}, err.Error())
+			require.EqualError(t, err, "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown")
 			assert.Nil(t, response)
 			assert.Zero(t, transport.posts)
 			assert.Zero(t, billing.reserveCalls)
@@ -2546,7 +2542,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		{name: "token family below hold", family: "token", reserve: common.GetPointer(.02), cost: "0.01"},
 		{name: "search family above hold", family: "search", reserve: common.GetPointer(.02), cost: "0.03"},
 		{name: "authoritative zero", reserve: common.GetPointer(.02), cost: "0"},
-		{name: "zero catalog prices require opt in", wantError: "requires configured_price"},
+		{name: "live without unit prices requires a reserve", wantError: "OpenRouter endpoint unit prices are unknown"},
 		{name: "zero hold", reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "negative hold", reserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "NaN hold", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},

@@ -103,7 +103,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	var meta *types.TokenCountMeta
 	switch operation {
 	case "rerank":
-		// Neither search units nor provider billing tokens are measured at admission.
+		// The estimate measures rerank in its own units (rerankUnits), not prompt tokens.
 	case "decisions":
 		// Native decisions have no measured input/output token quantities at admission.
 	case "audio/transcriptions":
