@@ -661,6 +661,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
 		{name: "embeddings/without identity refunds", format: embeddings, upstream: embedding("", `{"prompt_tokens":1,"total_tokens":1}`), wantErr: missingCost},
+		{name: "embeddings/upstream error refunds", format: embeddings, upstream: `{"error":{"message":"Upstream failed","code":"server_error"}}`, wantErr: "Upstream failed"},
 		{name: "embeddings/completed", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1,"cost":0.004}`), cost: .004, delivered: "0.25"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
