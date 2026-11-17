@@ -215,6 +215,12 @@ func IsOpenRouterCatalogChannel(channel *BuildChannel) bool {
 	if base == "" {
 		base = constant.GetChannelBaseURL(channel.Type)
 	}
+	return IsOpenRouterCatalogBaseURL(base)
+}
+
+// IsOpenRouterCatalogBaseURL tells whether a channel base URL is the official
+// OpenRouter API, the only one the upstream catalog describes.
+func IsOpenRouterCatalogBaseURL(base string) bool {
 	return strings.TrimRight(base, "/") == "https://openrouter.ai/api"
 }
 

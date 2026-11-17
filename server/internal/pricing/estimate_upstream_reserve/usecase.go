@@ -14,16 +14,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// serviceTier is the OpenRouter service tier of an endpoint or a request.
-type serviceTier string
-
-const (
-	serviceTierDefault   serviceTier = "default"
-	serviceTierPriority  serviceTier = "priority"
-	serviceTierFlex      serviceTier = "flex"
-	serviceTierUltrafast serviceTier = "ultrafast"
-)
-
 // Provider is the provider routing of an OpenRouter request; the gateway
 // lowercases the Only, Ignore and Order slugs and names /priority as /fast.
 type Provider struct {
@@ -182,34 +172,25 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				return Estimate{}, errors.New("OpenRouter endpoint tag is missing")
 			}
 			// Service tiers require explicit opt-in; ordinary variants such as
-			// deepinfra/turbo remain in the base provider's eligible pool. The
-			// fast suffix names the priority tier.
-			tier := serviceTierDefault
-			for _, candidate := range []serviceTier{serviceTierPriority, serviceTierFlex, serviceTierUltrafast} {
-				if strings.HasSuffix(tag, "/"+string(candidate)) {
-					tier = candidate
-				}
-			}
-			if strings.HasSuffix(tag, "/fast") {
-				tier = serviceTierPriority
-			}
-			requestedTier := serviceTier(in.ServiceTier)
+			// deepinfra/turbo remain in the base provider's eligible pool.
+			tier := domain.EndpointServiceTier(tag)
+			requestedTier := domain.ServiceTier(in.ServiceTier)
 			if in.ServiceTier == "fast" || in.Speed == "fast" {
-				requestedTier = serviceTierPriority
+				requestedTier = domain.ServiceTierPriority
 			}
 			explicitTier := slices.Contains(in.Provider.Only, tag) || slices.Contains(in.Provider.Order, tag)
 			if !explicitTier {
 				switch tier {
-				case serviceTierUltrafast:
-					if requestedTier != serviceTierUltrafast {
+				case domain.ServiceTierUltrafast:
+					if requestedTier != domain.ServiceTierUltrafast {
 						continue
 					}
-				case serviceTierPriority:
-					if requestedTier != serviceTierPriority && requestedTier != serviceTierUltrafast && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":nitro")) {
+				case domain.ServiceTierPriority:
+					if requestedTier != domain.ServiceTierPriority && requestedTier != domain.ServiceTierUltrafast && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":nitro")) {
 						continue
 					}
-				case serviceTierFlex:
-					if requestedTier != serviceTierFlex && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":floor")) {
+				case domain.ServiceTierFlex:
+					if requestedTier != domain.ServiceTierFlex && !(requestedTier == "" && len(in.Provider.Order) == 0 && strings.HasSuffix(model, ":floor")) {
 						continue
 					}
 				}
@@ -316,9 +297,9 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 				}
 				candidates = append(candidates, reservationCandidate{
 					tariff: tariff, output: output, pricingErr: pricingErr,
-					flexFallback: requestedTier == serviceTierFlex && tier == serviceTierDefault && !explicitTier,
+					flexFallback: requestedTier == domain.ServiceTierFlex && tier == domain.ServiceTierDefault && !explicitTier,
 				})
-				if requestedTier == serviceTierFlex && tier == serviceTierFlex {
+				if requestedTier == domain.ServiceTierFlex && tier == domain.ServiceTierFlex {
 					flexTariffs = append(flexTariffs, tariff)
 					flexPriceUnknown = flexPriceUnknown || pricingErr != nil
 				}
@@ -400,9 +381,9 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 			reasons = append(reasons, "provider.require_parameters excluded endpoints that do not support: "+strings.Join(slices.Compact(unsupportedParameters), ", "))
 		}
 		if len(reasons) > 0 {
-			return Estimate{}, errors.New("OpenRouter request has no compatible priced endpoint: " + strings.Join(reasons, "; "))
+			return Estimate{}, fmt.Errorf("%w: %s", domain.ErrNoCompatibleEndpoint, strings.Join(reasons, "; "))
 		}
-		return Estimate{}, errors.New("OpenRouter request has no compatible priced endpoint")
+		return Estimate{}, domain.ErrNoCompatibleEndpoint
 	}
 	if in.SearchReserveUSD != nil {
 		maximum = maximum.Add(decimal.NewFromFloat(*in.SearchReserveUSD))
