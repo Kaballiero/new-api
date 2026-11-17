@@ -3400,7 +3400,7 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 			require.True(t, task.OpenRouterSyncOperatorEligible(record.OpenRouterSyncOperatorRelease))
 			task.PrivateData.UpstreamTaskID = tc.generationID
 			require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
-				"submit_time": time.Now().Add(-tc.age).Unix(), "private_data": task.PrivateData,
+				"submit_time": time.Now().Add(-tc.age).Unix(), "finish_time": time.Now().Add(-tc.age).Unix(), "private_data": task.PrivateData,
 			}).Error)
 			if tc.tokenDeleted {
 				require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)

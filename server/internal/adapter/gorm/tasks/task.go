@@ -265,6 +265,44 @@ func (s Store) ParkUnknownSubmissionHold(id int64) error {
 		Update("fail_reason", domain.SyncManualFailReason(domain.SyncReasonAutoReleaseUnavailable)).Error
 }
 
+// GetManualHolds pages OpenRouter synchronous tasks parked in manual
+// reconciliation for root; unknown-submission holds stay with the automatic
+// release until it re-parks them.
+func (s Store) GetManualHolds(afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.manualHolds().Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// HasManualHoldsSince is the LIMIT 1 existence form of GetManualHolds for holds
+// parked at or after since.
+func (s Store) HasManualHoldsSince(since int64) bool {
+	var id int64
+	err := s.manualHolds().Where("finish_time >= ?", since).Limit(1).Pluck("id", &id).Error
+	return err == nil && id != 0
+}
+
+// MarkManualHoldAlerted records when a manual hold was reported on the locked
+// row, keeping every other field another writer may have changed.
+func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
+		var saved record.Task
+		if err := locking.LockForUpdate(tx).First(&saved, id).Error; err != nil {
+			return err
+		}
+		saved.PrivateData.OpenRouterSyncState().AlertedAt = alertedAt
+		return tx.Model(&record.Task{}).Where("id = ?", id).Update("private_data", saved.PrivateData).Error
+	})
+}
+
+func (s Store) manualHolds() *gorm.DB {
+	return s.db().Model(&record.Task{}).
+		Where("status = ?", record.TaskStatusFailure).
+		Where("platform IN ?", openRouterSyncPlatforms).
+		Where("fail_reason LIKE ?", domain.SyncManualFailReason("")+"%").
+		Where("fail_reason <> ?", domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown))
+}
+
 func (s Store) unknownSubmissionHolds(submittedBefore int64) *gorm.DB {
 	return s.db().Model(&record.Task{}).
 		Where("status = ?", record.TaskStatusFailure).
