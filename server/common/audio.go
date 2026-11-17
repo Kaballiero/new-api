@@ -311,8 +311,9 @@ func getWebMDuration(r io.ReadSeeker) (float64, error) {
 const adtsHeaderSize = 7
 
 // getAACDuration 解析 AAC (ADTS格式) 文件以获取时长。
-// Frames must follow each other back to back from the first sync word to the end
-// of the data; each one advances the scan by at least adtsHeaderSize bytes.
+// Frames are counted back to back from the first sync word; the scan stops at the
+// first invalid or truncated frame (a trailing ID3v1 tag, padding). Each frame
+// advances the scan by at least adtsHeaderSize bytes.
 func getAACDuration(r io.ReadSeeker) (float64, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return 0, errors.Wrap(err, "failed to seek aac file")
@@ -332,16 +333,16 @@ func getAACDuration(r io.ReadSeeker) (float64, error) {
 	var header codec.ADTS_Frame_Header
 	var totalFrames int64
 	var sampleRate int
-	for offset := start; offset < len(data); {
+	for offset := start; offset+adtsHeaderSize <= len(data); {
 		frame := data[offset:]
 		// The sync word is 12 one-bits followed by the ID bit and a zero layer.
-		if len(frame) < adtsHeaderSize || frame[0] != 0xFF || frame[1]&0xF6 != 0xF0 {
-			return 0, errors.Errorf("invalid adts header at offset %d", offset)
+		if frame[0] != 0xFF || frame[1]&0xF6 != 0xF0 {
+			break
 		}
 		header.Decode(frame)
 		frameLength := int(header.Variable_Header.Frame_length)
 		if frameLength < adtsHeaderSize || frameLength > len(frame) {
-			return 0, errors.Errorf("invalid adts frame length %d at offset %d", frameLength, offset)
+			break
 		}
 		if sampleRate == 0 {
 			samplingFrequencyIndex := int(header.Fix_Header.Sampling_frequency_index)
@@ -352,6 +353,9 @@ func getAACDuration(r io.ReadSeeker) (float64, error) {
 		}
 		totalFrames++
 		offset += frameLength
+	}
+	if totalFrames == 0 {
+		return 0, errors.New("no valid aac frames found")
 	}
 
 	// 每个 AAC ADTS 帧包含 1024 个采样

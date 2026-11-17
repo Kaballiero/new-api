@@ -25,36 +25,47 @@ func adtsFrame(samplingFrequencyIndex byte, frameLength int) []byte {
 	return frame
 }
 
-func TestGetAudioDurationAACKeepsValidADTSDuration(t *testing.T) {
+func TestGetAudioDurationAACCountsFramesBeforeTrailingBytes(t *testing.T) {
 	const sampling16kHzIndex = 8
-	var stream []byte
+	var frames []byte
 	for range 10 {
-		stream = append(stream, adtsFrame(sampling16kHzIndex, 200)...)
+		frames = append(frames, adtsFrame(sampling16kHzIndex, 200)...)
 	}
+	id3v1Tag := append([]byte("TAG"), make([]byte, 125)...)
 
-	duration, err := GetAudioDuration(context.Background(), bytes.NewReader(stream), ".aac")
+	tests := []struct {
+		name   string
+		stream []byte
+	}{
+		{name: "frames only", stream: frames},
+		{name: "id3v1 tag tail", stream: append(bytes.Clone(frames), id3v1Tag...)},
+		{name: "zero frame length tail", stream: append(bytes.Clone(frames), adtsFrame(sampling16kHzIndex, 0)...)},
+		{name: "truncated frame tail", stream: append(bytes.Clone(frames), adtsFrame(sampling16kHzIndex, 400)[:100]...)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			duration, err := GetAudioDuration(context.Background(), bytes.NewReader(tt.stream), ".aac")
 
-	require.NoError(t, err)
-	assert.Equal(t, float64(10*1024)/16000, duration)
+			require.NoError(t, err)
+			assert.Equal(t, float64(10*1024)/16000, duration)
+		})
+	}
 }
 
 func TestGetAudioDurationAACRejectsMalformedStreamQuickly(t *testing.T) {
 	// An MPEG-1 Layer III frame header (128 kbps, 44.1 kHz) shares the 0xFFF
-	// sync word with ADTS; its zero payload decodes as a zero ADTS frame length.
+	// sync word with ADTS but has a non-zero layer.
 	mp3Frame := make([]byte, 417)
 	copy(mp3Frame, []byte{0xFF, 0xFB, 0x90, 0x64})
 	mp3Stream := bytes.Repeat(mp3Frame, 2600)
-
-	zeroLengthStream := append(adtsFrame(4, 200), adtsFrame(4, 0)...)
-	truncatedStream := append(adtsFrame(4, 200), adtsFrame(4, 400)[:100]...)
 
 	tests := []struct {
 		name   string
 		stream []byte
 	}{
 		{name: "mp3 frames named aac", stream: mp3Stream},
-		{name: "zero frame length", stream: zeroLengthStream},
-		{name: "frame runs past the data", stream: truncatedStream},
+		{name: "zero frame length", stream: append(adtsFrame(4, 0), mp3Stream...)},
+		{name: "frame runs past the data", stream: adtsFrame(4, 400)[:100]},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
