@@ -755,61 +755,76 @@ func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 }
 
 func TestEndpointCohereEmbedImageTokens(t *testing.T) {
-	dataURI := func(width, height, padding int, encode func(io.Writer, image.Image) error) string {
+	dataURI := func(mediaType string, encode func(io.Writer, image.Image) error, width, height, padding int) string {
 		var encoded bytes.Buffer
 		require.NoError(t, encode(&encoded, image.NewGray(image.Rect(0, 0, width, height))))
 		for i := range padding {
 			encoded.WriteByte(byte(i * 37))
 		}
-		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+		return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
 	}
 	encodeGIF := func(w io.Writer, picture image.Image) error { return gif.Encode(w, picture, nil) }
-	png560 := dataURI(560, 560, 0, png.Encode)
-	png28 := dataURI(28, 28, 0, png.Encode)
+	png560 := dataURI("image/png", png.Encode, 560, 560, 0)
+	png28 := dataURI("image/png", png.Encode, 28, 28, 0)
 	// The base64 of this image alone would exceed the 128k context as text.
-	padded560 := dataURI(560, 560, 1<<20, png.Encode)
+	padded560 := dataURI("image/png", png.Encode, 560, 560, 1<<20)
 	tiny := make([]string, 97)
 	for i := range tiny {
 		tiny[i] = png28
 	}
 	const fastPricing = `{"prompt":"0.00000008","completion":"0","image_token":"0.0000004","discount":0}`
 	for _, tc := range []struct {
-		name, model, operation, tag, pricing string
-		contextLength                        int
-		images                               []string
-		want                                 float64
-		wantError                            string
+		name, model, fallback, operation, tag, secondTag, pricing string
+		contextLength                                             int
+		images                                                    []string
+		want                                                      float64
+		wantError                                                 string
 	}{
 		{name: "text only", want: 0.00008},
 		{name: "560 PNG measured 328 tokens", images: []string{png560}, want: 0.0002112},
-		{name: "545 GIF bounded above measured 293 tokens", images: []string{dataURI(545, 545, 0, encodeGIF)}, want: 0.0002112},
+		{name: "545 GIF bounded above measured 293 tokens", images: []string{dataURI("image/gif", encodeGIF, 545, 545, 0)}, want: 0.0002112},
 		{name: "28 PNG minimum grid", images: []string{png28}, want: 0.0000832},
-		{name: "3000x2000 PNG maximum grid", images: []string{dataURI(3000, 2000, 0, png.Encode)}, want: 0.001042},
+		{name: "3000x2000 PNG maximum grid", images: []string{dataURI("image/png", png.Encode, 3000, 2000, 0)}, want: 0.001042},
 		{name: "remote URL counts at maximum", images: []string{"https://example.test/image.png"}, want: 0.001042},
 		{name: "unreadable header counts at maximum", images: []string{"data:image/png;base64,aGVsbG8="}, want: 0.001042},
 		{name: "image data is not prompt text", images: []string{padded560}, want: 0.0002112},
-		{name: "images past the input limit count at maximum", images: tiny, want: 0.00008 + (96*8+2405)*0.0000004},
+		{name: "images past the header limit count at maximum", images: tiny, want: 0.00008 + (96*8+2405)*0.0000004},
 		{name: "pro", model: "cohere/embed-5-pro", pricing: `{"prompt":"0.00000012","completion":"0","image_token":"0.0000004"}`, images: []string{png560}, want: 0.0002512},
 		{name: "Batch", operation: "batch_embeddings", images: []string{png560}, want: 0.0002112},
+		{name: "Cohere provider variant", tag: "cohere/eu", images: []string{png560}, want: 0.0002112},
+		{name: "text only on a second provider", secondTag: "bedrock", want: 0.00008},
+		{name: "skipped service tier of a second provider", secondTag: "bedrock/flex", images: []string{png560}, want: 0.0002112},
 		{name: "other provider stays closed", tag: "other", images: []string{png560}, wantError: "measured only on the Cohere provider"},
+		{name: "fallback model outside the rule stays closed", fallback: "cohere/embed-v4.0", images: []string{png560}, wantError: "unsupported billable dimension image_token"},
 		{name: "other model stays closed", model: "other/embed", images: []string{png560}, wantError: "unsupported billable dimension image_token"},
 		{name: "chat stays closed", operation: "chat/completions", images: []string{png560}, wantError: "unsupported billable dimension image_token"},
 		{name: "other model keeps image data as prompt text", model: "other/embed", pricing: `{"prompt":"0.0000002","completion":"0","image":"0.00000045"}`, contextLength: 8192, images: []string{padded560}, wantError: "no compatible priced endpoint"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := cmp.Or(tc.model, "cohere/embed-5-fast")
-			var endpoint PricedEndpoint
-			require.NoError(t, common.Unmarshal([]byte(fmt.Sprintf(`{"tag":%q,"model_id":%q,"context_length":%d,"max_completion_tokens":115200,"pricing":%s}`,
-				cmp.Or(tc.tag, "cohere"), model, cmp.Or(tc.contextLength, 128000), cmp.Or(tc.pricing, fastPricing))), &endpoint))
+			endpoint := func(model, tag string) PricedEndpoint {
+				var endpoint PricedEndpoint
+				require.NoError(t, common.Unmarshal([]byte(fmt.Sprintf(`{"tag":%q,"model_id":%q,"context_length":%d,"max_completion_tokens":115200,"pricing":%s}`,
+					tag, model, cmp.Or(tc.contextLength, 128000), cmp.Or(tc.pricing, fastPricing))), &endpoint))
+				return endpoint
+			}
 			estimator := NewRequestEstimator()
-			estimator.Models[model] = []PricedEndpoint{endpoint}
+			estimator.Models[model] = []PricedEndpoint{endpoint(model, cmp.Or(tc.tag, "cohere"))}
+			if tc.secondTag != "" {
+				estimator.Models[model] = append(estimator.Models[model], endpoint(model, tc.secondTag))
+			}
+			fallback := ""
+			if tc.fallback != "" {
+				estimator.Models[tc.fallback] = []PricedEndpoint{endpoint(tc.fallback, "cohere")}
+				fallback = `"models":["` + tc.fallback + `"],`
+			}
 			info := &relaycommon.RelayInfo{}
 			info.SetEstimatePromptTokens(1000)
 			content := []string{`{"type":"text","text":"a photo"}`}
 			for _, uri := range tc.images {
 				content = append(content, `{"type":"image_url","image_url":{"url":"`+uri+`"}}`)
 			}
-			body := `{"model":"` + model + `","input":[{"content":[` + strings.Join(content, ",") + `]}]}`
+			body := `{"model":"` + model + `",` + fallback + `"input":[{"content":[` + strings.Join(content, ",") + `]}]}`
 			cost, err := estimator.Estimate(info, []byte(body), cmp.Or(tc.operation, "embeddings"))
 			if tc.wantError != "" {
 				require.ErrorContains(t, err, tc.wantError)

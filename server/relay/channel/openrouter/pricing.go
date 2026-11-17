@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/gif"
 	"io"
 	"math"
 	"net/http"
@@ -381,16 +380,20 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if err != nil {
 		return 0, err
 	}
-	// imageTokens is measured only by the Cohere Embed rule; nil otherwise.
+	// imageTokens is measured only by the Cohere Embed rule, which applies when
+	// every routable model follows it; nil otherwise.
 	var imageTokens *int
 	promptText := body
-	if operation == "embeddings" && slices.Contains(cohereEmbedImageTokenModels, request.Model) {
-		readable := imageBlocks[:min(len(imageBlocks), cohereEmbedMaxInputsPerCall)]
+	outsideCohereEmbedRule := func(model string) bool { return !slices.Contains(cohereEmbedImageTokenModels, model) }
+	if operation == "embeddings" && !slices.ContainsFunc(models, outsideCohereEmbedRule) {
+		readable := imageBlocks[:min(len(imageBlocks), cohereEmbedImageHeadersPerRequest)]
 		tokens := (len(imageBlocks) - len(readable)) * cohereEmbedImageMaxTokens
 		for _, block := range readable {
 			tokens += cohereEmbedImageTokens(block)
 		}
 		imageTokens = &tokens
+	}
+	if imageTokens != nil && len(imageBlocks) > 0 {
 		// Image data is priced as image tokens, not as prompt text. A block not
 		// found after the previous cut stays in the text, an upper bound.
 		var text []byte
@@ -551,9 +554,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			if endpoint.Tag == "" {
 				return 0, errors.New("OpenRouter endpoint tag is missing")
 			}
-			if imageTokens != nil && tag != "cohere" {
-				return 0, errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
-			}
 			// Service tiers require explicit opt-in; ordinary variants such as
 			// deepinfra/turbo remain in the base provider's eligible pool.
 			tier := "default"
@@ -585,6 +585,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 						continue
 					}
 				}
+			}
+			if imageTokens != nil && len(imageBlocks) > 0 && !matches("cohere") {
+				return 0, errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
 			}
 
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
@@ -1062,8 +1065,9 @@ const (
 	cohereEmbedImageMaxCells        = 49 * 49
 	cohereEmbedImageExtraTokens     = 4
 	cohereEmbedImageMaxTokens       = cohereEmbedImageMaxCells + cohereEmbedImageExtraTokens
-	// Images past Cohere's input limit per call are not read.
-	cohereEmbedMaxInputsPerCall = 96
+	// Image headers read per request, matching Cohere's 96 inputs per call;
+	// images past it count at the per-image maximum.
+	cohereEmbedImageHeadersPerRequest = 96
 )
 
 var cohereEmbedImageTokenModels = []string{"cohere/embed-5-fast", "cohere/embed-5-pro"}
@@ -1090,6 +1094,7 @@ func cohereEmbedImageTokens(block json.RawMessage) int {
 	}
 	columns := (config.Width + cohereEmbedImageCellPixels - 1) / cohereEmbedImageCellPixels
 	rows := (config.Height + cohereEmbedImageCellPixels - 1) / cohereEmbedImageCellPixels
+	// Clamping each side to the cell maximum keeps the product from overflowing.
 	columns = min(max(columns, cohereEmbedImageMinCellsPerSide), cohereEmbedImageMaxCells)
 	rows = min(max(rows, cohereEmbedImageMinCellsPerSide), cohereEmbedImageMaxCells)
 	return min(columns*rows, cohereEmbedImageMaxCells) + cohereEmbedImageExtraTokens
