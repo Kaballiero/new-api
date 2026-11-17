@@ -4,21 +4,18 @@ import (
 	"errors"
 	"math"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/relay/helper"
 )
 
-// Speech duration of a text at speed 1, by the owner rule of 14.11: two words
-// a second, and speechCJKCharactersPerSecond characters a second for a text
-// with CJK characters or without spaces.
+// Speech duration of a text at speed 1, an approximation by the owner rule
+// of 14.11: the longer of two words a second and five characters a second.
 const (
-	speechWordsPerSecond         = 2
-	speechCJKCharactersPerSecond = 5
+	speechWordsPerSecond      = 2
+	speechCharactersPerSecond = 5
 )
 
 // The speed multiplier OpenAI TTS accepts; OpenRouter passes speed to the
@@ -28,10 +25,11 @@ const (
 	speechMaxSpeed = 4
 )
 
-// speechUnits measures a speech request in every unit a TTS endpoint prices:
-// the characters and UTF-8 bytes of the input exactly, its seconds by the
-// owner rule divided by speed, its input tokens (input and instructions) by
-// the tokenizer, and its output audio tokens as the default output bound.
+// speechUnits measures a speech request in the units a TTS endpoint prices
+// per request: the characters and UTF-8 bytes of the input exactly, its
+// seconds by the owner rule, and its input tokens as the tokens of the input
+// plus those of the instructions, an upper bound. Slower speech lengthens the
+// seconds; faster speech, which a provider may ignore, does not shorten them.
 // The request body is at most the pricing inspection limit, so every count
 // fits int64.
 func speechUnits(body []byte, model string) (map[pricingdomain.PriceDimension]int64, error) {
@@ -52,19 +50,12 @@ func speechUnits(body []byte, model string) (map[pricingdomain.PriceDimension]in
 	}
 	characters := utf8.RuneCountInString(request.Input)
 	words := len(strings.Fields(request.Input))
-	seconds := (words + speechWordsPerSecond - 1) / speechWordsPerSecond
-	cjk := strings.ContainsFunc(request.Input, func(r rune) bool {
-		return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
-	})
-	if cjk || !strings.ContainsFunc(request.Input, unicode.IsSpace) {
-		seconds = (characters + speechCJKCharactersPerSecond - 1) / speechCJKCharactersPerSecond
-	}
-	inputTokens := tokenusage.CountTextToken(request.Input+request.Instructions, model)
+	seconds := max((words+speechWordsPerSecond-1)/speechWordsPerSecond, (characters+speechCharactersPerSecond-1)/speechCharactersPerSecond)
+	inputTokens := tokenusage.CountTextToken(request.Input, model) + tokenusage.CountTextToken(request.Instructions, model)
 	return map[pricingdomain.PriceDimension]int64{
-		{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:    int64(characters),
-		{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:     int64(len(request.Input)),
-		{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:        int64(math.Ceil(float64(seconds) / speed)),
-		{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}:   int64(inputTokens),
-		{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitMillionTokens}: helper.DefaultPreConsumeMaxTokens,
+		{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:  int64(characters),
+		{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:   int64(len(request.Input)),
+		{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:      int64(math.Ceil(float64(seconds) / min(speed, 1))),
+		{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: int64(inputTokens),
 	}, nil
 }

@@ -52,7 +52,8 @@ type Input struct {
 	ImageOutput, Audio, Decisions, Rerank bool
 	// Units are the measured quantities of an operation priced only from the
 	// unit prices of its endpoints (unitCost); nil for an operation priced
-	// from the endpoint pricing.
+	// from the endpoint pricing. Output audio tokens are not among them: they
+	// are the output cap of each endpoint, DefaultOutputTokens without one.
 	Units map[domain.PriceDimension]int64
 	// ImageReserveOnly is an image output covered by the channel reserve alone.
 	ImageReserveOnly bool
@@ -402,7 +403,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				// Token caps and zero token tariffs do not price those quantities.
 				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
 			} else if in.Units != nil {
-				cost, estimateErr = unitCost(tariff, in.Units)
+				// The output audio tokens are the endpoint output cap, the
+				// default output bound without one.
+				cost, estimateErr = unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -480,44 +481,67 @@ func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
 	}
 }
 
-// A speech request is measured in every unit a TTS endpoint prices: the
-// characters and UTF-8 bytes of the input, two words a second or five
-// characters a second for CJK text or text without spaces, divided by speed,
-// the tokens of the input with the instructions and the default output bound
-// of audio tokens.
+// A speech request is measured in the units a TTS endpoint prices per
+// request: the characters and UTF-8 bytes of the input, the longer of two
+// words a second and five characters a second, lengthened by a speed below 1
+// and never shortened by a faster one, and the tokens of the input plus those
+// of the instructions.
 func TestSpeechUnits(t *testing.T) {
 	const model = "acme/tts"
 	for _, tc := range []struct {
-		name, body                 string
+		name, input, instructions  string
+		speed                      *float64
 		characters, bytes, seconds int64
-		tokenText, wantErr         string
+		wantErr                    string
 	}{
-		{name: "latin words", body: `{"input":"Hello brave new world of speech"}`, characters: 31, bytes: 31, seconds: 3, tokenText: "Hello brave new world of speech"},
-		{name: "odd words round up", body: `{"input":"one two three four five","instructions":"calm"}`, characters: 23, bytes: 23, seconds: 3, tokenText: "one two three four fivecalm"},
-		{name: "cjk", body: `{"input":"你好世界，今天天气很好"}`, characters: 11, bytes: 33, seconds: 3, tokenText: "你好世界，今天天气很好"},
-		{name: "cjk among words", body: `{"input":"Say 你好 twice"}`, characters: 12, bytes: 16, seconds: 3, tokenText: "Say 你好 twice"},
-		{name: "without spaces", body: `{"input":"Supercalifragilistic"}`, characters: 20, bytes: 20, seconds: 4, tokenText: "Supercalifragilistic"},
-		{name: "faster speech is shorter", body: `{"input":"Hello brave new world of speech","speed":2}`, characters: 31, bytes: 31, seconds: 2, tokenText: "Hello brave new world of speech"},
-		{name: "slower speech is longer", body: `{"input":"Hello brave new world of speech","speed":0.25}`, characters: 31, bytes: 31, seconds: 12, tokenText: "Hello brave new world of speech"},
-		{name: "speed below the range", body: `{"input":"hello","speed":0.2}`, wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
-		{name: "speed above the range", body: `{"input":"hello","speed":4.5}`, wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
+		{name: "characters outlast words", input: "Hello brave new world of speech", characters: 31, bytes: 31, seconds: 7},
+		{name: "instructions add their tokens", input: "one two three four five", instructions: "calm", characters: 23, bytes: 23, seconds: 5},
+		{name: "words outlast characters", input: "a b c d e f g h i j k l", characters: 23, bytes: 23, seconds: 6},
+		{name: "cjk", input: "你好世界，今天天气很好", characters: 11, bytes: 33, seconds: 3},
+		{name: "comma-joined words with one space", input: "one,two,three,four,five,six,seven,eight nine", characters: 44, bytes: 44, seconds: 9},
+		{name: "thai with sentence spaces", input: "สวัสดีครับ ยินดีต้อนรับสู่ประเทศไทย", characters: 35, bytes: 103, seconds: 7},
+		{name: "speed 4 does not shorten", input: "Hello brave new world of speech", speed: common.GetPointer(4.0), characters: 31, bytes: 31, seconds: 7},
+		{name: "speed 0.5 lengthens", input: "Hello brave new world of speech", speed: common.GetPointer(0.5), characters: 31, bytes: 31, seconds: 14},
+		{name: "speed 0.25 lengthens", input: "Hello brave new world of speech", speed: common.GetPointer(0.25), characters: 31, bytes: 31, seconds: 28},
+		{name: "speed below the range", input: "hello", speed: common.GetPointer(0.2), wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
+		{name: "speed above the range", input: "hello", speed: common.GetPointer(4.5), wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			units, err := speechUnits([]byte(tc.body), model)
+			body, err := common.Marshal(map[string]any{"input": tc.input, "instructions": tc.instructions, "speed": tc.speed})
+			require.NoError(t, err)
+			units, err := speechUnits(body, model)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, map[pricingdomain.PriceDimension]int64{
-				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:    tc.characters,
-				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:     tc.bytes,
-				{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:        tc.seconds,
-				{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}:   int64(tokenusage.CountTextToken(tc.tokenText, model)),
-				{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitMillionTokens}: 8192,
+				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:  tc.characters,
+				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:   tc.bytes,
+				{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:      tc.seconds,
+				{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: int64(tokenusage.CountTextToken(tc.input, model) + tokenusage.CountTextToken(tc.instructions, model)),
 			}, units)
 		})
 	}
+}
+
+// Tariff maps every field of a live endpoint onto the domain tariff of the
+// same name; a field added to PricedEndpoint must be mapped too.
+func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
+	status := 1
+	live := PricedEndpoint{
+		Status: &status, ModelID: "acme/model", Tag: "provider", ContextLength: 1, MaxPromptTokens: 2, MaxCompletionTokens: 3,
+		Quantization: "fp8", SupportedParameters: []string{"tools"}, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`)},
+	}
+	tariff := reflect.ValueOf(live.Tariff())
+	source := reflect.ValueOf(live)
+	for _, field := range reflect.VisibleFields(source.Type()) {
+		require.False(t, source.FieldByIndex(field.Index).IsZero(), "set %s in the test endpoint", field.Name)
+		mapped := tariff.FieldByName(field.Name)
+		require.True(t, mapped.IsValid(), "NativePricedEndpoint has no field %s", field.Name)
+		assert.Equal(t, source.FieldByIndex(field.Index).Interface(), mapped.Interface(), field.Name)
+	}
+	assert.Nil(t, live.Tariff().UnitPrices)
 }
 
 // Speech on the official API is priced from the catalog unit prices without a

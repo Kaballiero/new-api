@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -387,7 +388,9 @@ func TestExecuteBatchSkipsDeclaredOutputModalities(t *testing.T) {
 
 // A speech request is priced from the unit prices of the endpoints of a fresh
 // catalog document: every non-zero price times its measured quantity, a
-// million_tokens price per million tokens, the maximum over the endpoints. An
+// million_tokens price per million tokens, output audio tokens at the output
+// cap of the endpoint (the default output bound without one), the maximum
+// over the endpoints. An
 // unknown price, a non-zero price of an unmeasured dimension or an endpoint
 // without unit prices is covered only by the manual reserve, without a live
 // check; a manual reserve below the priced cost is raised to it.
@@ -408,7 +411,15 @@ func TestExecuteUnitCost(t *testing.T) {
 	endpoint := func(tag string, prices ...domain.EndpointUnitPrice) domain.NativePricedEndpoint {
 		return domain.NativePricedEndpoint{Tag: tag, ModelID: "acme/tts", Pricing: endpointPricing(t, deps, `{"prompt":"0.000015","completion":"0"}`), UnitPrices: prices}
 	}
-	units := map[domain.PriceDimension]int64{characters: 1000, seconds: 30, inputTokens: 1000, audioTokens: 8192}
+	units := map[domain.PriceDimension]int64{characters: 1000, seconds: 30, inputTokens: 1000}
+	// gemini is the real v13 document of google/gemini-3.8-flash-tts: input
+	// $0.5 and output audio $9 per million tokens, output cap 16384.
+	raw, err := os.ReadFile("../domain/testdata/catalog_v13/google__gemini-3.8-flash-tts.json")
+	require.NoError(t, err)
+	var document domain.SourceDocument
+	require.NoError(t, deps.Codec.Unmarshal(raw, &document))
+	gemini := domain.CatalogEndpointTariffs(deps, map[string]*domain.SourceDocument{"acme/tts": &document})["acme/tts"]
+	require.Len(t, gemini.Endpoints, 2)
 	manual, lowManual := .5, .01
 	for _, tc := range []struct {
 		name      string
@@ -420,7 +431,8 @@ func TestExecuteUnitCost(t *testing.T) {
 		wantErr   string
 	}{
 		{name: "per character", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
-		{name: "per million tokens", endpoints: []domain.NativePricedEndpoint{endpoint("google", price(inputTokens, "0.5"), price(audioTokens, "9"))}, wantUSD: .074228, source: domain.ReserveSourceCatalog},
+		{name: "output audio tokens without an output cap take the default bound", endpoints: []domain.NativePricedEndpoint{endpoint("google", price(inputTokens, "0.5"), price(audioTokens, "9"))}, wantUSD: .074228, source: domain.ReserveSourceCatalog},
+		{name: "output audio tokens take the output cap of the endpoint", endpoints: gemini.Endpoints, wantUSD: .147956, source: domain.ReserveSourceCatalog},
 		{name: "maximum over the endpoints", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003")), endpoint("seed", price(seconds, "0.0025"))}, wantUSD: .075, source: domain.ReserveSourceCatalog},
 		{name: "a zero price of an unmeasured dimension bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"), price(domain.PriceDimension{}, "0"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
 		{name: "a measured zero quantity bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{characters: 0}, wantUSD: 0, source: domain.ReserveSourceCatalog},
@@ -440,7 +452,7 @@ func TestExecuteUnitCost(t *testing.T) {
 			live := &fakeLive{}
 			in := Input{
 				Model: "acme/tts", Models: []string{"acme/tts"}, ChannelBaseURL: "https://openrouter.ai/api", Live: live,
-				Modalities: []string{"speech"}, Count: 1, Units: units, ApproximateReserveUSD: tc.manual,
+				Modalities: []string{"speech"}, Count: 1, Units: units, DefaultOutputTokens: 8192, ApproximateReserveUSD: tc.manual,
 			}
 			if tc.units != nil {
 				in.Units = tc.units
