@@ -44,10 +44,10 @@ func NewUsecase(store Store, codec Projection, settlement Settlement, metadata M
 // pollOpenRouterSync uses the existing Task scheduler, never a paid submit.
 // Only the winner of a revision-checked terminal claim may move funds.
 func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
-	validIdentity := task.Platform == string(domain.TaskPlatformOpenRouterAudio) && task.Action == "audio" && task.PrivateData.OpenRouterSync == nil ||
-		(task.Platform == string(domain.TaskPlatformOpenRouterRerank) && task.Action == "rerank" ||
-			task.Platform == string(domain.TaskPlatformOpenRouterImage) && task.Action == "image" ||
-			task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && (task.Action == "chat-image" || task.Action == "chat")) && task.PrivateData.OpenRouterAudio == nil
+	validIdentity := task.Platform == string(domain.TaskPlatformOpenRouterAudio) && task.Action == domain.TaskActionAudio && task.PrivateData.OpenRouterSync == nil ||
+		(task.Platform == string(domain.TaskPlatformOpenRouterRerank) && task.Action == domain.TaskActionRerank ||
+			task.Platform == string(domain.TaskPlatformOpenRouterImage) && task.Action == domain.TaskActionImage ||
+			task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && domain.IsOpenRouterChatImageAction(task.Action)) && task.PrivateData.OpenRouterAudio == nil
 	if !validIdentity {
 		domain.MarkSyncManual(task, "operation_identity_changed", u.now().Unix())
 		u.codec.Project(task)
@@ -128,10 +128,8 @@ func (u Usecase) lookup(ctx context.Context, task *domain.Task) (float64, int, t
 	if class != "" {
 		return 0, status, retryAfter, class
 	}
-	if task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && d.APIType != "completions" {
-		return 0, status, 0, "identity_or_invalid_cost"
-	}
-	if task.Platform == string(domain.TaskPlatformOpenRouterRerank) && d.APIType != "rerank" {
+	generation, matched := domain.ExpectedSyncGeneration(task.Action)
+	if matched && d.APIType != generation.APIType {
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
 	if d.ID != task.PrivateData.UpstreamTaskID || d.ErrorPresent {
@@ -153,7 +151,7 @@ func (u Usecase) lookup(ctx context.Context, task *domain.Task) (float64, int, t
 		}
 	}
 	completedSpeech := d.APIType == "tts" && a.ResultReady && !a.ResultFailed && strings.HasPrefix(a.ResultMimeType, "audio/")
-	billedCancel := task.Action == "chat" && d.Cancelled != nil && *d.Cancelled && u.now().Unix()-task.StartTime >= 30
+	billedCancel := generation.BilledCancel && d.Cancelled != nil && *d.Cancelled && u.now().Unix()-task.StartTime >= 30
 	if d.Cancelled == nil || *d.Cancelled && !billedCancel || d.GenerationTime == nil && !completedSpeech {
 		return 0, status, retryAfter, "incomplete_metadata"
 	}

@@ -18,13 +18,13 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	var operation bool
 	switch t.Platform {
 	case string(TaskPlatformOpenRouterChatImage):
-		operation = t.Action == "chat-image" || t.Action == "chat"
+		operation = IsOpenRouterChatImageAction(t.Action)
 	case string(TaskPlatformOpenRouterAudio):
-		operation = t.Action == "audio"
+		operation = t.Action == TaskActionAudio
 	case string(TaskPlatformOpenRouterImage):
-		operation = t.Action == "image"
+		operation = t.Action == TaskActionImage
 	case string(TaskPlatformOpenRouterRerank):
-		operation = t.Action == "rerank"
+		operation = t.Action == TaskActionRerank
 	}
 	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil || bc == nil ||
 		bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 ||
@@ -36,7 +36,7 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	case OpenRouterSyncOperatorRelease:
 		// Legacy tasks predate ResultReason; an unready result is their evidence.
 		// Chat text tasks deliver before Complete and never predate tracking.
-		legacy := a.ResultReason == "" && !a.ResultReasonTracked && t.Action != "chat"
+		legacy := a.ResultReason == "" && !a.ResultReasonTracked && t.Action != TaskActionChat
 		return r.ReservedQuota > 0 && !a.IdentityConflict && !a.ResultReady &&
 			(legacy || slices.Contains(openRouterSyncUndeliveredReasons, a.ResultReason))
 	case OpenRouterSyncOperatorSettle:

@@ -891,6 +891,7 @@ const (
 	MsgAccountsInviteQuotaInsufficient    = "accounts.invite_quota_insufficient"
 	MsgPricingChannelQueryFailed          = "pricing.channel_query_failed"
 	MsgPricingNoValidUpstream             = "pricing.no_valid_upstream"
+	MsgPricingChannelNotOpenRouter        = "pricing.channel_not_openrouter"
 	MsgChannelMultiKeyNotFound            = "channel.multi_key_not_found"
 	MsgIdentityWeChatAccountDeleted       = "identity.wechat_account_deleted"
 	MsgIdentityWeChatRegistrationDisabled = "identity.wechat_registration_disabled"
