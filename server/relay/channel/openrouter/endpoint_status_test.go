@@ -1,6 +1,7 @@
 package openrouter
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -450,19 +451,20 @@ func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
 		"test/model": tariff("0.001", "0.002"), "test/model:batch": tariff("0.0005", "0.001"),
 	}})
 	for _, tc := range []struct {
-		name, operation, baseURL, wantErr string
-		want                              float64
+		name, operation, baseURL, body, wantErr string
+		want                                    float64
 	}{
 		{name: "sync", operation: "chat/completions", baseURL: "https://openrouter.ai/api", want: 1.02},
 		{name: "batch", operation: "batch_chat/completions", baseURL: "https://openrouter.ai/api", want: .51},
 		{name: "other channel", operation: "chat/completions", baseURL: "https://proxy.example/api", wantErr: "OpenRouter endpoint discovery missing for test/model"},
+		{name: "batch item with malformed models", operation: "batch_chat/completions", baseURL: "https://openrouter.ai/api", body: `{"model":"test/model","models":"test/model","max_tokens":10}`, wantErr: "invalid OpenRouter final request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := NewRequestEstimator()
 			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI}
 			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: tc.baseURL}
 			info.SetEstimatePromptTokens(1000)
-			cost, err := e.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), tc.operation)
+			cost, err := e.Estimate(info, []byte(cmp.Or(tc.body, `{"model":"test/model","max_tokens":10}`)), tc.operation)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 				return

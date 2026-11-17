@@ -68,3 +68,15 @@ func TestBatchContentUsesRequestAndRecipientLanguage(t *testing.T) {
 	transport.Error(c, &domain.RuleError{Kind: domain.InvalidBatchPrice, Cause: errors.New("unowned shared pricing error")})
 	assert.Contains(t, recorder.Body.String(), "unowned shared pricing error")
 }
+
+// Every OpenRouter estimate error of a Batch item, among them a malformed
+// models field, answers 400 invalid_batch_price with the text of the cause.
+func TestBatchEstimateErrorKeepsInvalidPriceStatus(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest("POST", "/v1/batches", nil)
+	code := transport.Error(c, &domain.RuleError{Kind: domain.InvalidBatchPrice, Cause: errors.New("invalid OpenRouter final request")})
+	assert.Equal(t, "invalid_batch_price", code)
+	assert.Equal(t, 400, recorder.Code)
+	assert.JSONEq(t, `{"error":{"type":"batch_error","code":"invalid_batch_price","message":"invalid OpenRouter final request"}}`, recorder.Body.String())
+}

@@ -50,7 +50,9 @@ type OpenRouterCostState struct {
 	ConfiguredReserveExprHash               string
 	ApproximateReserveModel                 string
 	AddOnReserveModel                       string
-	ReserveSource                           string
+	// ReserveSource is a pricing ReserveSource value; the usage domain keeps
+	// it as text and does not import the pricing domain.
+	ReserveSource string
 }
 type NativeImage struct {
 	EstimatedCostUSD float64
