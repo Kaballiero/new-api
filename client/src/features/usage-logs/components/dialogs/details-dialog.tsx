@@ -85,13 +85,10 @@ import {
   isPerCallBilling,
   isTimingLogType,
 } from '../../lib/utils'
-import {
-  OPENROUTER_RESERVATION_QUANTITY,
-  USAGE_BILLING_PATH,
-  type LogOtherData,
-} from '../../types'
+import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { DetailRow, DetailSection } from './log-detail-layout'
+import { OpenRouterReserveSection } from './openrouter-reserve-section'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -142,15 +139,6 @@ function getUsageBillingPathLabel(
       return adminInfo?.local_count_tokens
         ? t('Local Billing')
         : t('Upstream Response')
-  }
-}
-
-function getReservationQuantityLabel(t: TFunction, quantity: string): string {
-  switch (quantity) {
-    case OPENROUTER_RESERVATION_QUANTITY.SEARCHES:
-      return t('Reserved web searches')
-    default:
-      return quantity
   }
 }
 
@@ -366,15 +354,6 @@ function BillingBreakdown(props: {
       label: t('Billing Path'),
       value: getUsageBillingPathLabel(t, other.admin_info),
     })
-    const reservationQuantities = Object.entries(
-      other.admin_info.openrouter_reservation_quantities ?? {}
-    )
-    for (const [quantity, value] of reservationQuantities) {
-      rows.push({
-        label: getReservationQuantityLabel(t, quantity),
-        value: String(value),
-      })
-    }
   }
 
   const usageFacts =
@@ -912,6 +891,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
               />
             ) : null}
           </DetailSection>
+        ) : null}
+
+        {props.isAdmin && adminInfo ? (
+          <OpenRouterReserveSection adminInfo={adminInfo} />
         ) : null}
 
         {props.isRoot && other?.root_info ? (

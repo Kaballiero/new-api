@@ -48,7 +48,6 @@ const i18nKeys = {
   'Group Ratio': 'Group Ratio',
   'Total Cost': 'Total Cost',
   'Usage parameters': 'Usage parameters',
-  'Reserved web searches': 'Reserved web searches',
 }
 
 function makeLog(other: LogOtherData): UsageLog {
@@ -159,25 +158,6 @@ describe('usage facts billing details', () => {
       usageHeader.compareDocumentPosition(totalCost) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
-  })
-
-  test('renders the reserved OpenRouter quantities for admins only', () => {
-    const other: LogOtherData = {
-      group_ratio: 1,
-      admin_info: { openrouter_reservation_quantities: { searches: 3 } },
-    }
-    queryClients.push(renderDetails(other, true))
-    expect(rowValue('Reserved web searches')).toBe('3')
-  })
-
-  test('hides the reserved OpenRouter quantities from users', () => {
-    queryClients.push(
-      renderDetails({
-        group_ratio: 1,
-        admin_info: { openrouter_reservation_quantities: { searches: 3 } },
-      })
-    )
-    expect(screen.queryByText('Reserved web searches')).toBeNull()
   })
 
   test('does not render usage parameter rows when usage_facts is absent', () => {

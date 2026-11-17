@@ -258,6 +258,19 @@ export interface UnbillableModel {
   suggested_reserve_usd?: number
 }
 
+/** Freshness of the published upstream catalog; fetched_at is 0 without one. */
+interface CatalogFreshness {
+  fetched_at: number
+  max_age_hours: number
+  stale: boolean
+}
+
+export interface CatalogFreshnessResponse {
+  success: boolean
+  message?: string
+  data?: CatalogFreshness
+}
+
 export interface UnbillableModelsResponse {
   success: boolean
   message?: string

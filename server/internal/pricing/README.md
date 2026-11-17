@@ -29,6 +29,7 @@
 | `get_group_pricing` | тариф заданной группы (`group`, `using_group`), полный или постранично; анонимный полный каталог кэшируется по группе, страницы строятся из кэшированного списка тарифа (см. «Кэш проекций») | `GET /api/pricing/effective`, `RootAuth`, `DisableCache` |
 | `get_pricing_overview` | обзор по модальностям (по 4 модели в секции по умолчанию) | `GET /api/pricing/effective/overview`, `RootAuth`, `DisableCache` |
 | `list_unbillable_models` | диагностика моделей группы default без billing-конфигурации или подтверждённой публичной цены; рекомендации reserve для OpenRouter | `GET /api/models/unbillable`, AdminAuth |
+| `get_catalog_freshness` | возраст опубликованного upstream-каталога (`fetched_at` head) и признак `stale`, когда он старше `PRICING_CATALOG_MAX_AGE_HOURS`: устаревший каталог больше не задаёт резерв OpenRouter первым | `GET /api/models/catalog_freshness`, AdminAuth |
 | `get_public_models` | публичный каталог тарифа `default` по тегам (`tag`, `p`, `page_size`) из кэшированного списка (см. «Кэш проекций») | `GET /api/pricing/effective/models`, без авторизации, `DisableCache` |
 | `preview_pricing` | предпросмотр тарифа выбранной группы (`user_group`) без смены группы | `GET /api/option/effective_pricing`, `RootAuth`, `DisableCache` |
 | `get_pricing_config` | конфигурация цен моделей с версиями и схемами usage плагинов | `GET /api/option/model_pricing`, `RootAuth` |
