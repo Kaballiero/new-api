@@ -188,6 +188,7 @@ func (s Store) TaskGetAllTasks(startIdx int, num int, queryParams record.SyncTas
 	if queryParams.EndTimestamp != 0 {
 		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
 	}
+	query = s.openRouterSyncScope(query, queryParams)
 
 	// Read the requested page.
 	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
@@ -301,6 +302,27 @@ func (s Store) manualHolds() *gorm.DB {
 		Where("platform IN ?", openRouterSyncPlatforms).
 		Where("fail_reason LIKE ?", domain.SyncManualFailReason("")+"%").
 		Where("fail_reason <> ?", domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown))
+}
+
+// openRouterSyncScope selects OpenRouter synchronous tasks by billing state and
+// hold reason from stored columns: a manual hold is a failed task whose
+// fail_reason carries the hold reason, a task awaiting its cost is unfinished.
+func (s Store) openRouterSyncScope(query *gorm.DB, queryParams record.SyncTaskQueryParams) *gorm.DB {
+	switch queryParams.SyncBillingState {
+	case domain.SyncBillingManualReconciliation:
+		query = query.Where("platform IN ?", openRouterSyncPlatforms).
+			Where("status = ?", record.TaskStatusFailure).
+			Where("fail_reason LIKE ?", domain.SyncManualFailReason("")+"%")
+	case domain.SyncBillingAwaitingCost:
+		query = query.Where("platform IN ?", openRouterSyncPlatforms).
+			Where("status NOT IN ?", []string{record.TaskStatusFailure, record.TaskStatusSuccess})
+	}
+	if queryParams.SyncHoldReason != "" {
+		query = query.Where("platform IN ?", openRouterSyncPlatforms).
+			Where("status = ?", record.TaskStatusFailure).
+			Where("fail_reason = ?", domain.SyncManualFailReason(queryParams.SyncHoldReason))
+	}
+	return query
 }
 
 func (s Store) unknownSubmissionHolds(submittedBefore int64) *gorm.DB {
@@ -487,6 +509,7 @@ func (s Store) TaskCountAllTasks(queryParams record.SyncTaskQueryParams) int64 {
 	if queryParams.EndTimestamp != 0 {
 		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
 	}
+	query = s.openRouterSyncScope(query, queryParams)
 	_ = query.Count(&total).Error
 	return total
 }

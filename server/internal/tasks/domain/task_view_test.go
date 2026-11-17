@@ -171,7 +171,7 @@ func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
 			Reconciliation: &domain.TaskReconciliation{Required: true, ReservedQuota: 50},
 			OpenRouterSync: &domain.OpenRouterSyncTask{
 				CredentialHash: "credential-hash-canary", LastError: "cost_lookup_deadline_or_attempt_limit",
-				LastLookupClass: "temporary_http_error", LastHTTPStatus: 503, Attempts: 16, ResultReady: true,
+				LastLookupClass: "temporary_http_error", LastHTTPStatus: 503, Attempts: 16, ResultReady: true, AlertedAt: 1700000000,
 			},
 		},
 	}
@@ -190,6 +190,7 @@ func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
 	assert.Equal(t, 50, view["reserved_quota"])
 	assert.Equal(t, false, view["release_allowed"], "a delivered result is never released")
 	assert.Equal(t, true, view["settle_allowed"])
+	assert.Equal(t, int64(1700000000), view["alerted_at"])
 	adminJSON, err := common.Marshal(adminView)
 	require.NoError(t, err)
 	assert.NotContains(t, string(adminJSON), "gen-private")

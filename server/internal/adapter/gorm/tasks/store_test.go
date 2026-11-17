@@ -510,3 +510,44 @@ func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
 	assert.Equal(t, 500, saved.PrivateData.Reconciliation.ReservedQuota)
 	assert.Equal(t, missingIdentity.FailReason, saved.FailReason)
 }
+
+func TestAdminTaskListSelectsOpenRouterSyncTasksByBillingStateAndHoldReasonPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN is not configured")
+	}
+	db := pgfixture.Open(t, dsn)
+	require.NoError(t, db.AutoMigrate(&record.Task{}))
+	store := NewStore(func() *gorm.DB { return db }, accountstorage.Cache())
+	insert := func(taskID string, platform constant.TaskPlatform, status record.TaskStatus, failReason string) {
+		insertTask(t, db, &record.Task{TaskID: taskID, Platform: platform, Action: "chat", Status: status, FailReason: failReason})
+	}
+	insert("task_hold_lookup", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, domain.SyncManualFailReason("cost_lookup_deadline_or_attempt_limit"))
+	insert("task_hold_unknown", constant.TaskPlatformOpenRouterAudio, record.TaskStatusFailure, domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown))
+	insert("task_decided", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, "OpenRouter reservation released by operator")
+	insert("task_awaiting", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusInProgress, "")
+	insert("task_settled", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusSuccess, "")
+	insert("task_other_platform", "suno", record.TaskStatusFailure, domain.SyncManualFailReason("cost_lookup_deadline_or_attempt_limit"))
+	insert("task_other_in_progress", "suno", record.TaskStatusInProgress, "")
+
+	tests := []struct {
+		name   string
+		params record.SyncTaskQueryParams
+		want   []string
+	}{
+		{"manual holds", record.SyncTaskQueryParams{SyncBillingState: domain.SyncBillingManualReconciliation}, []string{"task_hold_unknown", "task_hold_lookup"}},
+		{"awaiting cost", record.SyncTaskQueryParams{SyncBillingState: domain.SyncBillingAwaitingCost}, []string{"task_awaiting"}},
+		{"hold reason", record.SyncTaskQueryParams{SyncHoldReason: domain.SyncReasonSubmissionOutcomeUnknown}, []string{"task_hold_unknown"}},
+		{"manual hold with reason", record.SyncTaskQueryParams{SyncBillingState: domain.SyncBillingManualReconciliation, SyncHoldReason: "cost_lookup_deadline_or_attempt_limit"}, []string{"task_hold_lookup"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, task := range store.TaskGetAllTasks(0, 10, tt.params) {
+				got = append(got, task.TaskID)
+			}
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, int64(len(tt.want)), store.TaskCountAllTasks(tt.params))
+		})
+	}
+}

@@ -6345,6 +6345,20 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "僅可使用字母、數字、_ 和 -，可帶 batches/ 前綴",
     "Provider ownership could not be verified; the Batch is unchanged.": "無法驗證供應商歸屬；Batch 未變更。",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "此 Batch 已無法依 ID 復原；Batch 未變更。",
-    "For Gemini use the full name, e.g. batches/abc123": "Gemini 請填寫完整名稱，例如 batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Gemini 請填寫完整名稱，例如 batches/abc123",
+    "All billing states": "全部計費狀態",
+    "Awaiting cost": "等待成本",
+    "OpenRouter billing state": "OpenRouter 計費狀態",
+    "Hold reason": "掛起原因",
+    "Telegram alert": "Telegram 告警",
+    "Sent at {{time}}": "已於 {{time}} 傳送",
+    "Not yet sent": "尚未傳送",
+    "OpenRouter Cost": "OpenRouter 成本",
+    "Generation ID": "生成 ID",
+    "Cost source": "成本來源",
+    "Cost basis": "計價基準",
+    "Upstream cost": "上游成本",
+    "OpenRouter charge unknown": "OpenRouter 扣費未知",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "請求已到達 OpenRouter，但其成本未確認。處理前請在 OpenRouter 中核對扣費。"
   }
 }

@@ -88,6 +88,7 @@ import {
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
 import { DetailRow, DetailSection } from './log-detail-layout'
+import { OpenRouterCostAudit } from './openrouter-cost-audit'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -811,6 +812,8 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           </DetailSection>
         )}
+
+        {props.isAdmin && <OpenRouterCostAudit adminInfo={adminInfo} />}
 
         {/* Reject reason (admin only) */}
         {props.isAdmin && adminInfo?.reject_reason && (

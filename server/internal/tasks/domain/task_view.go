@@ -84,6 +84,10 @@ type TaskQuery struct {
 	StartTimestamp int64
 	EndTimestamp   int64
 	ChannelID      string
+	// SyncBillingState and SyncHoldReason select OpenRouter synchronous tasks
+	// for administrators: a billing state and the reason of a manual hold.
+	SyncBillingState string
+	SyncHoldReason   string
 }
 type MidjourneyQuery struct {
 	ChannelID      string

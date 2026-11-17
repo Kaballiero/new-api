@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient, useIsFetching } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,6 +31,7 @@ import {
   LogsFilterInput,
   LogsFilterToolbar,
 } from './logs-filter-toolbar'
+import { OpenRouterSyncTaskFilters } from './openrouter-sync-task-filters'
 import { useLogsViewScope } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
@@ -97,6 +98,12 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         : {
             ...baseFilters,
             ...(searchParams.filter ? { taskId: searchParams.filter } : {}),
+            ...(searchParams.syncBillingState
+              ? { syncBillingState: searchParams.syncBillingState }
+              : {}),
+            ...(searchParams.syncHoldReason
+              ? { syncHoldReason: searchParams.syncHoldReason }
+              : {}),
           }
 
     setFilters(next)
@@ -106,10 +113,15 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
     searchParams.endTime,
     searchParams.channel,
     searchParams.filter,
+    searchParams.syncBillingState,
+    searchParams.syncHoldReason,
   ])
 
   const handleChange = useCallback(
-    (field: keyof TaskLogsFilters, value: Date | string | undefined) => {
+    (
+      field: keyof DrawingLogFilters | keyof TaskLogFilters,
+      value: Date | string | undefined
+    ) => {
       setFilters((prev) => ({ ...prev, [field]: value }))
     },
     []
@@ -164,7 +176,15 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
     props.logCategory === 'drawing'
       ? t('Filter by MjProxy task ID')
       : t('Filter by task ID')
-  const hasAdditionalFilters = !!filterValue || !!filters.channel
+  const syncFilters =
+    props.logCategory === 'task' ? (filters as TaskLogFilters) : null
+  const additionalFilterValues = [
+    filterValue,
+    filters.channel,
+    syncFilters?.syncBillingState,
+    syncFilters?.syncHoldReason,
+  ]
+  const hasAdditionalFilters = additionalFilterValues.some(Boolean)
   const dateRangeFilter = (
     <LogsFilterField wide>
       <CompactDateTimeRangePicker
@@ -198,6 +218,18 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
       />
     </LogsFilterField>
   ) : null
+  const openRouterSyncFilters =
+    isAdmin && syncFilters ? (
+      <OpenRouterSyncTaskFilters
+        billingState={syncFilters.syncBillingState}
+        holdReason={syncFilters.syncHoldReason}
+        onBillingStateChange={(value) =>
+          handleChange('syncBillingState', value)
+        }
+        onHoldReasonChange={(value) => handleChange('syncHoldReason', value)}
+        onKeyDown={handleKeyDown}
+      />
+    ) : null
 
   return (
     <LogsFilterToolbar
@@ -207,6 +239,7 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
           {dateRangeFilter}
           {taskIdFilter}
           {channelFilter}
+          {openRouterSyncFilters}
         </>
       }
       mobilePinnedFilters={dateRangeFilter}
@@ -214,9 +247,10 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         <>
           {taskIdFilter}
           {channelFilter}
+          {openRouterSyncFilters}
         </>
       }
-      mobileFilterCount={[filterValue, filters.channel].filter(Boolean).length}
+      mobileFilterCount={additionalFilterValues.filter(Boolean).length}
       hasActiveFilters={hasAdditionalFilters}
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}

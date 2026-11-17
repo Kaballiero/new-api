@@ -273,6 +273,14 @@ export async function fetchLogsByCategory(
     ...(logCategory === 'task'
       ? { task_id: searchParams.filter as string | undefined }
       : {}),
+    ...(logCategory === 'task' && isAdmin
+      ? {
+          sync_billing_state: searchParams.syncBillingState as
+            | string
+            | undefined,
+          sync_hold_reason: searchParams.syncHoldReason as string | undefined,
+        }
+      : {}),
   }
 
   if (logCategory === 'drawing') {
