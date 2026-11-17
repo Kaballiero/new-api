@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -180,7 +181,8 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 	default:
 		return fmt.Errorf("invalid OpenRouter reservation source")
 	}
-	if minimum := info.ChannelSetting.OpenRouterReserveUSD(order.Model); minimum != nil {
+	minimum := info.ChannelSetting.OpenRouterReserveUSD(order.Model)
+	if minimum != nil {
 		estimate = max(estimate, *minimum)
 	}
 	basis := relaycommon.NewOpenRouterCostBasis(info, estimate)
@@ -207,7 +209,18 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 	if openrouter.SourceMediaVideo(order.Model) {
 		facts["reservation"] = map[string]any{"source": "approximate_media", "model": order.Model, "usd": estimate, "hard_bound": false}
 	}
-	facts["reservation_source"] = string(upstream.Source)
+	// The reserve source follows the precedence of text: a configured price,
+	// then the channel reserve, when it raised the reserve above the tariff;
+	// source media always hold the approximate channel reserve.
+	reserveSource := upstream.Source
+	channelReserveRaised := minimum != nil && *minimum > upstream.USD
+	if channelReserveRaised || openrouter.SourceMediaVideo(order.Model) {
+		reserveSource = pricingdomain.ReserveSourceManual
+	}
+	if local != nil && local.USD > upstream.USD {
+		reserveSource = pricingdomain.ReserveSourceConfiguredPrice
+	}
+	facts["reservation_source"] = string(reserveSource)
 	c.Set("openrouter_video_order_facts", facts)
 	info.OpenRouterCost = state
 	info.PriceData.Quota, info.PriceData.QuotaToPreConsume = quota, quota
