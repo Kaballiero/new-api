@@ -3,9 +3,11 @@ package openrouter
 import (
 	"bytes"
 	"cmp"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"math"
 	"net/http"
@@ -374,11 +376,39 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		searchReserveUSD = reserveUSD
 	}
-	imageCount, err := requestInputMediaQuantities(fields)
+	imageBlocks, err := requestInputImages(fields)
 	if err != nil {
 		return 0, err
 	}
-	prompt := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(body), request.Model))
+	// imageTokens is measured only by the Cohere Embed rule, which applies when
+	// every routable model follows it; nil otherwise.
+	var imageTokens *int
+	promptText := body
+	outsideCohereEmbedRule := func(model string) bool { return !slices.Contains(cohereEmbedImageTokenModels, model) }
+	if operation == "embeddings" && !slices.ContainsFunc(models, outsideCohereEmbedRule) {
+		readable := imageBlocks[:min(len(imageBlocks), cohereEmbedImageHeadersPerRequest)]
+		tokens := (len(imageBlocks) - len(readable)) * cohereEmbedImageMaxTokens
+		for _, block := range readable {
+			tokens += cohereEmbedImageTokens(block)
+		}
+		imageTokens = &tokens
+	}
+	if imageTokens != nil && len(imageBlocks) > 0 {
+		// Image data is priced as image tokens, not as prompt text. A block not
+		// found after the previous cut stays in the text, an upper bound.
+		var text []byte
+		rest := body
+		for _, block := range imageBlocks {
+			before, after, found := bytes.Cut(rest, block)
+			if !found {
+				continue
+			}
+			text = append(text, before...)
+			rest = after
+		}
+		promptText = append(text, rest...)
+	}
+	prompt := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(promptText), request.Model))
 	if dedicatedAudio || decisions || rerank {
 		prompt = 0
 	}
@@ -416,7 +446,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if approximateReserve {
 		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
-		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
+		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || len(imageBlocks) > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
 	}
@@ -556,6 +586,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					}
 				}
 			}
+			if imageTokens != nil && len(imageBlocks) > 0 && !matches("cohere") {
+				return 0, errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
+			}
 
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
 				return 0, errors.New("invalid OpenRouter endpoint token limits")
@@ -686,7 +719,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			} else if pricingErr != nil {
 				estimateErr = &EstimateUnavailableError{Cause: pricingErr}
 			} else {
-				cost, promptPrice, outputPrice, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
+				cost, promptPrice, outputPrice, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, len(imageBlocks), imageTokens, endpointReserveUSD, imageOutput)
 				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
 					searchRate, err := readRate(raw)
 					if err != nil {
@@ -794,8 +827,9 @@ func exceedsFlexPriceBounds(endpoint PricedEndpoint, flexTariffs []PricedEndpoin
 // estimateEndpointCost contains monetary metadata/quantity evaluation only.
 // Eligibility is established by the caller before any failure can become fallback.
 // promptPrice is the price of one prompt token; outputPrice is the price of one
-// output token, zero when output is zero.
-func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output, count, imageCount int, reserveUSD *float64, imageOutput bool) (result, promptPrice, outputPrice decimal.Decimal, err error) {
+// output token, zero when output is zero. imageTokens is nil when the image
+// token quantity is unmeasured, so a non-zero image_token rate stays unpriced.
+func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output, count, imageCount int, imageTokens *int, reserveUSD *float64, imageOutput bool) (result, promptPrice, outputPrice decimal.Decimal, err error) {
 	defer func() {
 		if err != nil {
 			err = &EstimateUnavailableError{Cause: err}
@@ -875,7 +909,17 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			cost = cost.Add(rate.Mul(decimal.NewFromInt(int64(imageCount))))
 		}
 	}
+	if raw, ok := endpoint.Pricing["image_token"]; ok && imageTokens != nil {
+		rate, err := readRate(raw)
+		if err != nil {
+			return decimal.Zero, decimal.Zero, decimal.Zero, err
+		}
+		cost = cost.Add(rate.Mul(decimal.NewFromInt(int64(*imageTokens))))
+	}
 	for key, raw := range endpoint.Pricing {
+		if key == "image_token" && imageTokens != nil {
+			continue
+		}
 		if imageOutput && (key == "image_output" || key == "audio" || key == "input_audio_cache" || key == "input_audio" || key == "output_audio") {
 			// Image output quantities are covered by the explicit hold, not
 			// inferred from a text token cap. Audio input/output is absent in
@@ -891,7 +935,7 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			continue
 		}
 		if approximateReserve && (key == "audio" || key == "input_audio" || key == "input_audio_cache") {
-			// requestInputMediaQuantities rejects every audio input block before
+			// requestInputImages rejects every audio input block before
 			// estimation, so these published input rates are inactive here.
 			if _, err := readRate(raw); err != nil {
 				return decimal.Zero, decimal.Zero, decimal.Zero, err
@@ -947,9 +991,10 @@ func ModelsFromRequest(body []byte) ([]string, error) {
 	return slices.Compact(models), nil
 }
 
-// requestInputMediaQuantities inspects protocol content, never arbitrary tool
-// schemas, function arguments or user text that happen to name media fields.
-func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error) {
+// requestInputImages returns the input image blocks, inspecting protocol
+// content, never arbitrary tool schemas, function arguments or user text that
+// happen to name media fields.
+func requestInputImages(fields map[string]json.RawMessage) ([]json.RawMessage, error) {
 	var blocks []json.RawMessage
 	for _, field := range []string{"messages", "input"} {
 		raw := bytes.TrimSpace(fields[field])
@@ -958,7 +1003,7 @@ func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error)
 		}
 		var items []json.RawMessage
 		if common.Unmarshal(raw, &items) != nil {
-			return 0, errors.New("invalid OpenRouter input content")
+			return nil, errors.New("invalid OpenRouter input content")
 		}
 		for _, item := range items {
 			item = bytes.TrimSpace(item)
@@ -971,16 +1016,16 @@ func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error)
 				continue
 			}
 			if common.Unmarshal(item, &message) != nil {
-				return 0, errors.New("invalid OpenRouter input item")
+				return nil, errors.New("invalid OpenRouter input item")
 			}
 			if len(message.Images) > 0 {
-				return 0, errors.New("OpenRouter assistant image inputs are unpriced")
+				return nil, errors.New("OpenRouter assistant image inputs are unpriced")
 			}
 			message.Content = bytes.TrimSpace(message.Content)
 			if len(message.Content) > 0 && message.Content[0] == '[' {
 				var content []json.RawMessage
 				if common.Unmarshal(message.Content, &content) != nil {
-					return 0, errors.New("invalid OpenRouter message content")
+					return nil, errors.New("invalid OpenRouter message content")
 				}
 				blocks = append(blocks, content...)
 			} else if len(message.Content) > 0 && message.Content[0] == '{' {
@@ -990,7 +1035,7 @@ func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error)
 			}
 		}
 	}
-	images := 0
+	var images []json.RawMessage
 	for _, block := range blocks {
 		block = bytes.TrimSpace(block)
 		if len(block) == 0 || block[0] != '{' {
@@ -1000,14 +1045,58 @@ func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error)
 			Type string `json:"type"`
 		}
 		if common.Unmarshal(block, &content) != nil {
-			return 0, errors.New("invalid OpenRouter content block")
+			return nil, errors.New("invalid OpenRouter content block")
 		}
 		switch content.Type {
 		case "image_url", "input_image", "image":
-			images++
+			images = append(images, block)
 		case "input_audio", "audio_url", "video_url", "input_video":
-			return 0, errors.New("OpenRouter input media duration quantity is unpriced")
+			return nil, errors.New("OpenRouter input media duration quantity is unpriced")
 		}
 	}
 	return images, nil
+}
+
+// Cohere Embed image tokens, measured on OpenRouter: a grid of 32 px cells,
+// at least 2x2 and at most 49x49 after downscaling, plus 4 tokens per image on
+// embed-5-fast and 2 on embed-5-pro. The reserve adds 4 for both.
+const (
+	cohereEmbedImageCellPixels      = 32
+	cohereEmbedImageMinCellsPerSide = 2
+	cohereEmbedImageMaxCells        = 49 * 49
+	cohereEmbedImageExtraTokens     = 4
+	cohereEmbedImageMaxTokens       = cohereEmbedImageMaxCells + cohereEmbedImageExtraTokens
+	// Image headers read per request, matching Cohere's 96 inputs per call;
+	// images past it count at the per-image maximum.
+	cohereEmbedImageHeadersPerRequest = 96
+)
+
+var cohereEmbedImageTokenModels = []string{"cohere/embed-5-fast", "cohere/embed-5-pro"}
+
+// cohereEmbedImageTokens bounds the Cohere Embed tokens of one image block from
+// above. Only the header of a base64 data URI is decoded; an image whose size
+// cannot be read counts at the per-image maximum.
+func cohereEmbedImageTokens(block json.RawMessage) int {
+	var content struct {
+		ImageURL struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+	}
+	if common.Unmarshal(block, &content) != nil {
+		return cohereEmbedImageMaxTokens
+	}
+	mediaType, payload, found := strings.Cut(content.ImageURL.URL, ",")
+	if !found || !strings.HasPrefix(mediaType, "data:") || !strings.HasSuffix(mediaType, ";base64") {
+		return cohereEmbedImageMaxTokens
+	}
+	config, _, err := image.DecodeConfig(base64.NewDecoder(base64.StdEncoding, strings.NewReader(payload)))
+	if err != nil || config.Width <= 0 || config.Height <= 0 {
+		return cohereEmbedImageMaxTokens
+	}
+	columns := (config.Width + cohereEmbedImageCellPixels - 1) / cohereEmbedImageCellPixels
+	rows := (config.Height + cohereEmbedImageCellPixels - 1) / cohereEmbedImageCellPixels
+	// Clamping each side to the cell maximum keeps the product from overflowing.
+	columns = min(max(columns, cohereEmbedImageMinCellsPerSide), cohereEmbedImageMaxCells)
+	rows = min(max(rows, cohereEmbedImageMinCellsPerSide), cohereEmbedImageMaxCells)
+	return min(columns*rows, cohereEmbedImageMaxCells) + cohereEmbedImageExtraTokens
 }
