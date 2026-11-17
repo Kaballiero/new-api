@@ -91,6 +91,7 @@ func (NativeStore) BuildChannel(id int) (*domain.BuildChannel, error) {
 	}
 	return NewNativeChannel(row).Value(), nil
 }
+func (NativeStore) IsMissing(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }
 func NativeImageEndpoint(value openrouter.ImageEndpoint) domain.NativeImageEndpoint {
 	out := domain.NativeImageEndpoint{PromptOnly: value.PromptOnly, ProviderTag: value.ProviderTag}
 	if value.SupportedParameters != nil {

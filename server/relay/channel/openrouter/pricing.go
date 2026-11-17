@@ -3,6 +3,7 @@ package openrouter
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -437,7 +438,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		outputReserve.OutputPriceUSD, outputReserve.OutputTokens = estimate.OutputPriceUSD, estimate.OutputTokens
 	}
 	if estimate.StaleCatalog {
-		logger.LogWarn(e.c, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
+		// An estimator without a bound request logs without a request context:
+		// a nil *gin.Context is not a usable context.Context.
+		var ctx context.Context
+		if e.c != nil {
+			ctx = e.c
+		}
+		logger.LogWarn(ctx, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
 	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
 	e.ReserveSource = estimate.Source

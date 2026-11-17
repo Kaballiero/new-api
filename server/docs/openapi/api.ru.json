@@ -16509,6 +16509,314 @@
         }
       }
     },
+    "/api/channel/{id}/openrouter_reserves": {
+      "get": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "catalog_stale": {
+                          "type": "boolean"
+                        },
+                        "fetched_at": {
+                          "format": "date-time",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "items": {
+                          "items": {
+                            "properties": {
+                              "admission_policy": {
+                                "enum": [
+                                  "model_approximate_reserve",
+                                  "model_reserve_add_on",
+                                  "sonar_research_approximate_reserve",
+                                  null
+                                ],
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "configured_source": {
+                                "enum": [
+                                  "upstream",
+                                  "configured_price",
+                                  null
+                                ],
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "configured_usd": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "effective_source": {
+                                "enum": [
+                                  "catalog",
+                                  "catalog_stale",
+                                  "live",
+                                  "configured_price",
+                                  "manual",
+                                  null
+                                ],
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "example_error": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "example_status": {
+                                "enum": [
+                                  "ok",
+                                  "live_only",
+                                  "needs_live_check",
+                                  "refused"
+                                ],
+                                "type": "string"
+                              },
+                              "example_usd": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "in_channel": {
+                                "type": "boolean"
+                              },
+                              "manual_usd": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "model": {
+                                "type": "string"
+                              },
+                              "providers": {
+                                "items": {
+                                  "properties": {
+                                    "tag": {
+                                      "type": "string"
+                                    },
+                                    "tier": {
+                                      "enum": [
+                                        "default",
+                                        "priority",
+                                        "flex",
+                                        "ultrafast"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "usd": {
+                                      "nullable": true,
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "tag",
+                                    "tier",
+                                    "usd"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
+                              },
+                              "upstream_model": {
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "model",
+                              "upstream_model",
+                              "in_channel",
+                              "configured_source",
+                              "manual_usd",
+                              "configured_usd",
+                              "effective_source",
+                              "admission_policy",
+                              "example_usd",
+                              "example_status",
+                              "example_error",
+                              "providers"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "reference": {
+                          "properties": {
+                            "operation": {
+                              "type": "string"
+                            },
+                            "output_tokens": {
+                              "type": "integer"
+                            },
+                            "prompt_tokens": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "operation",
+                            "prompt_tokens",
+                            "output_tokens"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "fetched_at",
+                        "catalog_stale",
+                        "reference",
+                        "items"
+                      ],
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "channel_not_found": {
+                    "summary": "channel_not_found",
+                    "value": {
+                      "code": "channel_not_found",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist",
+            "x-error-codes": [
+              "channel_not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/channel/{id}/openrouter_reserves",
+        "tags": [
+          "Channel Management"
+        ]
+      }
+    },
     "/api/channel/{id}/status": {
       "post": {
         "deprecated": false,

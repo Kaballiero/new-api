@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	metadataupstream "github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
 	cataloggateway "github.com/QuantumNous/new-api/internal/adapter/gateway/catalog"
+	pricinggateway "github.com/QuantumNous/new-api/internal/adapter/gateway/pricing"
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	settingsstore "github.com/QuantumNous/new-api/internal/adapter/gorm/settings"
@@ -40,6 +41,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/list_syncable_channels"
 	"github.com/QuantumNous/new-api/internal/pricing/list_unbillable_models"
 	"github.com/QuantumNous/new-api/internal/pricing/list_upstream_catalog_models"
+	"github.com/QuantumNous/new-api/internal/pricing/preview_channel_reserves"
 	"github.com/QuantumNous/new-api/internal/pricing/preview_pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/internal/pricing/reset_model_ratios"
@@ -50,6 +52,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -161,6 +164,8 @@ type PricingHTTP struct {
 	UpdatePricingConfig  update_pricing_config.HTTP
 	FetchUpstreamRatios  fetch_upstream_ratios.HTTP
 	ListSyncableChannels list_syncable_channels.HTTP
+	// PreviewChannelReserves previews the reserves of an OpenRouter channel.
+	PreviewChannelReserves preview_channel_reserves.HTTP
 }
 
 // NewPricingHTTP builds the pricing handlers. Settings, the catalog snapshot
@@ -188,6 +193,8 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 		}),
 		FetchUpstreamRatios:  newFetchUpstreamRatiosHTTP(channels),
 		ListSyncableChannels: list_syncable_channels.NewHTTP(list_syncable_channels.NewUsecase(channels)),
+		PreviewChannelReserves: preview_channel_reserves.NewHTTP(preview_channel_reserves.NewUsecase(pricingadapter.Capabilities(), pricingupstream.NativeStore{},
+			&pricingruntime.UpstreamCatalogTariffs, pricinggateway.ChannelReserves{}, time.Now, pricingruntime.CatalogMaxAge, helper.DefaultPreConsumeMaxTokens)),
 	}
 }
 
