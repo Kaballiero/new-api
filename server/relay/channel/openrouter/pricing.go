@@ -85,6 +85,9 @@ type RequestEstimator struct {
 	ReserveModel string
 	// ReserveSource is what the last successful estimate is priced from.
 	ReserveSource pricingdomain.ReserveSource
+	// ReserveQuantities are the measured quantities the last successful
+	// estimate is priced by; nil without any.
+	ReserveQuantities map[pricingdomain.ReserveQuantity]int
 	// OutputReserve bounds the last successful estimate when it is a text
 	// reserve priced from endpoint tariffs; nil otherwise.
 	OutputReserve *relaycommon.OpenRouterOutputReserve
@@ -138,7 +141,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Tools               []struct {
 			Type string `json:"type"`
 		} `json:"tools"`
-		Plugins []json.RawMessage `json:"plugins"`
 	}
 	if common.Unmarshal(body, &request) != nil {
 		return 0, errors.New("invalid OpenRouter final request")
@@ -153,13 +155,16 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		request.Speed = nil
 	}
 
-	if request.Route != "" && request.Route != "fallback" || request.Preset != "" || len(request.Plugins) > 0 {
-		return 0, errors.New("OpenRouter router, preset or plugins have unpriced execution dimensions")
+	if request.Route != "" && request.Route != "fallback" || request.Preset != "" {
+		return 0, errUnpricedExecutionDimensions
 	}
-	for _, tool := range request.Tools {
-		if tool.Type != "function" && tool.Type != "custom" {
-			return 0, errors.New("OpenRouter hosted tool pricing is unavailable")
-		}
+	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
+	decisions := operation == "decisions"
+	rerank := operation == "rerank"
+	textOutput := operation != "embeddings" && !dedicatedAudio && !decisions && !rerank
+	searches, manualSearch, err := requestedSearches(body, textOutput)
+	if err != nil {
+		return 0, err
 	}
 	for _, slugs := range [][]string{request.Provider.Only, request.Provider.Ignore, request.Provider.Order} {
 		for i := range slugs {
@@ -183,18 +188,15 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	var modalities []string
 	imageOutput := false
 	audioOutput := false
-	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
 	// Audio and hosted search may use an explicit channel hold without a global
 	// model price. This is an approximate reserve, never a ceiling on actual spend.
 	var reserveUSD *float64
 	if info.ChannelMeta != nil {
 		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
 	}
-	decisions := operation == "decisions"
-	rerank := operation == "rerank"
 	if rerank {
-		if batch || localUSD == nil && (info.ChannelMeta == nil || info.ChannelSetting.OpenRouterReserveUSD(request.Model) == nil) || info.RelayFormat != types.RelayFormatRerank {
-			return 0, errors.New("OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format")
+		if batch || info.RelayFormat != types.RelayFormatRerank {
+			return 0, errors.New("OpenRouter rerank requires Rerank format without Batch")
 		}
 		for _, key := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "modalities"} {
 			if _, present := fields[key]; present {
@@ -269,17 +271,21 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	var searchReserveUSD *float64
-	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
-		if operation != "chat/completions" || reserveUSD == nil || !(*reserveUSD > 0) || info.ChannelType != constant.ChannelTypeOpenRouter {
-			return 0, errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
-		}
+	if searches > 0 || manualSearch {
 		if imageOutput || audioOutput {
 			return 0, errors.New("OpenRouter hosted search cannot share an approximate reserve with image or audio output")
 		}
 		if batch {
 			return 0, errors.New("OpenRouter hosted search is unavailable for Batch")
 		}
-		searchReserveUSD = reserveUSD
+		if reserveUSD != nil && *reserveUSD > 0 && info.ChannelType == constant.ChannelTypeOpenRouter {
+			searchReserveUSD = reserveUSD
+		}
+		// A search engine other than native has no endpoint price: the
+		// channel reserve alone covers its searches.
+		if manualSearch && searchReserveUSD == nil {
+			return 0, pricingdomain.ErrHostedSearchUnpriced
+		}
 	}
 	imageBlocks, err := requestInputImages(fields)
 	if err != nil {
@@ -369,7 +375,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	outputLimit := cmp.Or(request.MaxOutputTokens, request.MaxCompletionTokens, request.MaxTokens)
-	textOutput := operation != "embeddings" && !dedicatedAudio && !decisions && !rerank
 	var outputReserve *relaycommon.OpenRouterOutputReserve
 	if textOutput && !approximateReserve {
 		limitField := "max_tokens"
@@ -386,11 +391,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		channelBaseURL = info.ChannelBaseUrl
 	}
 	var units map[pricingdomain.PriceDimension]int64
-	if speech {
+	switch {
+	case speech:
 		units, err = speechUnits(body, request.Model)
-		if err != nil {
-			return 0, err
-		}
+	case rerank:
+		units, err = rerankUnits(body)
+	}
+	if err != nil {
+		return 0, err
 	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
 		Model:          request.Model,
@@ -428,6 +436,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		MaxTokensLimit:        helper.MaxTokensLimit,
 		ApproximateReserveUSD: approximateReserveUSD,
 		AddOnReserveUSD:       addOnReserveUSD,
+		Searches:              searches,
+		ManualSearch:          manualSearch,
 		SearchReserveUSD:      searchReserveUSD,
 	})
 	var unavailable *pricingdomain.EstimateUnavailableError
@@ -452,10 +462,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
 	e.ReserveSource = estimate.Source
+	e.ReserveQuantities = nil
+	if searches > 0 {
+		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
+	}
 	e.OutputReserve = outputReserve
 	if approximateReserve {
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
-	} else if addOnReserve && (searchReserveUSD != nil || estimate.IncludesAddOnReserve) {
+	} else if addOnReserve && estimate.IncludesAddOnReserve {
 		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	}
 	return estimate.USD, nil

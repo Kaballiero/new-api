@@ -53,6 +53,9 @@ type OpenRouterCostState struct {
 	// ReserveSource is a pricing ReserveSource value; the usage domain keeps
 	// it as text and does not import the pricing domain.
 	ReserveSource string
+	// ReserveQuantities are the measured quantities the reserve is priced by,
+	// by pricing ReserveQuantity name; nil without any.
+	ReserveQuantities map[string]int
 }
 type NativeImage struct {
 	EstimatedCostUSD float64

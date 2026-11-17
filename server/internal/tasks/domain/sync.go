@@ -66,6 +66,7 @@ var syncGenerations = map[string]SyncGeneration{
 	TaskActionChatImage:   {APIType: "completions"},
 	TaskActionChat:        {APIType: "completions", BilledCancel: true},
 	TaskActionCompletions: {APIType: "completions", BilledCancel: true},
+	TaskActionEmbeddings:  {APIType: "embeddings"},
 	TaskActionRerank:      {APIType: "rerank"},
 }
 
@@ -75,7 +76,7 @@ func ExpectedSyncGeneration(action string) (SyncGeneration, bool) {
 	return generation, ok
 }
 
-var openRouterChatImageActions = []string{TaskActionChatImage, TaskActionChat, TaskActionCompletions}
+var openRouterChatImageActions = []string{TaskActionChatImage, TaskActionChat, TaskActionCompletions, TaskActionEmbeddings}
 
 // IsOpenRouterChatImageAction reports an action of the openrouter-chat-image platform.
 func IsOpenRouterChatImageAction(action string) bool {

@@ -45,10 +45,13 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 		}
 	}
 	// Text of every client format settles through the same chat Task; a
-	// legacy completion keeps its own action.
+	// legacy completion and an embedding keep their own actions.
 	if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
-		if info.RelayMode == relayconstant.RelayModeCompletions {
+		switch info.RelayMode {
+		case relayconstant.RelayModeCompletions:
 			return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionCompletions, nil
+		case relayconstant.RelayModeEmbeddings:
+			return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionEmbeddings, nil
 		}
 		return constant.TaskPlatformOpenRouterChatImage, constant.TaskActionChat, nil
 	}

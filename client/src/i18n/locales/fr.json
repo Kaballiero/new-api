@@ -6388,6 +6388,7 @@
     "Cost basis": "Base de calcul",
     "Upstream cost": "Coût en amont",
     "OpenRouter charge unknown": "Facturation OpenRouter inconnue",
-    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "La requête a atteint OpenRouter mais son coût n'a pas été confirmé. Vérifiez la facturation dans OpenRouter avant de la résoudre."
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "La requête a atteint OpenRouter mais son coût n'a pas été confirmé. Vérifiez la facturation dans OpenRouter avant de la résoudre.",
+    "Reserved web searches": "Recherches web réservées"
   }
 }

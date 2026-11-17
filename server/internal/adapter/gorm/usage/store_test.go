@@ -199,6 +199,27 @@ func TestSerializerWritesOpenRouterReservationSource(t *testing.T) {
 	}
 }
 
+// The admin log names the measured quantities an OpenRouter reserve is priced
+// by beside its source.
+func TestSerializerWritesOpenRouterReservationQuantities(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		quantities map[string]int
+		want       any
+	}{
+		{"searches", map[string]int{"searches": 3}, map[string]int{"searches": 3}},
+		{"no quantities", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := domain.OpenRouterCostState{ReserveSource: "catalog", ReserveQuantities: tc.quantities}
+			other := consumptionOther(domain.Consumption{Kind: domain.TextConsumption, Request: domain.RequestFacts{ContextPresent: true, OpenRouterCost: &state}, Text: &domain.TextFacts{}}, logMetadata{})
+			admin, ok := other.Snapshot()["admin_info"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tc.want, admin["openrouter_reservation_quantities"])
+		})
+	}
+}
+
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
 	assert.Equal(t, ", search calls: 2, cost 17", renderer.RenderContent([]domain.Note{
