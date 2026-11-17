@@ -412,7 +412,7 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 		{name: "chat text null cost defers to generation", body: `{"id":"gen-text-null","choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, chatText: true, valid: true, deferred: true},
 		{name: "chat text lookup drift after Begin still delivers", body: `{"id":"gen-text-drift","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, lookupDrift: true, billingState: "manual_reconciliation"},
 		{name: "chat text failed hold transfer after Begin still delivers", body: `{"id":"gen-text-commit","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, commitFailure: true, billingState: "reservation_unknown"},
-		{name: "chat text handler failure after deferral holds for reconciliation", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true, billingState: "manual_reconciliation"},
+		{name: "chat text handler failure after deferral awaits generation cost", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true},
 		{name: "chat text missing cost without identity refunds", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
 		{name: "chat text missing cost with invalid identity refunds", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
 		{name: "chat text upstream error is surfaced", body: `{"id":"gen-text-error","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
@@ -449,7 +449,7 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 					assert.Empty(t, billing.settled)
 					return
 				}
-				// The hold stays in the Task without an automatic charge.
+				// The hold stays in the Task until the lookup charges the generation cost.
 				assert.Equal(t, []int{50}, billing.settled)
 				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
@@ -513,16 +513,18 @@ func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
 			frames: "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
 		{name: "chat text tool call without terminal cost keeps the hold", chatText: true, valid: true, billingState: "awaiting_cost", generationID: "gen-stream-tool",
 			frames: "data: {\"id\":\"gen-stream-tool\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\ndata: {\"id\":\"gen-stream-tool\",\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
-		{name: "chat text role-only chunk then error refunds", chatText: true, upstream: "Upstream error from Nvidia",
+		{name: "chat text role-only chunk then error defers to generation", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-role",
 			frames: "data: {\"id\":\"gen-stream-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: {\"id\":\"gen-stream-role\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text role-only stream without usage or identity refunds", chatText: true,
 			frames: "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: [DONE]\n\n"},
-		{name: "chat text content inside the error chunk is not delivered and refunds", chatText: true, upstream: "Upstream error from Nvidia", undelivered: "lost-content",
+		{name: "chat text content inside the error chunk is not delivered and defers to generation", chatText: true, upstream: "Upstream error from Nvidia", undelivered: "lost-content", billingState: "awaiting_cost", generationID: "gen-stream-joint",
 			frames: "data: {\"id\":\"gen-stream-joint\",\"choices\":[{\"delta\":{\"content\":\"lost-content\"}}],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text reasoning then error keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-reasoning",
 			frames: "data: {\"id\":\"gen-stream-reasoning\",\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}\n\ndata: {\"id\":\"gen-stream-reasoning\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
-		{name: "chat text upstream error before content refunds", chatText: true, upstream: "Upstream error from Nvidia",
+		{name: "chat text upstream error before content defers to generation", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-error",
 			frames: "data: {\"id\":\"gen-stream-error\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text upstream error before content without identity refunds", chatText: true, upstream: "Upstream error from Nvidia",
+			frames: "data: {\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text upstream error after content keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-partial",
 			frames: "data: {\"id\":\"gen-stream-partial\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"id\":\"gen-stream-partial\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 	} {
@@ -624,21 +626,26 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		cost                   float64
 		wantErr                string
 		delivered, undelivered string
+		// envelope marks the client format of a delivered response body.
+		envelope string
+		// undeliveredResult means no output reached the client before the Task took the hold.
+		undeliveredResult bool
 	}{
-		{name: "messages/nonstream without terminal cost", format: messages, upstream: chatNonstream, deferred: true, delivered: "partial"},
+		{name: "messages/nonstream without terminal cost", format: messages, upstream: chatNonstream, deferred: true, delivered: "partial", envelope: `"type":"message"`},
 		{name: "messages/nonstream without identity refunds", format: messages, upstream: chatNonstreamWithoutID, wantErr: missingCost},
 		{name: "messages/abort after content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "messages/abort after message_start with content buffered", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"alpha"}`) + chunk(`{"content":"beta"}`),
-			disconnectAt: "message_start", wantErr: missingCost, undelivered: "alpha"},
-		{name: "messages/abort before content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+			disconnectAt: "message_start", deferred: true, undelivered: "alpha", undeliveredResult: true},
+		{name: "messages/abort before content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), deferred: true, undeliveredResult: true},
 		{name: "messages/content in the last chunk without terminal cost", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "messages/completed", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
-		{name: "gemini/nonstream without terminal cost", format: gemini, upstream: chatNonstream, deferred: true, delivered: "partial"},
+		{name: "gemini/nonstream without terminal cost", format: gemini, upstream: chatNonstream, deferred: true, delivered: "partial", envelope: `"candidates"`},
+		{name: "gemini/nonstream without identity refunds", format: gemini, upstream: chatNonstreamWithoutID, wantErr: missingCost},
 		{name: "gemini/abort after content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
-		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), deferred: true, undeliveredResult: true},
 		{name: "gemini/content in the last chunk without terminal cost", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "gemini/completed", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
@@ -646,17 +653,17 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		{name: "responses/nonstream without identity refunds", format: responses, upstream: responsesNonstreamWithoutID, wantErr: missingCost},
 		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
 		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
-		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, wantErr: "OpenRouter upstream reported an error"},
-		{name: "responses/empty delta is not content", format: responses, stream: true, upstream: created + delta(""), wantErr: missingCost},
-		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), wantErr: missingCost},
-		{name: "responses/abort before content", format: responses, stream: true, upstream: created, wantErr: missingCost},
+		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", undeliveredResult: true},
+		{name: "responses/empty delta is not content", format: responses, stream: true, upstream: created + delta(""), deferred: true, undeliveredResult: true},
+		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), deferred: true, undeliveredResult: true},
+		{name: "responses/abort before content", format: responses, stream: true, upstream: created, deferred: true, undeliveredResult: true},
 		{name: "responses/completed", format: responses, stream: true, upstream: created + delta("partial") + responsesCompleted, cost: .004, delivered: "partial"},
 
 		{name: "completions/nonstream without terminal cost", format: completions, upstream: completionNonstream, deferred: true, delivered: "partial"},
 		{name: "completions/nonstream without identity refunds", format: completions, upstream: completionNonstreamWithoutID, wantErr: missingCost},
 		{name: "completions/abort after content", format: completions, stream: true, upstream: completion("partial") + completion(" more") + completion(" lost"),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
-		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), wantErr: missingCost},
+		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), deferred: true, undeliveredResult: true},
 		{name: "completions/completed", format: completions, stream: true, upstream: completion("partial") + completionCompleted, cost: .004, delivered: "partial"},
 
 		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
@@ -706,6 +713,9 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			if tc.delivered != "" {
 				assert.Contains(t, recorder.Body.String(), tc.delivered)
 			}
+			if tc.envelope != "" {
+				assert.Contains(t, recorder.Body.String(), tc.envelope)
+			}
 			if tc.undelivered != "" {
 				assert.NotContains(t, recorder.Body.String(), tc.undelivered)
 			}
@@ -734,6 +744,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			assert.Equal(t, hold, task.Quota)
 			assert.Equal(t, generationID, task.PrivateData.UpstreamTaskID)
 			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
+			assert.Equal(t, tc.undeliveredResult, task.PrivateData.OpenRouterSync.ResultReason == "undelivered_chat_result")
 			assert.Equal(t, "awaiting_cost", taskdomain.OpenRouterSyncReconciliation(tasksrecord.ToDomain(task))["billing_state"])
 		})
 	}

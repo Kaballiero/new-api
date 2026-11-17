@@ -3228,7 +3228,7 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	t.Run("unverified generation identity is never released", func(t *testing.T) {
 		_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
 		info.OpenRouterCost.IdentityConflict = true
-		require.NoError(t, HoldOpenRouterSyncTaskForReconciliation(info, "undelivered_chat_result"))
+		require.NoError(t, FailOpenRouterSyncTask(info, "undelivered_chat_result"))
 		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		require.True(t, task.PrivateData.OpenRouterSync.IdentityConflict)
@@ -3311,21 +3311,16 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	t.Run("result reason decides whether output may have been delivered", func(t *testing.T) {
 		for _, tc := range []struct {
 			reason     string
-			hold       bool
 			releasable bool
 		}{
-			{reason: "undelivered_chat_result", hold: true, releasable: true},
+			{reason: "undelivered_chat_result", releasable: true},
 			{reason: "chat_image_upstream_error", releasable: true},
 			{reason: "invalid_chat_result"},
 			{reason: "chat_completion_unavailable"},
 		} {
 			t.Run(tc.reason, func(t *testing.T) {
 				_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
-				if tc.hold {
-					require.NoError(t, HoldOpenRouterSyncTaskForReconciliation(info, tc.reason))
-				} else {
-					require.NoError(t, FailOpenRouterSyncTask(info, tc.reason))
-				}
+				require.NoError(t, FailOpenRouterSyncTask(info, tc.reason))
 				task, err := openRouterSyncTask(info)
 				require.NoError(t, err)
 				assert.Equal(t, tc.reason, task.PrivateData.OpenRouterSync.ResultReason)
