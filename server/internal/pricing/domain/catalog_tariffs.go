@@ -6,13 +6,15 @@ import (
 	"time"
 )
 
-// UpstreamCatalogTariffs are the endpoint tariffs of a published upstream
-// catalog revision by model id (CatalogEndpointTariffs) with the time its
-// catalog data last changed: the manifest fetchedAt the head stores.
+// UpstreamCatalogTariffs are the endpoint tariffs (CatalogEndpointTariffs)
+// and the video tariffs (CatalogVideoTariffs) of a published upstream catalog
+// revision by model id with the time its catalog data last changed: the
+// manifest fetchedAt the head stores.
 type UpstreamCatalogTariffs struct {
 	Revision  string
 	FetchedAt time.Time
 	Models    map[string]NativeEndpointResponse
+	Videos    map[string]VideoModelPricing
 }
 
 // FreshAt tells whether the catalog data is at most maxAge old at now.

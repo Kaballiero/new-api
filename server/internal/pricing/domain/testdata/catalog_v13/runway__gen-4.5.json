@@ -1,0 +1,80 @@
+{
+ "alias": null,
+ "id": "runway/gen-4.5",
+ "modalities": {
+  "input": [
+   "image",
+   "text"
+  ],
+  "output": [
+   "video"
+  ]
+ },
+ "offers": [
+  {
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "raw": {
+     "video_api": {
+      "allowed_passthrough_parameters": [
+       "contentModeration"
+      ],
+      "canonical_slug": "runway/gen-4.5-20260729",
+      "created": 1785339483,
+      "creativity": null,
+      "description": "Runway Gen-4.5 is a video generation model from Runway for text-to-video and image-to-video workflows. It is designed for cinematic scene creation with strong motion quality, visual fidelity, and prompt adherence....",
+      "generate_audio": false,
+      "hugging_face_id": null,
+      "id": "runway/gen-4.5",
+      "name": "Runway: Gen-4.5",
+      "pricing_skus": {
+       "cents_per_second_output": "12"
+      },
+      "seed": true,
+      "supported_aspect_ratios": [
+       "16:9",
+       "9:16"
+      ],
+      "supported_durations": [
+       10,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "supported_frame_images": [
+       "first_frame"
+      ],
+      "supported_resolutions": [
+       "720p"
+      ],
+      "supported_sizes": [
+       "1280x720",
+       "720x1280"
+      ],
+      "upscale_factor": null
+     }
+    }
+   },
+   "provider": {
+    "id": "runway",
+    "name": "Runway",
+    "tag": "runway"
+   },
+   "scope": "endpoint"
+  },
+  {
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model"
+  }
+ ]
+}

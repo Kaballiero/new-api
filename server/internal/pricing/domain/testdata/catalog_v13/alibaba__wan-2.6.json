@@ -1,0 +1,84 @@
+{
+ "alias": null,
+ "id": "alibaba/wan-2.6",
+ "modalities": {
+  "input": [
+   "image",
+   "text"
+  ],
+  "output": [
+   "video"
+  ]
+ },
+ "offers": [
+  {
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "raw": {
+     "video_api": {
+      "allowed_passthrough_parameters": [
+       "audio",
+       "enable_prompt_expansion",
+       "negative_prompt",
+       "shot_type",
+       "size"
+      ],
+      "canonical_slug": "alibaba/wan-2.6-20260327",
+      "created": 1774659190,
+      "creativity": null,
+      "description": "Alibaba's most advanced video generation model, supporting over 10 visual creation capabilities in a unified system. Wan 2.6 generates 1080p video at 24fps from text, images, reference videos, or audio,...",
+      "generate_audio": true,
+      "hugging_face_id": null,
+      "id": "alibaba/wan-2.6",
+      "name": "Alibaba: Wan 2.6",
+      "pricing_skus": {
+       "image_to_video_duration_seconds_1080p": "0.15",
+       "image_to_video_duration_seconds_720p": "0.10",
+       "text_to_video_duration_seconds_1080p": "0.12",
+       "text_to_video_duration_seconds_480p": "0.04",
+       "text_to_video_duration_seconds_720p": "0.08"
+      },
+      "seed": true,
+      "supported_aspect_ratios": [
+       "16:9",
+       "9:16"
+      ],
+      "supported_durations": [
+       10,
+       5
+      ],
+      "supported_frame_images": [
+       "first_frame"
+      ],
+      "supported_resolutions": [
+       "1080p",
+       "720p"
+      ],
+      "supported_sizes": [
+       "1080x1920",
+       "1280x720",
+       "1920x1080",
+       "720x1280"
+      ],
+      "upscale_factor": null
+     }
+    }
+   },
+   "provider": {
+    "id": "atlas-cloud",
+    "name": "AtlasCloud",
+    "tag": "atlas-cloud"
+   },
+   "scope": "endpoint"
+  },
+  {
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model"
+  }
+ ]
+}
