@@ -69,6 +69,10 @@ const (
 	ReserveAddOn
 )
 
+// SonarResearchModel is the model the legacy Sonar research reserve
+// (openrouter_sonar_research_reserve_usd) applies to.
+const SonarResearchModel = "perplexity/sonar-deep-research"
+
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle. Models and
 // OutputModalities keep the live discoveries by upstream tariff model.
@@ -331,7 +335,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		reserveUSD = &minimum
 	}
-	sonarModel := request.Model == "perplexity/sonar-deep-research"
+	sonarModel := request.Model == SonarResearchModel
 	if reserveUSD != nil && (math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil) {
 		return 0, errors.New("invalid OpenRouter approximate reserve")
 	}
@@ -444,6 +448,25 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	}
 	return estimate.USD, nil
+}
+
+// AdmissionPolicy is the channel reserve policy the last successful estimate
+// applied, as the admin log names it; empty when the channel has no reserve
+// for the reserve model or the estimate applied none.
+func (e *RequestEstimator) AdmissionPolicy(settings *dto.ChannelSettings) pricingdomain.AdmissionPolicy {
+	if settings.OpenRouterReserveUSD(e.ReserveModel) == nil {
+		return ""
+	}
+	switch e.ReserveUse {
+	case ReserveWholeHold:
+		if e.ReserveModel == SonarResearchModel {
+			return pricingdomain.AdmissionPolicySonarResearchApproximateReserve
+		}
+		return pricingdomain.AdmissionPolicyModelApproximateReserve
+	case ReserveAddOn:
+		return pricingdomain.AdmissionPolicyModelReserveAddOn
+	}
+	return ""
 }
 
 // ModelsFromRequest returns every possible model rather than assuming the
