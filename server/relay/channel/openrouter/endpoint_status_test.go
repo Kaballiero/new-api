@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -477,6 +479,95 @@ func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
 			assert.Empty(t, e.Models)
 		})
 	}
+}
+
+// A speech request is measured in the units a TTS endpoint prices per
+// request: the characters and UTF-8 bytes of the input, the longer of two
+// words a second and five characters a second, lengthened by a speed below 1
+// and never shortened by a faster one, and the tokens of the input plus those
+// of the instructions.
+func TestSpeechUnits(t *testing.T) {
+	const model = "acme/tts"
+	for _, tc := range []struct {
+		name, input, instructions  string
+		speed                      *float64
+		characters, bytes, seconds int64
+		wantErr                    string
+	}{
+		{name: "characters outlast words", input: "Hello brave new world of speech", characters: 31, bytes: 31, seconds: 7},
+		{name: "instructions add their tokens", input: "one two three four five", instructions: "calm", characters: 23, bytes: 23, seconds: 5},
+		{name: "words outlast characters", input: "a b c d e f g h i j k l", characters: 23, bytes: 23, seconds: 6},
+		{name: "cjk", input: "你好世界，今天天气很好", characters: 11, bytes: 33, seconds: 3},
+		{name: "comma-joined words with one space", input: "one,two,three,four,five,six,seven,eight nine", characters: 44, bytes: 44, seconds: 9},
+		{name: "thai with sentence spaces", input: "สวัสดีครับ ยินดีต้อนรับสู่ประเทศไทย", characters: 35, bytes: 103, seconds: 7},
+		{name: "speed 4 does not shorten", input: "Hello brave new world of speech", speed: common.GetPointer(4.0), characters: 31, bytes: 31, seconds: 7},
+		{name: "speed 0.5 lengthens", input: "Hello brave new world of speech", speed: common.GetPointer(0.5), characters: 31, bytes: 31, seconds: 14},
+		{name: "speed 0.25 lengthens", input: "Hello brave new world of speech", speed: common.GetPointer(0.25), characters: 31, bytes: 31, seconds: 28},
+		{name: "speed below the range", input: "hello", speed: common.GetPointer(0.2), wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
+		{name: "speed above the range", input: "hello", speed: common.GetPointer(4.5), wantErr: "OpenRouter speech speed must be between 0.25 and 4"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := common.Marshal(map[string]any{"input": tc.input, "instructions": tc.instructions, "speed": tc.speed})
+			require.NoError(t, err)
+			units, err := speechUnits(body, model)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, map[pricingdomain.PriceDimension]int64{
+				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:  tc.characters,
+				{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:   tc.bytes,
+				{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:      tc.seconds,
+				{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: int64(tokenusage.CountTextToken(tc.input, model) + tokenusage.CountTextToken(tc.instructions, model)),
+			}, units)
+		})
+	}
+}
+
+// Tariff maps every field of a live endpoint onto the domain tariff of the
+// same name; a field added to PricedEndpoint must be mapped too.
+func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
+	status := 1
+	live := PricedEndpoint{
+		Status: &status, ModelID: "acme/model", Tag: "provider", ContextLength: 1, MaxPromptTokens: 2, MaxCompletionTokens: 3,
+		Quantization: "fp8", SupportedParameters: []string{"tools"}, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`)},
+	}
+	tariff := reflect.ValueOf(live.Tariff())
+	source := reflect.ValueOf(live)
+	for _, field := range reflect.VisibleFields(source.Type()) {
+		require.False(t, source.FieldByIndex(field.Index).IsZero(), "set %s in the test endpoint", field.Name)
+		mapped := tariff.FieldByName(field.Name)
+		require.True(t, mapped.IsValid(), "NativePricedEndpoint has no field %s", field.Name)
+		assert.Equal(t, source.FieldByIndex(field.Index).Interface(), mapped.Interface(), field.Name)
+	}
+	assert.Nil(t, live.Tariff().UnitPrices)
+}
+
+// Speech on the official API is priced from the catalog unit prices without a
+// channel reserve; transcription still requires one.
+func TestEndpointSpeechReserveFromCatalogUnitPrices(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	perCharacter := decimal.RequireFromString("0.00003")
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
+		"acme/tts": {ID: "acme/tts", OutputModalities: []string{"speech"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
+			Tag: "deepgram", ModelID: "acme/tts", UnitPrices: []pricingdomain.EndpointUnitPrice{
+				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}, USD: &perCharacter},
+			},
+		}}},
+	}})
+	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
+	e := NewRequestEstimator()
+	cost, err := e.Estimate(info, []byte(`{"model":"acme/tts","input":"hello world"}`), "audio/speech")
+	require.NoError(t, err)
+	assert.InDelta(t, .00033, cost, 1e-12)
+	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
+	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+
+	_, err = NewRequestEstimator().Estimate(info, []byte(`{"model":"acme/tts"}`), "audio/transcriptions")
+	require.EqualError(t, err, "OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
 }
 
 // EstimateRequestReserve on an estimator without a bound request prices the

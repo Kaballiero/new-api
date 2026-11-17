@@ -92,9 +92,6 @@ func (NativeStore) BuildChannel(id int) (*domain.BuildChannel, error) {
 	return NewNativeChannel(row).Value(), nil
 }
 func (NativeStore) IsMissing(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }
-func NativePricedEndpoint(value openrouter.PricedEndpoint) domain.NativePricedEndpoint {
-	return domain.NativePricedEndpoint(value)
-}
 func NativeImageEndpoint(value openrouter.ImageEndpoint) domain.NativeImageEndpoint {
 	out := domain.NativeImageEndpoint{PromptOnly: value.PromptOnly, ProviderTag: value.ProviderTag}
 	if value.SupportedParameters != nil {
@@ -145,7 +142,7 @@ func NewNativeNormalizer() *domain.NativeNormalizer {
 			if value.Data.Endpoints != nil {
 				out.Endpoints = make([]domain.NativePricedEndpoint, len(value.Data.Endpoints))
 				for i, v := range value.Data.Endpoints {
-					out.Endpoints[i] = NativePricedEndpoint(v)
+					out.Endpoints[i] = v.Tariff()
 				}
 			}
 			return out, err

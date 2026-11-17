@@ -1,0 +1,91 @@
+{
+ "alias": null,
+ "id": "deepgram/aura-2",
+ "modalities": {
+  "input": [
+   "text"
+  ],
+  "output": [
+   "speech"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.00003",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "tts:characters",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "character",
+     "variant": {}
+    },
+    {
+     "amountUSD": "30",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Characters",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1000000",
+     "unit": "character",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.00003"
+    }
+   },
+   "provider": {
+    "id": "deepgram",
+    "name": "Deepgram",
+    "tag": "deepgram"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "deepgram/aura-2-20260716",
+    "model_variant_slug": "deepgram/aura-2",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

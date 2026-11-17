@@ -1,0 +1,91 @@
+{
+ "alias": null,
+ "id": "fish-audio/s1",
+ "modalities": {
+  "input": [
+   "text"
+  ],
+  "output": [
+   "speech"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.000015",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "fish_audio_tts:utf8_bytes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "utf8_byte",
+     "variant": {}
+    },
+    {
+     "amountUSD": "15",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:UTF-8 Bytes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1000000",
+     "unit": "utf8_byte",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.000015"
+    }
+   },
+   "provider": {
+    "id": "fish-audio",
+    "name": "Fish Audio",
+    "tag": "fish-audio"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "fish-audio/s1-20260729",
+    "model_variant_slug": "fish-audio/s1",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

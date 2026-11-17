@@ -47,9 +47,14 @@ type Input struct {
 	Modalities []string
 	TextOutput bool
 	// ImageOutput, Audio, Decisions and Rerank name an output whose quantity
-	// endpoint tariffs do not measure; Audio covers Chat audio output and the
-	// dedicated audio endpoints.
+	// endpoint tariffs do not measure; Audio covers Chat audio output and
+	// transcription.
 	ImageOutput, Audio, Decisions, Rerank bool
+	// Units are the measured quantities of an operation priced only from the
+	// unit prices of its endpoints (unitCost); nil for an operation priced
+	// from the endpoint pricing. Output audio tokens are not among them: they
+	// are the output cap of each endpoint, DefaultOutputTokens without one.
+	Units map[domain.PriceDimension]int64
 	// ImageReserveOnly is an image output covered by the channel reserve alone.
 	ImageReserveOnly bool
 	// ConfiguredPrice is a request priced by a configured local price.
@@ -139,7 +144,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 	outputReserve := in.TextOutput && !approximateReserve
 	// localCover is the explicit local/minimum policy that alone covers an
 	// unavailable monetary estimate.
-	localCover := in.ConfiguredPrice || (in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve
+	localCover := in.ConfiguredPrice || (in.Decisions || in.Rerank || in.Audio || in.Units != nil || in.ImageReserveOnly) && approximateReserve
 	var estimate Estimate
 	var maximum decimal.Decimal
 	found := false
@@ -171,7 +176,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 		if in.ImageReserveOnly && !slices.Contains(declared, "image") {
 			return Estimate{}, "", errors.New("OpenRouter model does not declare image output capability")
 		}
-		if in.Audio && len(declared) == 0 {
+		if (in.Audio || in.Units != nil) && len(declared) == 0 {
 			return Estimate{}, "", errors.New("OpenRouter audio model output capability is missing")
 		}
 		if declared != nil {
@@ -397,6 +402,10 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				// Audio rates may be per character, second, token or song.
 				// Token caps and zero token tariffs do not price those quantities.
 				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
+			} else if in.Units != nil {
+				// The output audio tokens are the endpoint output cap, the
+				// default output bound without one.
+				cost, estimateErr = unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {

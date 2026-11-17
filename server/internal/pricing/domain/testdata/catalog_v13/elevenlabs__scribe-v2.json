@@ -1,0 +1,133 @@
+{
+ "alias": null,
+ "id": "elevenlabs/scribe-v2",
+ "modalities": {
+  "input": [
+   "audio"
+  ],
+  "output": [
+   "transcription"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000611111111111",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:1:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000611111111111",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "elevenlabs_stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": null,
+     "billable": null,
+     "conditions": {},
+     "normalization": {
+      "comparable": false,
+      "effective": false,
+      "reasons": [
+       "unknown_native_sku"
+      ]
+     },
+     "parameter": "elevenlabs_stt:keyterms_audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "source_defined",
+     "variant": {}
+    },
+    {
+     "amountUSD": null,
+     "billable": null,
+     "conditions": {},
+     "normalization": {
+      "comparable": false,
+      "effective": false,
+      "reasons": [
+       "display_semantics_unmapped"
+      ]
+     },
+     "parameter": "display:0:0:Keyterms Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "source_defined",
+     "variant": {
+      "label": "Keyterms Audio Seconds"
+     }
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000611111111111"
+    }
+   },
+   "provider": {
+    "id": "elevenlabs",
+    "name": "ElevenLabs",
+    "tag": "elevenlabs"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "elevenlabs/scribe-v2-20260929",
+    "model_variant_slug": "elevenlabs/scribe-v2",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}
