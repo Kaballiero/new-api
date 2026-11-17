@@ -480,6 +480,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if searches > 0 {
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
 	}
+	if operation == "audio/transcriptions" && request.File.Seconds != nil {
+		// The seconds are capped by the 25 MiB file size, so they fit int.
+		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: int(*request.File.Seconds)}
+	}
 	e.OutputReserve = outputReserve
 	if approximateReserve {
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model

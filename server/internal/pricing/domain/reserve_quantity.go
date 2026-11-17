@@ -5,5 +5,10 @@ package domain
 // openrouter_reservation_quantities.
 type ReserveQuantity string
 
-// ReserveQuantitySearches is the web searches the request may run.
-const ReserveQuantitySearches ReserveQuantity = "searches"
+const (
+	// ReserveQuantitySearches is the web searches the request may run.
+	ReserveQuantitySearches ReserveQuantity = "searches"
+	// ReserveQuantityAudioSeconds is the seconds of a transcription file
+	// measured from its audio headers.
+	ReserveQuantityAudioSeconds ReserveQuantity = "audio_seconds"
+)

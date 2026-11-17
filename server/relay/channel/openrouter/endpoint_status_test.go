@@ -647,8 +647,8 @@ func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
 
 // Transcription on the official API is priced from the catalog unit prices
 // without a channel reserve: its seconds × the price of a second, the price of
-// a request-dependent variant at its maximum.
-// A model priced only by tokens, or a file whose duration is unreadable,
+// a request-dependent variant at its maximum, with the measured seconds as the
+// reserve quantity audio_seconds. A model priced only by tokens, or a file whose duration is unreadable,
 // measures no quantity it is priced by: a configured price or the channel
 // reserve covers it, and without one it is refused, never reserved at $0.
 func TestEndpointTranscriptionReserveFromCatalogUnitPrices(t *testing.T) {
@@ -692,14 +692,15 @@ func TestEndpointTranscriptionReserveFromCatalogUnitPrices(t *testing.T) {
 		want                  float64
 		source                pricingdomain.ReserveSource
 		use                   ReserveUse
+		quantities            map[pricingdomain.ReserveQuantity]int
 		wantErr               string
 	}{
-		{name: "whisper-1 per second", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, want: .006, source: pricingdomain.ReserveSourceCatalog},
-		{name: "prompted variant at its maximum", operation: "audio/transcriptions", body: `{"model":"assemblyai/universal-3-6-pro","file":{"seconds":3600}}`, want: .34999992, source: pricingdomain.ReserveSourceCatalog},
+		{name: "whisper-1 per second", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, want: .006, source: pricingdomain.ReserveSourceCatalog, quantities: map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: 60}},
+		{name: "prompted variant at its maximum", operation: "audio/transcriptions", body: `{"model":"assemblyai/universal-3-6-pro","file":{"seconds":3600}}`, want: .34999992, source: pricingdomain.ReserveSourceCatalog, quantities: map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: 3600}},
 		{name: "token-only model without a reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_text/million_tokens"},
 		{name: "a token price outside the unit prices is refused, not $0", operation: "audio/transcriptions", body: `{"model":"acme/stt-tokens","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint price prompt is not covered by its unit prices"},
-		{name: "token-only model with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
-		{name: "a channel reserve above the catalog price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
+		{name: "token-only model with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold, quantities: map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: 60}},
+		{name: "a channel reserve above the catalog price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold, quantities: map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: 60}},
 		{name: "unreadable duration with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
 		{name: "unreadable duration with a configured price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, configuredUSD: common.GetPointer(.25), want: .25, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
 		{name: "unreadable duration without a cover", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, wantErr: "OpenRouter transcription audio duration is unreadable"},
@@ -731,6 +732,7 @@ func TestEndpointTranscriptionReserveFromCatalogUnitPrices(t *testing.T) {
 			assert.InDelta(t, tc.want, cost, 1e-12)
 			assert.Equal(t, tc.source, e.ReserveSource)
 			assert.Equal(t, tc.use, e.ReserveUse)
+			assert.Equal(t, tc.quantities, e.ReserveQuantities)
 		})
 	}
 }

@@ -126,6 +126,23 @@ describe('OpenRouter reserve in log details', () => {
     expect(label.nextElementSibling?.textContent).toBe('3')
   })
 
+  test('shows the reserved transcription seconds', () => {
+    renderUsageLog(
+      {
+        admin_info: {
+          openrouter_reservation_source: 'catalog',
+          openrouter_reservation_quantities: { audio_seconds: 60 },
+        },
+      },
+      true
+    )
+
+    const label = within(reserveSection()).getByText(
+      'Reserved transcription seconds'
+    )
+    expect(label.nextElementSibling?.textContent).toBe('60')
+  })
+
   test('shows a configured price reserve without a warning', () => {
     renderUsageLog(
       {
