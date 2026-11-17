@@ -53,6 +53,9 @@ export const channelsQueryKeys = {
     [...channelsQueryKeys.lists(), params] as const,
   details: () => [...channelsQueryKeys.all, 'detail'] as const,
   detail: (id: number) => [...channelsQueryKeys.details(), id] as const,
+  // Nested under the channel detail, so saving the channel invalidates it.
+  openRouterReserves: (id: number) =>
+    [...channelsQueryKeys.detail(id), 'openrouter-reserves'] as const,
 }
 
 function getChannelTestResponseTime(

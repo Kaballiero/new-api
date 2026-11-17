@@ -54,6 +54,9 @@ async function renderChannelDrawer(
     if (url === '/api/channel/71') {
       return { data: { success: true, data: channel } }
     }
+    if (url === '/api/channel/71/openrouter_reserves') {
+      return { data: { success: false, message: 'not under test' } }
+    }
     return { data: { success: true, data: [] } }
   })
   const queryClient = new QueryClient({

@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { OpenRouterReserveItem } from '../types'
+
 export type OpenRouterPolicyKind = 'reserve' | 'source'
 
 export type OpenRouterPolicyEntry = {
@@ -100,4 +102,34 @@ export function serializeOpenRouterPolicyEntries(
     policy[entry.model] = kind === 'reserve' ? Number(entry.value) : entry.value
   }
   return JSON.stringify(policy, null, 2)
+}
+
+export type OpenRouterReserveRow = {
+  model: string
+  inChannel: boolean
+  source: string
+  manualUsd: string
+  preview: OpenRouterReserveItem | undefined
+}
+
+// Rows are the channel's upstream models, then the setting keys the channel
+// no longer has. A model without a source entry is reserved from upstream.
+export function mergeOpenRouterReserveRows(
+  models: string[],
+  sources: OpenRouterPolicyEntry[],
+  reserves: OpenRouterPolicyEntry[],
+  preview: OpenRouterReserveItem[]
+): OpenRouterReserveRow[] {
+  const channelModels = new Set(models)
+  const settingModels = [...sources, ...reserves].map((entry) => entry.model)
+  return [...new Set([...models, ...settingModels])].map((model) => ({
+    model,
+    inChannel: channelModels.has(model),
+    source: sources.find((entry) => entry.model === model)?.value ?? 'upstream',
+    manualUsd: reserves.find((entry) => entry.model === model)?.value ?? '',
+    // A refused model may have no resolved upstream model.
+    preview: preview.find(
+      (item) => (item.upstream_model ?? item.model) === model
+    ),
+  }))
 }

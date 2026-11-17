@@ -251,6 +251,44 @@ export interface CopyChannelResponse {
   }
 }
 
+export interface OpenRouterReserveProvider {
+  tag: string
+  tier: string
+  usd: number
+}
+
+export interface OpenRouterReserveItem {
+  model: string
+  upstream_model: string | null
+  in_channel: boolean
+  configured_source: string | null
+  manual_usd: number | null
+  configured_usd: number | null
+  effective_source: string | null
+  admission_policy: string | null
+  example_usd: number | null
+  example_status: string
+  example_error: string | null
+  providers: OpenRouterReserveProvider[]
+}
+
+export interface OpenRouterReserves {
+  fetched_at: string | null
+  catalog_stale: boolean
+  reference: {
+    operation: string
+    prompt_tokens: number
+    output_tokens: number
+  }
+  items: OpenRouterReserveItem[]
+}
+
+export interface GetChannelOpenRouterReservesResponse {
+  success: boolean
+  message?: string
+  data?: OpenRouterReserves
+}
+
 // ============================================================================
 // Multi-Key Management Types
 // ============================================================================
