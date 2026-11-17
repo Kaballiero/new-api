@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -54,7 +55,7 @@ func TestCatalogEndpointTariffsMapEligibleEndpointOffers(t *testing.T) {
 		}},
 		{"anthropic/claude-sonnet-5.5:batch", []string{"text"}, []NativePricedEndpoint{
 			{ModelID: "anthropic/claude-sonnet-5.5:batch", Tag: "anthropic", Quantization: "unknown", ContextLength: 1000000, MaxCompletionTokens: 128000,
-				SupportedParameters: []string{"include_reasoning", "max_tokens", "reasoning", "response_format", "stop", "structured_outputs", "tool_choice", "tools", "verbosity"},
+				SupportedParameters: []string{"include_reasoning", "max_tokens", "reasoning", "response_format", "stop", "structured_outputs", "tool_choice", "tools", "verbosity", "reasoning_effort"},
 				Pricing:             pricing(`{"completion":"0.000005","discount":0,"input_cache_read":"0.00000005","input_cache_write":"0.00000125","input_cache_write_1h":"0.000002","prompt":"0.000001","web_search":"0.01"}`)},
 		}},
 	} {
@@ -71,6 +72,27 @@ func TestCatalogEndpointTariffsMapEligibleEndpointOffers(t *testing.T) {
 		assert.Equal(t, []string{"deepinfra/fp8", "deepinfra/fp8/flex", "deepinfra/fp8/priority"}, tags)
 		assert.Equal(t, "fp8", tariffs["meta-llama/llama-4-scout"].Endpoints[1].Quantization)
 		assert.Zero(t, tariffs["meta-llama/llama-4-scout"].Endpoints[1].MaxCompletionTokens)
+	})
+	t.Run("an endpoint with reasoning supports reasoning_effort as live", func(t *testing.T) {
+		for _, endpoint := range tariffs["openai/gpt-5.4"].Endpoints {
+			assert.Contains(t, endpoint.SupportedParameters, "reasoning_effort", endpoint.Tag)
+		}
+		for _, endpoint := range tariffs["meta-llama/llama-4-scout"].Endpoints {
+			assert.NotContains(t, endpoint.SupportedParameters, "reasoning_effort", endpoint.Tag)
+		}
+	})
+	t.Run("an eligible endpoint the document does not describe whole leaves the model to live", func(t *testing.T) {
+		for name, damage := range map[string]func(*SourceOffer){
+			"no tag":                   func(offer *SourceOffer) { offer.Provider = &SourceProvider{} },
+			"no pricing":               func(offer *SourceOffer) { offer.Facts = json.RawMessage(`{"pricing":null}`) },
+			"undecodable capabilities": func(offer *SourceOffer) { offer.Capabilities = json.RawMessage(`{"context_length":"long"}`) },
+			"undecodable variant":      func(offer *SourceOffer) { offer.Variant = json.RawMessage(`[]`) },
+		} {
+			document := *catalogV13Documents(t, deps)["meta-llama/llama-4-scout"]
+			document.Offers = slices.Clone(document.Offers)
+			damage(&document.Offers[2])
+			assert.Empty(t, CatalogEndpointTariffs(deps, map[string]*SourceDocument{document.ID: &document}), name)
+		}
 	})
 	t.Run("document without an eligible endpoint offer is absent", func(t *testing.T) {
 		alias := &SourceDocument{ID: "acme/alias", Alias: &SourceAlias{TargetID: "acme/target"}, Offers: []SourceOffer{}}
