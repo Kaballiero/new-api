@@ -177,7 +177,7 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
       ? t('Filter by MjProxy task ID')
       : t('Filter by task ID')
   const syncFilters =
-    props.logCategory === 'task' ? (filters as TaskLogFilters) : null
+    isAdmin && props.logCategory === 'task' ? (filters as TaskLogFilters) : null
   const additionalFilterValues = [
     filterValue,
     filters.channel,
@@ -219,7 +219,7 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
     </LogsFilterField>
   ) : null
   const openRouterSyncFilters =
-    isAdmin && syncFilters ? (
+    syncFilters ? (
       <OpenRouterSyncTaskFilters
         billingState={syncFilters.syncBillingState}
         holdReason={syncFilters.syncHoldReason}

@@ -305,8 +305,10 @@ func (s Store) manualHolds() *gorm.DB {
 }
 
 // openRouterSyncScope selects OpenRouter synchronous tasks by billing state and
-// hold reason from stored columns: a manual hold is a failed task whose
-// fail_reason carries the hold reason, a task awaiting its cost is unfinished.
+// hold reason from stored columns only, so it approximates the projected
+// billing state: a manual hold is a failed task whose fail_reason carries the
+// stored hold reason; awaiting cost selects every unfinished task, including
+// the rare one whose reservation is still unknown.
 func (s Store) openRouterSyncScope(query *gorm.DB, queryParams record.SyncTaskQueryParams) *gorm.DB {
 	switch queryParams.SyncBillingState {
 	case domain.SyncBillingManualReconciliation:
