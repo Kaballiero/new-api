@@ -104,9 +104,9 @@ func NewUsecase(deps domain.Capabilities, catalog CatalogTariffs, now func() tim
 // or when provider.require_parameters excludes one of them: it is priced again
 // from live, so that the client gets the result of live pricing. When live
 // fails, a missing price is priced from the document as live would price it,
-// with the local cover; a pool the filters emptied or narrowed never prices
-// the model, so the reserve is never below live: only the local cover covers
-// it, otherwise the live error refuses the request.
+// with the local cover; a pool the filters emptied or narrowed, of a fresh or a
+// stale document, never prices the model, so the reserve is never below live:
+// only the local cover covers it, otherwise the live error refuses the request.
 func (u Usecase) Execute(in Input) (Estimate, error) {
 	tariffs, err := u.loadTariffs(in)
 	if err != nil {

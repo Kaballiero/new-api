@@ -26,7 +26,8 @@ type modelTariffs struct {
 	// source is ReserveSourceCatalog, ReserveSourceCatalogStale or
 	// ReserveSourceLive.
 	source domain.ReserveSource
-	// liveErr is the failure of the live check of a catalog tariff.
+	// liveErr is the live failure behind a catalog tariff: of the load of a
+	// stale document or of the live check of a fresh one.
 	liveErr error
 }
 
@@ -111,7 +112,7 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 		if !documented {
 			return nil, err
 		}
-		tariffs[tariffModel] = modelTariffs{response: document, source: domain.ReserveSourceCatalogStale}
+		tariffs[tariffModel] = modelTariffs{response: document, source: domain.ReserveSourceCatalogStale, liveErr: err}
 	}
 	return tariffs, nil
 }
