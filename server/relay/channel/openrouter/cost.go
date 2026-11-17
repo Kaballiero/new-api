@@ -283,9 +283,10 @@ func configureGenerationLookup(c *gin.Context, info *relaycommon.RelayInfo, adap
 // DeferCostToGeneration hands a chat text hold whose response carries no
 // usable usage.cost to a durable Task that settles it from generation
 // metadata. Without a Task the caller still owns the hold and refunds it.
-// A stream that delivered output keeps the hold even without a usable
-// generation identity; the Task then requires manual reconciliation. A stream
-// that delivered nothing is never deferred.
+// A response with a generation identity is deferred even when nothing reached
+// the client: the lookup charges exactly what OpenRouter billed. Without an
+// identity only a stream that delivered output keeps the hold; the Task then
+// requires manual reconciliation.
 func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
 	if info.IsChannelTest {
 		return errors.New("OpenRouter channel tests cannot defer cost to a financial task")
@@ -310,11 +311,11 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return errors.New("OpenRouter cost is not recoverable from generation metadata")
 	}
 	identified := state.GenerationID != "" && !state.IdentityConflict
-	if info.IsStream && !state.ContentDelivered {
-		return errors.New("OpenRouter stream delivered no output")
-	}
 	if !identified && !info.IsStream {
 		return errors.New("OpenRouter generation identity is unavailable")
+	}
+	if !identified && !state.ContentDelivered {
+		return errors.New("OpenRouter stream delivered no output")
 	}
 	hold := info.Billing.GetPreConsumedQuota()
 	info.PriceData.Quota = hold

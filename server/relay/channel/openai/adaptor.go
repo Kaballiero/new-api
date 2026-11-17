@@ -884,14 +884,18 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				}
 				return
 			}
-			if err != nil {
-				// Nothing delivered means no automatic charge: the operator decides.
-				if !info.IsStream && !c.Writer.Written() {
-					if holdErr := taskrecord.HoldOpenRouterSyncTaskForReconciliation(info, "undelivered_chat_result"); holdErr != nil {
-						logger.LogError(c, fmt.Sprintf("OpenRouter undelivered chat text task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, holdErr))
-					}
-					return
+			delivered := c.Writer.Written()
+			if info.IsStream {
+				delivered = info.OpenRouterCost.ContentDelivered
+			}
+			if !delivered {
+				// The generation lookup charges what OpenRouter billed, often nothing.
+				if failErr := taskrecord.FailOpenRouterSyncTask(info, "undelivered_chat_result"); failErr != nil {
+					logger.LogError(c, fmt.Sprintf("OpenRouter undelivered chat text task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, failErr))
 				}
+				return
+			}
+			if err != nil {
 				_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_chat_result")
 				return
 			}
