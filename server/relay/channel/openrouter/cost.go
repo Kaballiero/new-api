@@ -103,7 +103,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	var meta *types.TokenCountMeta
 	switch operation {
 	case "rerank":
-		// Neither search units nor provider billing tokens are measured at admission.
+		// The estimate measures rerank in its own units (rerankUnits), not prompt tokens.
 	case "decisions":
 		// Native decisions have no measured input/output token quantities at admission.
 	case "audio/transcriptions":
@@ -177,7 +177,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ChatImage = false
 	}
 	// A chat completion defers a missing cost in every client format, as do a
-	// Responses response and a legacy completion, streamed or not.
+	// Responses response and a legacy completion, streamed or not, and an
+	// embedding.
 	textOutput := !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -187,6 +188,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions"
 	case types.RelayFormatOpenAIResponses:
 		info.OpenRouterCost.ChatText = textOutput && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
+	case types.RelayFormatEmbedding:
+		info.OpenRouterCost.ChatText = textOutput && operation == "embeddings" && info.RelayMode == relayconstant.RelayModeEmbeddings
 	}
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))

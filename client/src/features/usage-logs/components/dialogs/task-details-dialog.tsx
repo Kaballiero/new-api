@@ -30,6 +30,7 @@ import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import { resolveTaskDetailAccess } from '../../lib/task-details'
 import type { TaskLog } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { OpenRouterReserveSection } from './openrouter-reserve-section'
 import { OpenRouterSyncReconciliation } from './openrouter-sync-reconciliation'
 
 function DetailRow(props: {
@@ -230,6 +231,10 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
             view={props.log.admin_info.openrouter_sync}
             isRoot={props.isRoot}
           />
+        ) : null}
+
+        {props.isAdmin && props.log.admin_info ? (
+          <OpenRouterReserveSection adminInfo={props.log.admin_info} />
         ) : null}
 
         {props.isRoot && props.log.root_info ? (

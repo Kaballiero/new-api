@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -529,6 +530,56 @@ func TestSpeechUnits(t *testing.T) {
 	}
 }
 
+// A rerank request is measured in Cohere search units, one per query with up
+// to 100 documents, a document longer than 500 tokens with the query split
+// into chunks that count as documents, and in input tokens by the Voyage rule,
+// the query tokens times the documents plus the document tokens. The tokens of
+// a text are its UTF-8 bytes, a bound that holds for long single words too; a
+// document object counts as its JSON text.
+func TestRerankUnits(t *testing.T) {
+	textOf := func(bytes int) string { return strings.Repeat("a", bytes) }
+	documentsOf := func(count int, document any) []any {
+		documents := make([]any, count)
+		for i := range documents {
+			documents[i] = document
+		}
+		return documents
+	}
+	for _, tc := range []struct {
+		name             string
+		query            string
+		documents        []any
+		searches, tokens int64
+	}{
+		{name: "100 documents of 499 tokens are one search", documents: documentsOf(100, textOf(499)), searches: 1, tokens: 49900},
+		{name: "100 documents of 500 tokens are one search", documents: documentsOf(100, textOf(500)), searches: 1, tokens: 50000},
+		{name: "a document of 501 tokens is two chunks", documents: documentsOf(50, textOf(501)), searches: 1, tokens: 25050},
+		{name: "51 documents of 501 tokens are two searches", documents: documentsOf(51, textOf(501)), searches: 2, tokens: 25551},
+		{name: "a document of 1500 tokens is three chunks", documents: documentsOf(34, textOf(1500)), searches: 2, tokens: 51000},
+		{name: "a long single word counts every byte", documents: documentsOf(3, textOf(20000)), searches: 2, tokens: 60000},
+		{name: "a multi-byte character counts its bytes", documents: documentsOf(100, strings.Repeat("字", 167)), searches: 2, tokens: 50100},
+		{name: "the query shortens the chunks", query: textOf(100), documents: documentsOf(50, textOf(401)), searches: 1, tokens: 50*100 + 50*401},
+		{name: "the query splits a document of 401 tokens", query: textOf(100), documents: documentsOf(51, textOf(401)), searches: 2, tokens: 51*100 + 51*401},
+		{name: "a query of 500 tokens makes every document token a chunk", query: textOf(500), documents: documentsOf(1, textOf(101)), searches: 2, tokens: 500 + 101},
+		{name: "101 documents are two searches", query: textOf(3), documents: documentsOf(101, textOf(2)), searches: 2, tokens: 101*3 + 101*2},
+		{name: "a document object counts as its JSON text", documents: []any{map[string]any{"text": textOf(10)}, textOf(5)}, searches: 1, tokens: int64(len(`{"text":"aaaaaaaaaa"}`)) + 5},
+		{name: "no documents is one search", query: textOf(3), searches: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := common.Marshal(map[string]any{"model": "cohere/rerank-v3.5", "query": tc.query, "documents": tc.documents})
+			require.NoError(t, err)
+			units, err := rerankUnits(body)
+			require.NoError(t, err)
+			assert.Equal(t, map[pricingdomain.PriceDimension]int64{
+				{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}:           tc.searches,
+				{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: tc.tokens,
+			}, units)
+		})
+	}
+	_, err := rerankUnits([]byte(`{"query":{}}`))
+	require.EqualError(t, err, "invalid OpenRouter rerank request")
+}
+
 // Tariff maps every field of a live endpoint onto the domain tariff of the
 // same name; a field added to PricedEndpoint must be mapped too.
 func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
@@ -548,13 +599,59 @@ func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
 	assert.Nil(t, live.Tariff().UnitPrices)
 }
 
-// Speech and transcription on the official API are priced from the catalog
-// unit prices without a channel reserve: a transcription at its seconds × the
-// price of a second, the price of a request-dependent variant at its maximum.
+// Speech and rerank on the official API are priced from the catalog unit
+// prices without a channel reserve, and a rerank model without catalog unit
+// prices is refused without a reserve.
+func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	perCharacter := decimal.RequireFromString("0.00003")
+	perSearch := decimal.RequireFromString("0.002")
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
+		"acme/tts": {ID: "acme/tts", OutputModalities: []string{"speech"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
+			Tag: "deepgram", ModelID: "acme/tts", UnitPrices: []pricingdomain.EndpointUnitPrice{
+				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}, USD: &perCharacter},
+			},
+		}}},
+		"acme/rerank": {ID: "acme/rerank", OutputModalities: []string{"rerank"}, Endpoints: []pricingdomain.NativePricedEndpoint{{
+			Tag: "cohere", ModelID: "acme/rerank", UnitPrices: []pricingdomain.EndpointUnitPrice{
+				{Dimension: pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}, USD: &perSearch},
+			},
+		}}},
+	}})
+	rerankInfo := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatRerank}
+	rerankInfo.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
+	documents := strings.Repeat(`"hello",`, 100) + `"hello"`
+	e := NewRequestEstimator()
+	cost, err := e.Estimate(rerankInfo, []byte(`{"model":"acme/rerank","query":"hi","documents":[`+documents+`]}`), "rerank")
+	require.NoError(t, err)
+	assert.InDelta(t, .004, cost, 1e-12)
+	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
+	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+
+	e = NewRequestEstimator()
+	e.Models["other/rerank"] = []PricedEndpoint{{Tag: "cohere", ModelID: "other/rerank", Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0"`), "completion": json.RawMessage(`"0"`)}}}
+	e.OutputModalities["other/rerank"] = []string{"rerank"}
+	_, err = e.Estimate(rerankInfo, []byte(`{"model":"other/rerank","query":"hi","documents":["hello"]}`), "rerank")
+	require.EqualError(t, err, "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown")
+
+	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAIAudio}
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api"}
+	e = NewRequestEstimator()
+	cost, err = e.Estimate(info, []byte(`{"model":"acme/tts","input":"hello world"}`), "audio/speech")
+	require.NoError(t, err)
+	assert.InDelta(t, .00033, cost, 1e-12)
+	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
+	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+}
+
+// Transcription on the official API is priced from the catalog unit prices
+// without a channel reserve: its seconds × the price of a second, the price of
+// a request-dependent variant at its maximum.
 // A model priced only by tokens, or a file whose duration is unreadable,
 // measures no quantity it is priced by: a configured price or the channel
 // reserve covers it, and without one it is refused, never reserved at $0.
-func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
+func TestEndpointTranscriptionReserveFromCatalogUnitPrices(t *testing.T) {
 	tokenusage.InitTokenEncoders()
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
 	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
@@ -562,24 +659,31 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 		amount := decimal.RequireFromString(usd)
 		return pricingdomain.EndpointUnitPrice{Dimension: pricingdomain.PriceDimension{Billable: billable, Unit: unit}, USD: &amount}
 	}
-	audio := func(model, modality string, prices ...pricingdomain.EndpointUnitPrice) pricingdomain.NativeEndpointResponse {
-		return pricingdomain.NativeEndpointResponse{ID: model, OutputModalities: []string{modality}, Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", ModelID: model, UnitPrices: prices}}}
+	// transcription is a model whose endpoint has the pricing rates and the
+	// unit prices of its catalog document.
+	transcription := func(model, prompt string, prices ...pricingdomain.EndpointUnitPrice) pricingdomain.NativeEndpointResponse {
+		pricing := map[string]json.RawMessage{"prompt": json.RawMessage(`"` + prompt + `"`), "completion": json.RawMessage(`"0"`)}
+		return pricingdomain.NativeEndpointResponse{ID: model, OutputModalities: []string{"transcription"}, Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", ModelID: model, Pricing: pricing, UnitPrices: prices}}}
 	}
 	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
-		"acme/tts": audio("acme/tts", "speech", price(pricingdomain.PriceBillableOutputSpeech, pricingdomain.PriceUnitCharacter, "0.00003")),
-		// The unit prices of the catalog documents of whisper-1,
-		// gpt-4o-transcribe and the prompted universal-3-6-pro.
-		"openai/whisper-1": audio("openai/whisper-1", "transcription",
+		// The catalog documents of whisper-1 and gpt-4o-transcribe, and the
+		// unit price of the prompted universal-3-6-pro; prompt mirrors a unit
+		// price.
+		"openai/whisper-1": transcription("openai/whisper-1", "0.0001",
 			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitMillionTokens, "0"),
 			price("output_text", pricingdomain.PriceUnitMillionTokens, "0"),
 			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0.0001")),
-		"openai/gpt-4o-transcribe": audio("openai/gpt-4o-transcribe", "transcription",
+		"openai/gpt-4o-transcribe": transcription("openai/gpt-4o-transcribe", "0.0000025",
 			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0"),
 			price("output_text", pricingdomain.PriceUnitMillionTokens, "10"),
 			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitMillionTokens, "2.5"),
 			price(pricingdomain.PriceBillableInputText, pricingdomain.PriceUnitMillionTokens, "2.5")),
-		"assemblyai/universal-3-6-pro": audio("assemblyai/universal-3-6-pro", "transcription",
+		"assemblyai/universal-3-6-pro": transcription("assemblyai/universal-3-6-pro", "0.0000972222",
 			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0.0000972222")),
+		// A zero price of a second with its token price only in the endpoint
+		// pricing.
+		"acme/stt-tokens": transcription("acme/stt-tokens", "0.0000025",
+			price(pricingdomain.PriceBillableInputAudio, pricingdomain.PriceUnitSecond, "0")),
 	}})
 	for _, tc := range []struct {
 		name, operation, body string
@@ -590,10 +694,10 @@ func TestEndpointAudioReserveFromCatalogUnitPrices(t *testing.T) {
 		use                   ReserveUse
 		wantErr               string
 	}{
-		{name: "speech per character", operation: "audio/speech", body: `{"model":"acme/tts","input":"hello world"}`, want: .00033, source: pricingdomain.ReserveSourceCatalog},
 		{name: "whisper-1 per second", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, want: .006, source: pricingdomain.ReserveSourceCatalog},
 		{name: "prompted variant at its maximum", operation: "audio/transcriptions", body: `{"model":"assemblyai/universal-3-6-pro","file":{"seconds":3600}}`, want: .34999992, source: pricingdomain.ReserveSourceCatalog},
 		{name: "token-only model without a reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_text/million_tokens"},
+		{name: "a token price outside the unit prices is refused, not $0", operation: "audio/transcriptions", body: `{"model":"acme/stt-tokens","file":{"seconds":60}}`, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint price prompt is not covered by its unit prices"},
 		{name: "token-only model with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/gpt-4o-transcribe","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
 		{name: "a channel reserve above the catalog price", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"seconds":60}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},
 		{name: "unreadable duration with a channel reserve", operation: "audio/transcriptions", body: `{"model":"openai/whisper-1","file":{"filename":"speech.wav","size":18}}`, channelReserveUSD: common.GetPointer(.5), want: .5, source: pricingdomain.ReserveSourceManual, use: ReserveWholeHold},

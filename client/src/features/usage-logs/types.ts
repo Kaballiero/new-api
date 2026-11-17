@@ -68,6 +68,9 @@ export interface DrawingLogFilters extends CommonFilters {
  */
 export interface TaskLogFilters extends CommonFilters {
   taskId?: string
+  /** Admin-only OpenRouter synchronous billing state and manual hold reason. */
+  syncBillingState?: string
+  syncHoldReason?: string
 }
 
 /**
@@ -107,6 +110,49 @@ export const USAGE_BILLING_PATH = {
 export type UsageBillingPath =
   (typeof USAGE_BILLING_PATH)[keyof typeof USAGE_BILLING_PATH]
 
+/** What the reserve of an OpenRouter request is priced from (openrouter_reservation_source). */
+export const OPENROUTER_RESERVATION_SOURCE = {
+  CATALOG: 'catalog',
+  CATALOG_STALE: 'catalog_stale',
+  LIVE: 'live',
+  CONFIGURED_PRICE: 'configured_price',
+  MANUAL: 'manual',
+} as const
+
+export type OpenRouterReservationSource =
+  (typeof OPENROUTER_RESERVATION_SOURCE)[keyof typeof OPENROUTER_RESERVATION_SOURCE]
+
+/** A reserve of an OpenRouter task order: its source, model and USD amount. */
+interface OpenRouterOrderReservation {
+  source?: string
+  model: string
+  usd: number
+  expr_hash?: string
+  hard_bound?: boolean
+}
+
+/** Reserve facts of an OpenRouter task order (openrouter_order_facts). */
+interface OpenRouterOrderFacts {
+  reservation_source?: OpenRouterReservationSource
+  reservation?: OpenRouterOrderReservation
+  configured_reservation?: OpenRouterOrderReservation
+}
+
+/** Admin-only reserve fields of an OpenRouter request or task order. */
+export interface OpenRouterReserveAdminInfo {
+  openrouter_reservation_source?: OpenRouterReservationSource
+  openrouter_admission_policy?: string
+  openrouter_configured_reserve_usd?: number
+  openrouter_configured_reserve_model?: string
+  openrouter_configured_reserve_expr_hash?: string
+  openrouter_approximate_reserve_usd?: number
+  openrouter_approximate_reserve_model?: string
+  openrouter_add_on_reserve_usd?: number
+  openrouter_add_on_reserve_model?: string
+  openrouter_approximate_research_reserve_usd?: number
+  openrouter_order_facts?: OpenRouterOrderFacts
+}
+
 export interface ToolSurchargeItem {
   name: string
   count: number
@@ -114,7 +160,7 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
-  admin_info?: {
+  admin_info?: OpenRouterReserveAdminInfo & {
     billing_fx?: {
       schema_version: number
       source: string
@@ -159,6 +205,14 @@ export interface LogOtherData {
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo
+    // OpenRouter cost reconciliation of this request (admin only)
+    openrouter_generation_id?: string
+    openrouter_cost_source?: string
+    openrouter_cost_basis?: OpenRouterCostBasis
+    upstream_cost_usd?: number
+    reserved_quota?: number
+    openrouter_financial_outcome?: string
+    openrouter_unknown_reason?: string
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo
@@ -340,6 +394,16 @@ export interface OpenRouterSyncAdminView {
   operator_decision?: OpenRouterSyncOperatorDecision | null
   release_allowed: boolean
   settle_allowed: boolean
+  /** When the manual hold was reported to Telegram; 0 until reported. */
+  alerted_at: number
+}
+
+/** Frozen price basis an OpenRouter cost is settled on. */
+interface OpenRouterCostBasis {
+  version: string
+  effective_group_ratio: number
+  quota_per_unit: number
+  estimated_usd: number
 }
 
 export interface OpenRouterSyncOperatorResult {
@@ -380,6 +444,7 @@ export interface TaskLog {
     request_path?: string
     task_plugin?: TaskPluginInfo
     openrouter_sync?: OpenRouterSyncAdminView
+    openrouter_order_facts?: OpenRouterOrderFacts
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo
@@ -506,6 +571,8 @@ export interface GetTaskLogsParams {
   task_id?: string
   start_timestamp?: number
   end_timestamp?: number
+  sync_billing_state?: string
+  sync_hold_reason?: string
 }
 
 // ============================================================================

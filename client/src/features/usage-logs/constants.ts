@@ -69,6 +69,31 @@ export const LOG_TYPE_ENUM = {
 export const LOG_TYPE_ALL_VALUE = '0' as const
 
 // ============================================================================
+// OpenRouter Synchronous Task Filters
+// ============================================================================
+
+/** Billing states the admin task list selects; labels are i18n keys. */
+export const OPENROUTER_SYNC_BILLING_STATE_FILTERS = [
+  { value: 'manual_reconciliation', label: 'Needs decision' },
+  { value: 'awaiting_cost', label: 'Awaiting cost' },
+] as const
+
+/** Known stored reasons of a manual hold; other reasons may be typed in. */
+export const OPENROUTER_SYNC_HOLD_REASONS = [
+  'cost_lookup_deadline_or_attempt_limit',
+  'missing_generation_identity',
+  'generation_identity_unverified',
+  'submission_outcome_unknown',
+  'auto_release_unavailable',
+  'interrupted_reservation_or_submission',
+  'operation_identity_changed',
+  'auth',
+  'account_binding_changed',
+  'identity_or_invalid_cost',
+  'permanent_http_error',
+] as const
+
+// ============================================================================
 // Time Range Presets
 // ============================================================================
 

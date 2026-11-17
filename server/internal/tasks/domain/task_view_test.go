@@ -171,7 +171,7 @@ func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
 			Reconciliation: &domain.TaskReconciliation{Required: true, ReservedQuota: 50},
 			OpenRouterSync: &domain.OpenRouterSyncTask{
 				CredentialHash: "credential-hash-canary", LastError: "cost_lookup_deadline_or_attempt_limit",
-				LastLookupClass: "temporary_http_error", LastHTTPStatus: 503, Attempts: 16, ResultReady: true,
+				LastLookupClass: "temporary_http_error", LastHTTPStatus: 503, Attempts: 16, ResultReady: true, AlertedAt: 1700000000,
 			},
 		},
 	}
@@ -190,8 +190,37 @@ func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
 	assert.Equal(t, 50, view["reserved_quota"])
 	assert.Equal(t, false, view["release_allowed"], "a delivered result is never released")
 	assert.Equal(t, true, view["settle_allowed"])
+	assert.Equal(t, int64(1700000000), view["alerted_at"])
 	adminJSON, err := common.Marshal(adminView)
 	require.NoError(t, err)
 	assert.NotContains(t, string(adminJSON), "gen-private")
 	assert.NotContains(t, string(adminJSON), "credential-hash-canary")
+}
+
+func TestTaskAdminInfoExposesOpenRouterOrderFactsToAdminsOnly(t *testing.T) {
+	facts := map[string]any{
+		"reservation_source": "catalog_stale",
+		"reservation":        map[string]any{"source": "approximate_media", "model": "google/veo-3.1", "usd": 1.5, "hard_bound": false},
+	}
+	task := &domain.Task{
+		TaskID:   "task_openrouter_video",
+		Platform: "openrouter-video",
+		PrivateData: domain.TaskPrivateData{BillingContext: &domain.TaskBillingContext{
+			SettlementMode:       domain.TaskSettlementOpenRouterCostV2,
+			OpenRouterCost:       &billingdomain.ProviderBasis{},
+			OpenRouterOrderFacts: facts,
+		}},
+	}
+
+	adminView := domain.ProjectTaskView(task, domain.Visibility{Admin: true}, nil)
+	require.NotNil(t, adminView.AdminInfo)
+	adminJSON, err := common.Marshal(adminView)
+	require.NoError(t, err)
+	assert.Contains(t, string(adminJSON), `"openrouter_order_facts":{"reservation":{"hard_bound":false,"model":"google/veo-3.1","source":"approximate_media","usd":1.5},"reservation_source":"catalog_stale"}`)
+
+	userView := domain.ProjectTaskView(task, domain.Visibility{}, nil)
+	assert.Nil(t, userView.AdminInfo)
+	userJSON, err := common.Marshal(userView)
+	require.NoError(t, err)
+	assert.NotContains(t, string(userJSON), "reservation_source")
 }

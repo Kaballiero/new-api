@@ -7,7 +7,7 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 	if a == nil || r == nil {
 		return nil
 	}
-	submission, billing, reason := "unknown", "awaiting_cost", ""
+	submission, billing, reason := "unknown", SyncBillingAwaitingCost, ""
 	if a.DispatchPrepared {
 		submission = "possible_sent"
 	}
@@ -24,13 +24,13 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 	case r.ReservationPending:
 		billing, submission = "reservation_unknown", "preparing"
 	case task.Status == TaskStatusFailure:
-		billing = "manual_reconciliation"
+		billing = SyncBillingManualReconciliation
 	}
 	switch a.LastError {
 	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled", "auto_released":
 		reason = a.LastError
 	default:
-		if billing == "manual_reconciliation" {
+		if billing == SyncBillingManualReconciliation {
 			reason = "reconciliation_required"
 		}
 	}
@@ -70,5 +70,6 @@ func OpenRouterSyncAdminView(task *Task) map[string]any {
 	view["operator_decision"] = decision
 	view["release_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease)
 	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorSettle)
+	view["alerted_at"] = a.AlertedAt
 	return view
 }

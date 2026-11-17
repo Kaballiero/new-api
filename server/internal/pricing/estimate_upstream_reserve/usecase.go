@@ -46,9 +46,11 @@ type Input struct {
 	Parameters map[string]json.RawMessage
 	Modalities []string
 	TextOutput bool
-	// ImageOutput, Audio, Decisions and Rerank name an output whose quantity
-	// endpoint tariffs do not measure; Audio covers Chat audio output.
-	ImageOutput, Audio, Decisions, Rerank bool
+	// ImageOutput, Audio and Decisions name an output whose quantity endpoint
+	// tariffs do not measure; Audio covers Chat audio output.
+	ImageOutput, Audio, Decisions bool
+	// Rerank is a rerank request, priced from its Units.
+	Rerank bool
 	// Units are the measured quantities of an operation priced only from the
 	// unit prices of its endpoints (unitCost); nil for an operation priced
 	// from the endpoint pricing. Output audio tokens are not among them: they
@@ -143,7 +145,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 	outputReserve := in.TextOutput && !approximateReserve
 	// localCover is the explicit local/minimum policy that alone covers an
 	// unavailable monetary estimate.
-	localCover := in.ConfiguredPrice || (in.Decisions || in.Rerank || in.Audio || in.Units != nil || in.ImageReserveOnly) && approximateReserve
+	localCover := in.ConfiguredPrice || (in.Decisions || in.Audio || in.Units != nil || in.ImageReserveOnly) && approximateReserve
 	var estimate Estimate
 	var maximum decimal.Decimal
 	found := false
@@ -391,10 +393,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			var cost, promptPrice, outputPrice decimal.Decimal
 			var estimateErr error
 			includesReserve := false
-			if in.Rerank {
-				// Search and token units are heterogeneous; catalog token zeros are not a tariff.
-				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
-			} else if in.Decisions {
+			if in.Decisions {
 				// State may contain arbitrary structures/media; token estimates are unmeasured.
 				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
 			} else if in.Audio {
@@ -404,7 +403,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			} else if in.Units != nil {
 				// The output audio tokens are the endpoint output cap, the
 				// default output bound without one.
-				cost, estimateErr = unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
+				cost, estimateErr = u.unitCost(tariff, in.Units, cmp.Or(tariff.MaxCompletionTokens, in.DefaultOutputTokens))
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {

@@ -29,6 +29,7 @@ const (
 	PriceBillableInputText    PriceBillable = "input_text"
 	PriceBillableOutputAudio  PriceBillable = "output_audio"
 	PriceBillableOutputSpeech PriceBillable = "output_speech"
+	PriceBillableSearch       PriceBillable = "search"
 )
 
 // PriceDimension is what a unit price bills: a billable in a unit. The zero

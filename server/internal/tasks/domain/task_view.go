@@ -52,10 +52,13 @@ type TaskPluginRuntimeInfo struct {
 }
 
 type TaskAdminInfo struct {
-	OpenRouterSync map[string]any  `json:"openrouter_sync,omitempty"`
-	RequestID      string          `json:"request_id,omitempty"`
-	RequestPath    string          `json:"request_path,omitempty"`
-	TaskPlugin     *TaskPluginInfo `json:"task_plugin,omitempty"`
+	OpenRouterSync map[string]any `json:"openrouter_sync,omitempty"`
+	// OpenRouterOrderFacts are the reserve facts of an OpenRouter task order,
+	// as the admin log records them: the reservation and its source.
+	OpenRouterOrderFacts map[string]any  `json:"openrouter_order_facts,omitempty"`
+	RequestID            string          `json:"request_id,omitempty"`
+	RequestPath          string          `json:"request_path,omitempty"`
+	TaskPlugin           *TaskPluginInfo `json:"task_plugin,omitempty"`
 }
 
 type TaskRootInfo struct {
@@ -84,6 +87,10 @@ type TaskQuery struct {
 	StartTimestamp int64
 	EndTimestamp   int64
 	ChannelID      string
+	// SyncBillingState and SyncHoldReason select OpenRouter synchronous tasks
+	// for administrators: a billing state and the reason of a manual hold.
+	SyncBillingState string
+	SyncHoldReason   string
 }
 type MidjourneyQuery struct {
 	ChannelID      string
@@ -130,7 +137,10 @@ func ProjectTaskView(task *Task, visibility Visibility, projectData func([]byte,
 			}
 		}
 		info.OpenRouterSync = OpenRouterSyncAdminView(task)
-		if info.RequestID != "" || info.RequestPath != "" || info.TaskPlugin != nil || info.OpenRouterSync != nil {
+		if billing := task.PrivateData.BillingContext; billing != nil && billing.OpenRouterCost != nil {
+			info.OpenRouterOrderFacts = billing.OpenRouterOrderFacts
+		}
+		if info.RequestID != "" || info.RequestPath != "" || info.TaskPlugin != nil || info.OpenRouterSync != nil || info.OpenRouterOrderFacts != nil {
 			item.AdminInfo = info
 		}
 	}

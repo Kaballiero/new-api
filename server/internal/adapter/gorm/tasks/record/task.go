@@ -465,6 +465,10 @@ type SyncTaskQueryParams struct {
 	StartTimestamp int64
 	EndTimestamp   int64
 	UserIDs        []int
+	// SyncBillingState and SyncHoldReason narrow the admin list to OpenRouter
+	// synchronous tasks by stored columns only.
+	SyncBillingState string
+	SyncHoldReason   string
 }
 
 func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {

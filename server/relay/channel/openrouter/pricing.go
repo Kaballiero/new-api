@@ -199,8 +199,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	decisions := operation == "decisions"
 	rerank := operation == "rerank"
 	if rerank {
-		if batch || localUSD == nil && (info.ChannelMeta == nil || info.ChannelSetting.OpenRouterReserveUSD(request.Model) == nil) || info.RelayFormat != types.RelayFormatRerank {
-			return 0, errors.New("OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format")
+		if batch || info.RelayFormat != types.RelayFormatRerank {
+			return 0, errors.New("OpenRouter rerank requires Rerank format without Batch")
 		}
 		for _, key := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "modalities"} {
 			if _, present := fields[key]; present {
@@ -391,12 +391,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		channelBaseURL = info.ChannelBaseUrl
 	}
 	var units map[pricingdomain.PriceDimension]int64
-	if speech {
+	switch {
+	case speech:
 		units, err = speechUnits(body, request.Model)
-		if err != nil {
-			return 0, err
-		}
-	} else if operation == "audio/transcriptions" {
+	case rerank:
+		units, err = rerankUnits(body)
+	case operation == "audio/transcriptions":
 		// Without seconds no per-second price is measured: only a configured
 		// price or a channel reserve covers the request.
 		units = map[pricingdomain.PriceDimension]int64{}
@@ -405,6 +405,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		} else if reserveUSD == nil {
 			return 0, errors.New("OpenRouter transcription audio duration is unreadable")
 		}
+	}
+	if err != nil {
+		return 0, err
 	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
 		Model:          request.Model,
