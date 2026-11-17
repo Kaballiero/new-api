@@ -31,7 +31,7 @@ type liveTariffs struct {
 func (live liveTariffs) Discover(model string) (pricingdomain.NativeEndpointResponse, error) {
 	_, cached := live.estimator.Models[model]
 	if !cached && live.estimator.c == nil {
-		return pricingdomain.NativeEndpointResponse{}, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
+		return pricingdomain.NativeEndpointResponse{}, fmt.Errorf("%w for %s", pricingdomain.ErrEndpointDiscoveryMissing, model)
 	}
 	if err := live.estimator.Discover(live.estimator.c, live.info, live.estimator.adaptor, model); err != nil {
 		return pricingdomain.NativeEndpointResponse{}, err

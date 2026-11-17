@@ -14,7 +14,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -473,6 +475,63 @@ func TestEndpointReserveFromUpstreamCatalog(t *testing.T) {
 			assert.InDelta(t, tc.want, cost, 1e-9)
 			assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
 			assert.Empty(t, e.Models)
+		})
+	}
+}
+
+// EstimateRequestReserve on an estimator without a bound request prices the
+// admission reserve from the fresh upstream catalog and never discovers live
+// endpoints: a model outside the catalog is refused without a request.
+func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
+	previous := pricingruntime.UpstreamCatalogTariffs.Load()
+	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices)) })
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"public-model":5}`))
+	tariff := func(pricing string) pricingdomain.NativeEndpointResponse {
+		var prices map[string]json.RawMessage
+		require.NoError(t, common.UnmarshalJsonStr(pricing, &prices))
+		return pricingdomain.NativeEndpointResponse{Endpoints: []pricingdomain.NativePricedEndpoint{{Tag: "provider", MaxCompletionTokens: 100, Pricing: prices}}, OutputModalities: []string{"text"}}
+	}
+	pricingruntime.UpstreamCatalogTariffs.Store(&pricingdomain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]pricingdomain.NativeEndpointResponse{
+		"test/model":  tariff(`{"prompt":"0.001","completion":"0.002"}`),
+		"test/search": tariff(`{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`),
+	}})
+	for _, tc := range []struct {
+		name, model string
+		settings    dto.ChannelSettings
+		want        float64
+		configured  bool
+		source      pricingdomain.ReserveSource
+		use         ReserveUse
+		wantErr     string
+	}{
+		{name: "catalog", model: "test/model", want: 1.2, source: pricingdomain.ReserveSourceCatalog},
+		{name: "add-on on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
+			want: 1.25, source: pricingdomain.ReserveSourceCatalog, use: ReserveAddOn},
+		{name: "configured price above the catalog", model: "test/model", settings: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{"test/model": dto.OpenRouterReservationConfiguredPrice}},
+			want: 5, configured: true, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
+		{name: "outside the catalog", model: "other/model", wantErr: "OpenRouter endpoint discovery missing for other/model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewRequestEstimator()
+			info := &relaycommon.RelayInfo{OriginModelName: "public-model", RelayFormat: types.RelayFormatOpenAI}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api", ChannelSetting: tc.settings}
+			info.SetEstimatePromptTokens(1000)
+
+			cost, configured, err := EstimateRequestReserve(e, info, []byte(`{"model":"`+tc.model+`","messages":[{"role":"user","content":""}]}`), "chat/completions", nil)
+
+			assert.Empty(t, e.Models)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				assert.ErrorIs(t, err, pricingdomain.ErrEndpointDiscoveryMissing)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+			assert.Equal(t, tc.configured, configured != nil)
+			assert.Equal(t, tc.source, e.ReserveSource)
+			assert.Equal(t, tc.use, e.ReserveUse)
 		})
 	}
 }

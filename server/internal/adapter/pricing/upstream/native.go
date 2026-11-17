@@ -91,6 +91,7 @@ func (NativeStore) BuildChannel(id int) (*domain.BuildChannel, error) {
 	}
 	return NewNativeChannel(row).Value(), nil
 }
+func (NativeStore) IsMissing(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }
 func NativePricedEndpoint(value openrouter.PricedEndpoint) domain.NativePricedEndpoint {
 	return domain.NativePricedEndpoint(value)
 }

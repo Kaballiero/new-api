@@ -18,3 +18,19 @@ const (
 	// ReserveSourceManual is the approximate reserve of the channel model.
 	ReserveSourceManual ReserveSource = "manual"
 )
+
+// AdmissionPolicy is the channel reserve policy the gateway applies to an
+// OpenRouter request; the admin log records it as openrouter_admission_policy.
+type AdmissionPolicy string
+
+const (
+	// AdmissionPolicyModelApproximateReserve holds the approximate reserve of
+	// the channel model whole.
+	AdmissionPolicyModelApproximateReserve AdmissionPolicy = "model_approximate_reserve"
+	// AdmissionPolicyModelReserveAddOn adds the reserve of the channel model to
+	// the endpoints that price hosted search.
+	AdmissionPolicyModelReserveAddOn AdmissionPolicy = "model_reserve_add_on"
+	// AdmissionPolicySonarResearchApproximateReserve holds the approximate
+	// reserve of perplexity/sonar-deep-research whole.
+	AdmissionPolicySonarResearchApproximateReserve AdmissionPolicy = "sonar_research_approximate_reserve"
+)

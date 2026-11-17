@@ -784,6 +784,7 @@ accounts.checkin_quota_failed: "Не удалось отметиться: оши
 accounts.invite_quota_insufficient: "Недостаточно квоты за приглашения!"
 pricing.channel_query_failed: "Не удалось выполнить запрос канала"
 pricing.no_valid_upstream: "Нет действующего вышестоящего канала"
+pricing.channel_not_openrouter: "Канал не является каналом OpenRouter"
 channel.multi_key_not_found: "Канал не существует"
 identity.wechat_account_deleted: "Пользователь удалён"
 identity.wechat_registration_disabled: "Регистрация новых пользователей отключена администратором"
