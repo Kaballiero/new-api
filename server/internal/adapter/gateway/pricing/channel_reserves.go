@@ -12,9 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
-// sonarResearchModel is the model the legacy Sonar research reserve applies to.
-const sonarResearchModel = "perplexity/sonar-deep-research"
-
 // ChannelReserves is the ReservePreviewer of the OpenRouter gateway. It runs
 // the admission estimate (openrouter.EstimateRequestReserve) on an estimator
 // without a bound request: such an estimator refuses to discover live
@@ -32,8 +29,8 @@ func (r ChannelReserves) Settings(channel *domain.BuildChannel) (preview_channel
 	}
 	maps.Copy(reserves.ManualUSD, settings.OpenRouterModelReserveUSD)
 	// An exact model reserve takes precedence over the legacy Sonar setting.
-	if reserve := settings.OpenRouterReserveUSD(sonarResearchModel); reserve != nil {
-		reserves.ManualUSD[sonarResearchModel] = *reserve
+	if reserve := settings.OpenRouterReserveUSD(openrouter.SonarResearchModel); reserve != nil {
+		reserves.ManualUSD[openrouter.SonarResearchModel] = *reserve
 	}
 	return reserves, nil
 }
@@ -70,22 +67,9 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 	if err != nil {
 		return preview_channel_reserves.ReservePreview{}, err
 	}
-	preview := preview_channel_reserves.ReservePreview{USD: usd, Source: estimator.ReserveSource}
+	preview := preview_channel_reserves.ReservePreview{USD: usd, Source: estimator.ReserveSource, AdmissionPolicy: estimator.AdmissionPolicy(&settings)}
 	if configured != nil {
 		preview.ConfiguredUSD = &configured.USD
-	}
-	// The channel reserve policy of openrouter.PrepareRequest, named as the
-	// admin log names it.
-	if settings.OpenRouterReserveUSD(estimator.ReserveModel) != nil {
-		switch estimator.ReserveUse {
-		case openrouter.ReserveWholeHold:
-			preview.AdmissionPolicy = domain.AdmissionPolicyModelApproximateReserve
-			if estimator.ReserveModel == sonarResearchModel {
-				preview.AdmissionPolicy = domain.AdmissionPolicySonarResearchApproximateReserve
-			}
-		case openrouter.ReserveAddOn:
-			preview.AdmissionPolicy = domain.AdmissionPolicyModelReserveAddOn
-		}
 	}
 	return preview, nil
 }

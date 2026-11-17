@@ -13,8 +13,9 @@ import (
 )
 
 // WriteError writes err as the HTTP error response of a pricing read,
-// upstream ratio sync or channel reserve preview. Errors without a domain meaning are written as
-// {success:false} with HTTP 503 and the text of the error.
+// upstream ratio sync or channel reserve preview. Errors without a domain
+// meaning are written as {success:false} with HTTP 503 and the text of the
+// error.
 func WriteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrRevisionMismatch):

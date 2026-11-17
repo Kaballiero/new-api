@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -147,18 +148,17 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model
 		info.OpenRouterCost.ConfiguredReserveExprHash = local.ExprHash
 	}
-	if reserve := info.ChannelSetting.OpenRouterReserveUSD(estimator.ReserveModel); reserve != nil {
-		switch estimator.ReserveUse {
-		case ReserveWholeHold:
-			info.OpenRouterCost.ApproximateReserveUSD = reserve
-			info.OpenRouterCost.ApproximateReserveModel = estimator.ReserveModel
-			if estimator.ReserveModel == "perplexity/sonar-deep-research" {
-				info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
-			}
-		case ReserveAddOn:
-			info.OpenRouterCost.AddOnReserveUSD = reserve
-			info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
+	reserve := info.ChannelSetting.OpenRouterReserveUSD(estimator.ReserveModel)
+	switch policy := estimator.AdmissionPolicy(&info.ChannelSetting); policy {
+	case pricingdomain.AdmissionPolicyModelApproximateReserve, pricingdomain.AdmissionPolicySonarResearchApproximateReserve:
+		info.OpenRouterCost.ApproximateReserveUSD = reserve
+		info.OpenRouterCost.ApproximateReserveModel = estimator.ReserveModel
+		if policy == pricingdomain.AdmissionPolicySonarResearchApproximateReserve {
+			info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
 		}
+	case pricingdomain.AdmissionPolicyModelReserveAddOn:
+		info.OpenRouterCost.AddOnReserveUSD = reserve
+		info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
 	}
 	var output struct {
 		Modalities []string `json:"modalities"`
