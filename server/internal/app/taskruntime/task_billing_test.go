@@ -3321,10 +3321,10 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	})
 	t.Run("infeasible settlement is refused without recording a decision", func(t *testing.T) {
 		info := parkUnknown(t)
-		require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+		require.NoError(t, model.DB.Delete(&model.Channel{}, info.ChannelId).Error)
 		_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)
 		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
-		assert.ErrorContains(t, err, "task token missing")
+		assert.ErrorContains(t, err, "task channel missing")
 		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		assert.Nil(t, task.PrivateData.OpenRouterAudio.OperatorDecision)
