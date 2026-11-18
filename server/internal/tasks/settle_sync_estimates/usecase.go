@@ -38,10 +38,6 @@ type Usecase struct {
 
 const pageSize = 100
 
-// settlementRetryWindow is how long after its claim an estimate settlement
-// that moved no balances is retried; afterwards root repeats the decision.
-const settlementRetryWindow = time.Hour
-
 func NewUsecase(store Store, settlement Settlement, projection Projection, diagnostics Diagnostics, now func() time.Time) Usecase {
 	return Usecase{store, settlement, projection, diagnostics, now}
 }
@@ -52,7 +48,7 @@ func NewUsecase(store Store, settlement Settlement, projection Projection, diagn
 // root.
 func (u Usecase) Execute(ctx context.Context) error {
 	now := u.now()
-	if err := u.retry(ctx, now); err != nil {
+	if err := u.retry(ctx); err != nil {
 		return err
 	}
 	var afterID int64
@@ -72,10 +68,10 @@ func (u Usecase) Execute(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// retry applies again the claimed estimate settlements of the retry window
-// whose balances did not move; one that moved them is never replayed.
-func (u Usecase) retry(ctx context.Context, now time.Time) error {
-	afterFinishTime, afterID := now.Add(-settlementRetryWindow).Unix(), int64(0)
+// retry applies again every claimed estimate settlement whose balances did
+// not move, until it applies; one that moved them is never replayed.
+func (u Usecase) retry(ctx context.Context) error {
+	var afterFinishTime, afterID int64
 	for ctx.Err() == nil {
 		holds, err := u.store.EstimateSettledHolds(afterFinishTime, afterID, pageSize)
 		if err != nil {

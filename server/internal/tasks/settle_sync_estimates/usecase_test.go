@@ -11,6 +11,7 @@ import (
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,9 +102,11 @@ func imageHold(id int64, reserveUSD float64) *domain.Task {
 
 func TestExecuteSettlesDeliveredHoldsAtTheirEstimate(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
+	tenth, fifth := .1, .2
 	for _, tc := range []struct {
 		name                  string
 		reserveUSD            float64
+		reservedQuota         int
 		alerted               bool
 		feasibleErr, claimErr error
 		claimed, settled      bool
@@ -111,7 +114,7 @@ func TestExecuteSettlesDeliveredHoldsAtTheirEstimate(t *testing.T) {
 		wantWarning           string
 	}{
 		{name: "settles at the reserve", reserveUSD: .05, claimed: true, settled: true, wantCostUSD: "0.05"},
-		{name: "rounds the estimate before pricing", reserveUSD: .01 + .02, claimed: true, settled: true, wantCostUSD: "0.03"},
+		{name: "rounds the estimate before pricing", reserveUSD: tenth + fifth, reservedQuota: 300, claimed: true, settled: true, wantCostUSD: "0.3"},
 		{name: "target above the reserve stays with root", reserveUSD: .06, wantWarning: "outside the reserve"},
 		{name: "zero target stays with root", reserveUSD: .0001, wantWarning: "outside the reserve"},
 		{name: "infeasible settlement stays with root", reserveUSD: .05, feasibleErr: errors.New("task user missing"), wantWarning: "not feasible"},
@@ -120,6 +123,9 @@ func TestExecuteSettlesDeliveredHoldsAtTheirEstimate(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			hold := imageHold(1, tc.reserveUSD)
+			if tc.reservedQuota > 0 {
+				hold.PrivateData.Reconciliation.ReservedQuota = tc.reservedQuota
+			}
 			if tc.alerted {
 				hold.PrivateData.OpenRouterSync.AlertedAt = 1
 			}
@@ -145,6 +151,7 @@ func TestExecuteSettlesDeliveredHoldsAtTheirEstimate(t *testing.T) {
 			decision := hold.PrivateData.OpenRouterSync.OperatorDecision
 			require.NotNil(t, decision)
 			assert.Equal(t, tc.wantCostUSD, decision.CostUSD)
+			assert.Equal(t, decimal.RequireFromString(tc.wantCostUSD).InexactFloat64(), hold.PrivateData.Reconciliation.UpstreamCostUSD, "the priced cost is the rounded estimate")
 			assert.Zero(t, decision.OperatorID)
 			assert.Equal(t, domain.SyncEstimateSettledFailReason, hold.FailReason)
 			assert.Equal(t, now.Unix(), hold.FinishTime)

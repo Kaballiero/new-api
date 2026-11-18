@@ -302,8 +302,8 @@ func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {
 	})
 }
 
-// GetEstimateSettledHolds pages the holds settled at an estimate that finished
-// after the (finish_time, id) cursor, in that order, as whole rows.
+// GetEstimateSettledHolds pages every hold settled at an estimate after the
+// (finish_time, id) cursor, in that order, as whole rows.
 func (s Store) GetEstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*record.Task, error) {
 	var tasks []*record.Task
 	query := s.db().Where("platform IN ? AND status = ? AND fail_reason = ?", openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimateSettledFailReason)
