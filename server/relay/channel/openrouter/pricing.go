@@ -73,7 +73,7 @@ const (
 
 // SonarResearchModel is the model the legacy Sonar research reserve
 // (openrouter_sonar_research_reserve_usd) applies to.
-const SonarResearchModel = "perplexity/sonar-deep-research"
+const SonarResearchModel = dto.OpenRouterSonarResearchModel
 
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle. Models and
@@ -103,6 +103,16 @@ func NewRequestEstimator() *RequestEstimator {
 		Models:           make(map[string][]PricedEndpoint),
 		OutputModalities: make(map[string][]string),
 		reserve:          pricingruntime.EstimateUpstreamReserve(),
+	}
+}
+
+// NewCatalogEstimator is an estimator that prices the reserve with reserve.
+// It is never bound to a request, so it never discovers live endpoints.
+func NewCatalogEstimator(reserve estimate_upstream_reserve.Usecase) *RequestEstimator {
+	return &RequestEstimator{
+		Models:           make(map[string][]PricedEndpoint),
+		OutputModalities: make(map[string][]string),
+		reserve:          reserve,
 	}
 }
 
@@ -143,6 +153,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Tools               []struct {
 			Type string `json:"type"`
 		} `json:"tools"`
+		// File describes a transcription file in the reservation payload
+		// (transcriptionReservationPayload); Seconds is nil when its audio
+		// duration is unreadable.
+		File struct {
+			Seconds *int64 `json:"seconds"`
+		} `json:"file"`
 	}
 	if common.Unmarshal(body, &request) != nil {
 		return 0, errors.New("invalid OpenRouter final request")
@@ -238,10 +254,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	speech := operation == "audio/speech"
 	if dedicatedAudio {
-		// Speech is priced from the catalog unit prices; transcription only by
-		// a configured price or a channel reserve.
-		if localUSD == nil && reserveUSD == nil && !speech || info.RelayFormat != types.RelayFormatOpenAIAudio {
-			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
+		// Speech and transcription are priced from the catalog unit prices.
+		if info.RelayFormat != types.RelayFormatOpenAIAudio {
+			return 0, errors.New("OpenRouter audio endpoint requires OpenAI Audio format")
 		}
 		if speech {
 			modalities = []string{"speech"}
@@ -406,6 +421,15 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		units, err = speechUnits(body, request.Model)
 	case rerank:
 		units, err = rerankUnits(body)
+	case operation == "audio/transcriptions":
+		// Without seconds no per-second price is measured: only a configured
+		// price or a channel reserve covers the request.
+		units = map[pricingdomain.PriceDimension]int64{}
+		if request.File.Seconds != nil {
+			units[pricingdomain.PriceDimension{Billable: pricingdomain.PriceBillableInputAudio, Unit: pricingdomain.PriceUnitSecond}] = *request.File.Seconds
+		} else if reserveUSD == nil {
+			return 0, errors.New("OpenRouter transcription audio duration is unreadable")
+		}
 	}
 	if err != nil {
 		return 0, err
@@ -431,7 +455,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Modalities:            modalities,
 		TextOutput:            textOutput,
 		ImageOutput:           imageOutput,
-		Audio:                 audioOutput || dedicatedAudio && !speech,
+		Audio:                 audioOutput,
 		Decisions:             decisions,
 		Rerank:                rerank,
 		Units:                 units,
@@ -478,6 +502,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches, pricingdomain.ReserveQuantityPromptTokens: prompt}
 	case searches > 0:
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
+	case operation == "audio/transcriptions" && request.File.Seconds != nil:
+		// The seconds saturate to transcriptionMaxSeconds, so they fit int.
+		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: int(*request.File.Seconds)}
 	}
 	e.OutputReserve = outputReserve
 	switch {

@@ -496,6 +496,7 @@ const (
 	MsgChannelModelUpdateAutoAdded         = "channel.model_update_auto_added"
 	MsgChannelModelUpdateAutoRemoved       = "channel.model_update_auto_removed"
 	MsgChannelModelUpdateRemovalLimit      = "channel.model_update_removal_limit"
+	MsgChannelModelUpdateReserveRefused    = "channel.model_update_reserve_refused"
 	MsgChannelModelUpdateFailedIDs         = "channel.model_update_failed_ids"
 	MsgChannelModelUpdateOmitted           = "channel.model_update_omitted"
 )
@@ -741,6 +742,12 @@ const (
 const (
 	MsgTasksSyncManualHoldsSubject = "tasks.sync_manual_holds_subject"
 	MsgTasksSyncManualHolds        = "tasks.sync_manual_holds"
+)
+
+// Usage alerts to the operators use the root user's language.
+const (
+	MsgUsageUnknownOutcomeRefundsSubject = "usage.unknown_outcome_refunds_subject"
+	MsgUsageUnknownOutcomeRefunds        = "usage.unknown_outcome_refunds"
 )
 
 // Batch response and recipient log messages.

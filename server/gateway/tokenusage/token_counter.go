@@ -194,6 +194,12 @@ func CountRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *relayco
 		return 0, nil
 	}
 	if info.RelayMode == constant2.RelayModeAudioTranscription || info.RelayMode == constant2.RelayModeAudioTranslation {
+		// OpenRouter measures transcription audio for its own reserve when it
+		// prepares the request; a direct channel the request falls back to
+		// counts it again (gateway/transport).
+		if info.RelayMode == constant2.RelayModeAudioTranscription && common.GetContextKeyInt(c, constant.ContextKeyChannelType) == constant.ChannelTypeOpenRouter {
+			return 0, nil
+		}
 		multiForm, err := common.ParseMultipartFormReusable(c)
 		if err != nil {
 			return 0, fmt.Errorf("error parsing multipart form: %v", err)

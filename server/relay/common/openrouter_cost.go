@@ -230,6 +230,13 @@ func (s *OpenRouterCostState) ObserveGenerationID(id string) {
 	s.GenerationID = id
 }
 
+// IsOpenRouterUnknownOutcomeRefund reports a sent OpenRouter request whose
+// upstream charge is unknown and whose hold no Task retains: the controller
+// refunds that hold without retry.
+func IsOpenRouterUnknownOutcomeRefund(info *RelayInfo) bool {
+	return info != nil && info.OpenRouterCost != nil && info.OpenRouterCost.Sent && !info.OpenRouterCost.Final && !HasOpenRouterSyncTask(info)
+}
+
 // HasOpenRouterSyncTask reports whether this request has a durable synchronous intent.
 func HasOpenRouterSyncTask(info *RelayInfo) bool {
 	return info != nil && info.OpenRouterCost != nil && info.OpenRouterCost.TaskID != ""

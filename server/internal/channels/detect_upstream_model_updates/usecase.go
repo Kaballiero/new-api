@@ -32,19 +32,19 @@ func (usecase Usecase) Check(
 	force bool,
 	allowAutoApply bool,
 	requireEnabled bool,
-) (configChanged bool, autoAdded int, err error) {
+) (applied domain.AppliedModelUpdates, err error) {
 	now := usecase.now()
 	if !force {
 		minInterval := usecase.minInterval()
 		if settings.LastCheckTime > 0 &&
 			now-settings.LastCheckTime < minInterval {
-			return false, 0, nil
+			return domain.AppliedModelUpdates{}, nil
 		}
 	}
 
 	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
-		return false, 0, err
+		return domain.AppliedModelUpdates{}, err
 	}
 	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
@@ -85,29 +85,26 @@ func (usecase Usecase) Check(
 			return persist(freshSettings, false)
 		}
 
-		applied, detectErr := usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
-		if detectErr != nil {
-			return detectErr
+		applied, err = usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
+		if err != nil {
+			return err
 		}
-		configChanged = applied.ModelsChanged || applied.MappingChanged
-		autoAdded = len(applied.AddedModels)
-
-		return persist(freshSettings, configChanged)
+		return persist(freshSettings, applied.ModelsChanged || applied.MappingChanged)
 	})
 	if persistErr != nil {
-		return false, 0, persistErr
+		return domain.AppliedModelUpdates{}, persistErr
 	}
 	if freshChannel != nil {
 		*channel = *freshChannel
 		*settings = freshSettings
 	}
 	if freshCheckDisabled {
-		return false, 0, nil
+		return domain.AppliedModelUpdates{}, nil
 	}
 	if fetchErr != nil {
-		return false, 0, fetchErr
+		return domain.AppliedModelUpdates{}, fetchErr
 	}
-	return configChanged, autoAdded, nil
+	return applied, nil
 }
 
 func (usecase Usecase) Execute(ctx context.Context, input Input) (Output, error) {
@@ -122,12 +119,13 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (Output, error)
 	if err != nil {
 		return Output{}, err
 	}
-	changed, added, err := usecase.Check(ctx, channel, &settings, true, false, false)
+	applied, err := usecase.Check(ctx, channel, &settings, true, false, false)
 	if err != nil {
 		return Output{}, err
 	}
-	if changed {
+	if applied.ModelsChanged || applied.MappingChanged {
 		usecase.refresh()
 	}
-	return Output{ChannelID: channel.Id, ChannelName: channel.Name, AddModels: domain.NormalizeModelNames(settings.LastDetectedModels), RemoveModels: domain.NormalizeModelNames(settings.LastRemovedModels), ConflictModels: domain.NormalizeModelNames(settings.LastConflictModels), LastCheckTime: settings.LastCheckTime, AutoAddedModels: added}, nil
+	return Output{ChannelID: channel.Id, ChannelName: channel.Name, AddModels: domain.NormalizeModelNames(settings.LastDetectedModels), RemoveModels: domain.NormalizeModelNames(settings.LastRemovedModels), ConflictModels: domain.NormalizeModelNames(settings.LastConflictModels),
+		ReserveRefusedModels: domain.NormalizeModelNames(applied.ReserveRefusedModels), LastCheckTime: settings.LastCheckTime, AutoAddedModels: len(applied.AddedModels)}, nil
 }

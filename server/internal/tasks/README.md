@@ -19,6 +19,7 @@
 | record_midjourney_submission | Подготовка billing markers до INSERT и debit после persistence, без нового pre-reserve |
 | settle_task / refund_task / refund_midjourney_task | Терминальные расчёты и возвраты с прежним порядком funding/token/counters/log/markers |
 | begin_sync_task / get_sync_task / commit_sync_reservation | Intent до hold, проверка identity, передача существующего резерва |
+| refuse_sync_reservation | Закрывает intent, резерв которого отклонён (нехватка квоты токена, кошелька или подписки) до передачи hold: `FAILURE`, расчёт завершён без списания, причина `reservation_refused`; отказ с неизвестным исходом оставляет intent для ручной сверки |
 | configure_sync_submission / record_sync_generation / record_sync_receipt | Frozen metadata/account и correlation, без повторного paid POST |
 | complete_sync_task / fail_sync_task / reconcile_sync_task | Независимые delivery и financial outcome, revision CAS, metadata-only reconciliation |
 | apply_sync_operator_decision | POST /api/task/:task_id/openrouter-sync/release и /openrouter-sync/settle; RootAuth, подтверждённая нулевая/явная стоимость и аудит каждой попытки |

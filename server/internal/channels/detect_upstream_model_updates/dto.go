@@ -8,11 +8,14 @@ type Input struct {
 }
 
 type Output struct {
-	ChannelID       int      `json:"channel_id"`
-	ChannelName     string   `json:"channel_name"`
-	AddModels       []string `json:"add_models"`
-	RemoveModels    []string `json:"remove_models"`
-	ConflictModels  []string `json:"conflict_models"`
-	LastCheckTime   int64    `json:"last_check_time"`
-	AutoAddedModels int      `json:"auto_added_models"`
+	ChannelID      int      `json:"channel_id"`
+	ChannelName    string   `json:"channel_name"`
+	AddModels      []string `json:"add_models"`
+	RemoveModels   []string `json:"remove_models"`
+	ConflictModels []string `json:"conflict_models"`
+	// ReserveRefusedModels are the AddModels whose reserve the gateway cannot
+	// price from the upstream catalog and no manual reserve covers.
+	ReserveRefusedModels []string `json:"reserve_refused_models"`
+	LastCheckTime        int64    `json:"last_check_time"`
+	AutoAddedModels      int      `json:"auto_added_models"`
 }

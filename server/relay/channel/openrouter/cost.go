@@ -58,12 +58,26 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	info.ForcePreConsume = true
 	info.TieredBillingSnapshot = nil
 	info.PriceData.FreeModel = false
+	var reserveErr error
 	if info.Billing == nil {
 		if apiErr := billinggateway.PreConsumeBilling(c, quota, info); apiErr != nil {
-			return apiErr
+			reserveErr = apiErr
 		}
-	} else if err := info.Billing.Reserve(quota); err != nil {
-		return err
+	} else {
+		reserveErr = info.Billing.Reserve(quota)
+	}
+	if reserveErr != nil {
+		// A refused reservation moved no quota, so the intent closes now
+		// instead of awaiting manual reconciliation; an unknown outcome keeps it.
+		// Without a Task the caller refunds any hold the session already had.
+		if durable && billinggateway.IsReservationRefused(reserveErr) {
+			if refuseErr := taskrecord.RefuseOpenRouterSyncReservation(info); refuseErr != nil {
+				logger.LogError(c, fmt.Sprintf("OpenRouter refused reservation task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, refuseErr))
+			} else {
+				info.OpenRouterCost.TaskID = ""
+			}
+		}
+		return reserveErr
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
 	if durable {
@@ -88,7 +102,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 	originalBody := body
 	if operation == "audio/transcriptions" {
-		body, err = transcriptionReservationPayload(c.Request.Header.Get("Content-Type"), body)
+		body, err = transcriptionReservationPayload(c.Request.Context(), c.Request.Header.Get("Content-Type"), body)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +122,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		// The estimate measures decisions itself (decisionQuantities); a
 		// configured price expression gets no token quantities for them.
 	case "audio/transcriptions":
-		// File bytes are not text tokens or measured seconds.
+		// File bytes are not text tokens; their seconds are measured from the
+		// audio headers.
 	case "audio/speech":
 		var request dto.AudioRequest
 		if common.Unmarshal(body, &request) == nil {
@@ -295,9 +310,10 @@ func configureGenerationLookup(c *gin.Context, info *relaycommon.RelayInfo, adap
 // usable usage.cost to a durable Task that settles it from generation
 // metadata. Without a Task the caller still owns the hold and refunds it.
 // A response with a generation identity is deferred even when nothing reached
-// the client: the lookup charges exactly what OpenRouter billed. Without an
-// identity only a stream that delivered output keeps the hold; the Task then
-// requires manual reconciliation.
+// the client, including an upstream error or a body without usage: the lookup
+// charges exactly what OpenRouter billed. Without an identity only a stream
+// that delivered output keeps the hold; the Task then requires manual
+// reconciliation.
 func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
 	if info.IsChannelTest {
 		return errors.New("OpenRouter channel tests cannot defer cost to a financial task")
@@ -307,17 +323,7 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return errors.New("OpenRouter cost deferral requires a chat text reservation")
 	}
 	switch state.UnknownReason {
-	case "missing_cost", "missing_terminal_cost", "invalid_cost":
-	case "malformed_usage", "":
-		// A stream can end or break without a terminal usage chunk.
-		if !info.IsStream {
-			return errors.New("OpenRouter cost is not recoverable from generation metadata")
-		}
-	case "upstream_error":
-		// A non-stream error envelope is refunded with the upstream message.
-		if !info.IsStream {
-			return errors.New("OpenRouter upstream error delivered no output")
-		}
+	case "missing_cost", "missing_terminal_cost", "invalid_cost", "malformed_usage", "upstream_error", "":
 	default:
 		return errors.New("OpenRouter cost is not recoverable from generation metadata")
 	}

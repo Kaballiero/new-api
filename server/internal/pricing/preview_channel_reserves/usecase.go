@@ -12,8 +12,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
-// referencePromptTokens are the prompt tokens of the reference request.
-const referencePromptTokens = 1000
+// ReferencePromptTokens are the prompt tokens of the reference request.
+const ReferencePromptTokens = 1000
 
 // ChannelStore reads the channel whose reserves are previewed.
 type ChannelStore interface {
@@ -105,7 +105,7 @@ func (u Usecase) Execute(channelID int) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	out := Output{Reference: Reference{Operation: ReferenceOperationChatCompletions, PromptTokens: referencePromptTokens, OutputTokens: u.outputTokens}, Items: []Item{}}
+	out := Output{Reference: Reference{Operation: ReferenceOperationChatCompletions, PromptTokens: ReferencePromptTokens, OutputTokens: u.outputTokens}, Items: []Item{}}
 	var catalog map[string]domain.NativeEndpointResponse
 	if published := u.catalog.Load(); published != nil {
 		out.FetchedAt = &published.FetchedAt
@@ -145,7 +145,7 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		item.ManualUSD = &reserve
 	}
 	document, documented := catalog[domain.UpstreamTariffModel(upstream, false)]
-	request := ReferenceRequest{Model: model, UpstreamModel: upstream, Operation: ReferenceOperationChatCompletions, PromptTokens: referencePromptTokens}
+	request := ReferenceRequest{Model: model, UpstreamModel: upstream, Operation: ReferenceOperationChatCompletions, PromptTokens: ReferencePromptTokens}
 	// The output modalities choose the reference in this order: embeddings
 	// only, then speech, then rerank, then text; a model with none of them
 	// stays live only. Speech and rerank are priced from the measured

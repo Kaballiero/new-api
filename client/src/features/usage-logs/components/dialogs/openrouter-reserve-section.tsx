@@ -57,6 +57,9 @@ export function OpenRouterReserveSection(props: {
     [OPENROUTER_RESERVATION_QUANTITY.PROMPT_TOKENS]: t(
       'Reserved prompt tokens'
     ),
+    [OPENROUTER_RESERVATION_QUANTITY.AUDIO_SECONDS]: t(
+      'Reserved transcription seconds'
+    ),
   }
   const quantities = Object.entries(
     info.openrouter_reservation_quantities ?? {}

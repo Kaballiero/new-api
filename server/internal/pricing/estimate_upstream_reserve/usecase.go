@@ -47,7 +47,7 @@ type Input struct {
 	Modalities []string
 	TextOutput bool
 	// ImageOutput and Audio name an output whose quantity endpoint tariffs do
-	// not measure; Audio covers Chat audio output and transcription.
+	// not measure; Audio covers Chat audio output.
 	ImageOutput, Audio bool
 	// Decisions is a decisions request, priced from its prompt tokens, the
 	// request price and its Searches.

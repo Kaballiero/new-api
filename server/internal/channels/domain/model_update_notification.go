@@ -11,7 +11,9 @@ import (
 // ModelUpdateChannelSummary is a changed channel of the report. The counts
 // include the pending and the automatically applied changes. AutoApplyBlocked
 // marks a channel whose upstream models a scheduled run does not apply; with
-// RemovalLimitCandidates a scheduled run removes nothing.
+// RemovalLimitCandidates a scheduled run removes nothing. ReserveRefusedModels
+// are the pending additions a scheduled run does not add until their reserve
+// is priced or covered by a manual reserve.
 type ModelUpdateChannelSummary struct {
 	ChannelID              int
 	ChannelName            string
@@ -23,6 +25,7 @@ type ModelUpdateChannelSummary struct {
 	AutoAddedModels        []string
 	AutoRemovedModels      []string
 	RemovalLimitCandidates []string
+	ReserveRefusedModels   []string
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
@@ -65,8 +68,9 @@ type ModelUpdateSummary struct {
 
 // ModelUpdateReportFingerprint identifies the decisions a report asks for:
 // the pending additions, removals and conflicts of each channel, whether its
-// changes are blocked from auto-apply, its auto removals over the limit, the
-// failed channels and the channels with an unresolved mapping, in any order.
+// changes are blocked from auto-apply, its auto removals over the limit and
+// its additions with a refused reserve, the failed channels and the channels
+// with an unresolved mapping, in any order.
 // Applied changes are not part of it: the run that applies a change reports it
 // once.
 func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
@@ -84,6 +88,9 @@ func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 		}
 		for _, model := range channel.RemovalLimitCandidates {
 			lines = append(lines, channelID+" removal limit candidate "+model)
+		}
+		for _, model := range channel.ReserveRefusedModels {
+			lines = append(lines, channelID+" reserve refused "+model)
 		}
 	}
 	for _, conflict := range report.ConflictModels {

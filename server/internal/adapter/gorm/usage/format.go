@@ -33,7 +33,7 @@ func appendRelayAdmin(other *usagerecord.LogOther, relayInfo *domain.RequestFact
 			if relayInfo.HasSyncTask {
 				other.SetAdmin("openrouter_error_policy", "hold_for_reconciliation_without_retry")
 			} else {
-				other.SetAdmin("openrouter_error_policy", "refund_without_retry")
+				other.SetAdmin("openrouter_error_policy", refundWithoutRetry)
 			}
 		}
 	}
@@ -48,7 +48,7 @@ func appendRelayAdmin(other *usagerecord.LogOther, relayInfo *domain.RequestFact
 			if relayInfo.HasSyncTask {
 				other.SetAdmin("image_error_policy", "hold_for_reconciliation_without_retry")
 			} else {
-				other.SetAdmin("image_error_policy", "refund_without_retry")
+				other.SetAdmin("image_error_policy", refundWithoutRetry)
 			}
 		}
 	}

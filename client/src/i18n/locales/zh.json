@@ -7,6 +7,7 @@
     "Needs decision": "需要决定",
     "Nothing needs a decision": "没有需要决定的项目",
     "These upstream models were not offered: their name is already used by a model with another target. Edit the channel model mapping to resolve the conflict.": "这些上游模型未被提供：其名称已被指向其他目标的模型占用。请编辑渠道的模型映射以解决冲突。",
+    "These upstream models are not added automatically: their reserve cannot be computed from catalog prices. Set a manual reserve in the channel, then add them.": "这些上游模型不会自动添加：无法根据目录价格计算其预留额度。请在渠道中设置手动预留额度，然后再添加。",
     "All enabled models have a tariff.": "所有已启用的模型都已配置计费。",
     "Enabled models hidden from the public price list and /v1/models until they are configured": "已启用但在配置前不会出现在公开价格表和 /v1/models 中的模型",
     "Models to add and remove are taken from the GetAPI catalog instead of OpenRouter /v1/models. Requires PRICING_CATALOG_API_URL to be configured.": "待添加和删除的模型取自 GetAPI 目录，而不是 OpenRouter /v1/models。需要配置 PRICING_CATALOG_API_URL。",
@@ -6392,6 +6393,7 @@
     "OpenRouter charge unknown": "OpenRouter 扣费未知",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "请求已到达 OpenRouter，但其成本未确认。处理前请在 OpenRouter 中核对扣费。",
     "Reserved web searches": "预留网络搜索次数",
-    "Reserved prompt tokens": "预留提示词 token 数"
+    "Reserved prompt tokens": "预留提示词 token 数",
+    "Reserved transcription seconds": "预留转录秒数"
   }
 }

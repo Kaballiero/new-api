@@ -150,6 +150,14 @@ func TestCatalogEndpointUnitPrices(t *testing.T) {
 		document.Offers[0].Components[1].AmountUSD = nil
 		assert.Equal(t, []string{"output_speech/character=unknown"}, unitPrices(&document))
 	})
+	t.Run("a request-dependent variant prices the maximum", func(t *testing.T) {
+		document := *documents["elevenlabs/scribe-v2"]
+		document.Offers = slices.Clone(document.Offers)
+		prompted := document.Offers[0].Components[0]
+		prompted.AmountUSD, prompted.Variant = common.GetPointer("0.0000972222"), json.RawMessage(`{"prompted":true}`)
+		document.Offers[0].Components = []SourceRate{document.Offers[0].Components[0], prompted}
+		assert.Equal(t, []string{"input_audio/second=0.0000972222"}, unitPrices(&document))
+	})
 	t.Run("a generic component is not a unit price", func(t *testing.T) {
 		document := *documents["deepgram/aura-2"]
 		document.Offers = slices.Clone(document.Offers)

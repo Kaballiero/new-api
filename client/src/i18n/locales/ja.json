@@ -7,6 +7,7 @@
     "Needs decision": "判断が必要",
     "Nothing needs a decision": "判断が必要な項目はありません",
     "These upstream models were not offered: their name is already used by a model with another target. Edit the channel model mapping to resolve the conflict.": "これらの上流モデルは提案されませんでした。名前が別のターゲットを持つモデルですでに使用されています。競合を解決するには、チャネルのモデルマッピングを編集してください。",
+    "These upstream models are not added automatically: their reserve cannot be computed from catalog prices. Set a manual reserve in the channel, then add them.": "これらのアップストリームモデルは自動追加されません：カタログ価格から予約額を計算できません。チャネルで手動予約額を設定してから追加してください。",
     "All enabled models have a tariff.": "All enabled models have a tariff.",
     "Enabled models hidden from the public price list and /v1/models until they are configured": "Enabled models hidden from the public price list and /v1/models until they are configured",
     "Models to add and remove are taken from the GetAPI catalog instead of OpenRouter /v1/models. Requires PRICING_CATALOG_API_URL to be configured.": "追加・削除するモデルを OpenRouter /v1/models ではなく GetAPI カタログから取得します。PRICING_CATALOG_API_URL の設定が必要です。",
@@ -6392,6 +6393,7 @@
     "OpenRouter charge unknown": "OpenRouter の請求額が不明",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "リクエストは OpenRouter に到達しましたが、コストが確認されていません。解決する前に OpenRouter で請求を確認してください。",
     "Reserved web searches": "予約したウェブ検索回数",
-    "Reserved prompt tokens": "予約したプロンプトトークン数"
+    "Reserved prompt tokens": "予約したプロンプトトークン数",
+    "Reserved transcription seconds": "予約した文字起こし秒数"
   }
 }
