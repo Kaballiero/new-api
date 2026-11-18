@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "预留语音字符数",
     "Reserved speech UTF-8 bytes": "预留语音 UTF-8 字节数",
     "Reserved speech seconds": "预留语音秒数",
-    "Reserved search units": "预留搜索单元数"
+    "Reserved search units": "预留搜索单元数",
+    "Chat image": "聊天图片",
+    "Completions": "补全",
+    "Decisions": "决策",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "暂无任务日志。提交异步任务后，任务日志将显示在此处。"
   }
 }

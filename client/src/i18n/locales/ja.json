@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "予約した音声合成の文字数",
     "Reserved speech UTF-8 bytes": "予約した音声合成の UTF-8 バイト数",
     "Reserved speech seconds": "予約した音声合成の秒数",
-    "Reserved search units": "予約した検索ユニット数"
+    "Reserved search units": "予約した検索ユニット数",
+    "Chat image": "チャット画像",
+    "Completions": "補完",
+    "Decisions": "判定",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "タスクログはありません。非同期タスクが送信されると、ここにタスクログが表示されます。"
   }
 }

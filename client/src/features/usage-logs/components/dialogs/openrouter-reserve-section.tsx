@@ -72,7 +72,9 @@ export function OpenRouterReserveSection(props: {
     [OPENROUTER_RESERVATION_QUANTITY.SEARCH_UNITS]: t('Reserved search units'),
   }
   const quantities = Object.entries(
-    info.openrouter_reservation_quantities ?? {}
+    info.openrouter_reservation_quantities ??
+      orderFacts?.reservation_quantities ??
+      {}
   )
   const sourceLabels: Record<OpenRouterReservationSource, string> = {
     catalog: t('Catalog'),

@@ -29,8 +29,8 @@ export function DetailRow(props: {
   muted?: boolean
 }) {
   return (
-    <div className='grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] gap-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3'>
-      <span className='text-muted-foreground min-w-0 text-xs'>
+    <div className='grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] gap-2 text-sm sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-3'>
+      <span className='text-muted-foreground min-w-0 text-xs wrap-break-word'>
         {props.label}
       </span>
       <span

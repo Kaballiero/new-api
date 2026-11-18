@@ -517,6 +517,7 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 			} else if tc.status == http.StatusOK {
 				assert.Contains(t, admin, "image_actual_cost_usd")
+				assert.Equal(t, "upstream", admin["openrouter_cost_source"])
 				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 				assert.NotContains(t, admin, "image_financial_outcome")
 			}

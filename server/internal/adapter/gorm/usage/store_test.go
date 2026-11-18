@@ -247,6 +247,28 @@ func TestSerializerWritesOpenRouterReservationQuantities(t *testing.T) {
 	}
 }
 
+// The admin log names where a final OpenRouter cost came from and the
+// generation it belongs to.
+func TestSerializerWritesOpenRouterCostSourceAndGeneration(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		state                 domain.OpenRouterCostState
+		wantSource, wantGenID any
+	}{
+		{"upstream cost", domain.OpenRouterCostState{Final: true, GenerationID: "gen-1"}, "upstream", "gen-1"},
+		{"estimate", domain.OpenRouterCostState{Final: true, CostSource: domain.OpenRouterCostSourceEstimate}, "estimate", nil},
+		{"no final cost", domain.OpenRouterCostState{GenerationID: "gen-2"}, nil, "gen-2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other := consumptionOther(domain.Consumption{Kind: domain.TextConsumption, Request: domain.RequestFacts{ContextPresent: true, OpenRouterCost: &tc.state}, Text: &domain.TextFacts{}}, logMetadata{})
+			admin, ok := other.Snapshot()["admin_info"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, tc.wantSource, admin["openrouter_cost_source"])
+			assert.Equal(t, tc.wantGenID, admin["openrouter_generation_id"])
+		})
+	}
+}
+
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
 	assert.Equal(t, ", search calls: 2, cost 17", renderer.RenderContent([]domain.Note{

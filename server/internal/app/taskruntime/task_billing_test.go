@@ -3088,6 +3088,7 @@ func TestOpenRouterSyncInlineSettlementIsRecoverable(t *testing.T) {
 		assert.Equal(t, false, view["release_allowed"])
 		assert.Equal(t, true, view["settle_allowed"])
 		assert.Equal(t, 0.04, view["upstream_cost_usd"])
+		assert.Equal(t, false, view["manual_hold"], "a successful task is no manual hold")
 
 		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorSettle, "0.05", "evidence", 1)
 		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
@@ -3444,6 +3445,7 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "reservation_unknown", OpenRouterSyncReconciliation(task)["billing_state"])
 		view := OpenRouterSyncAdminView(task)
+		assert.Equal(t, true, view["manual_hold"], "the task list selects it as a manual hold in any billing state")
 		assert.Equal(t, 50, view["reserved_quota"], "the session may hold the planned reserve")
 		assert.Equal(t, false, view["release_allowed"])
 		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)

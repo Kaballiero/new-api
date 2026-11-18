@@ -31,6 +31,7 @@ import {
   FieldLegend,
   FieldSet,
 } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { formatDateTimeStr } from '@/lib/format'
 import {
   getServerErrorMessage,
@@ -63,6 +64,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
   const descriptionId = useId()
   const sourceHintId = useId()
   const errorId = useId()
+  const [modelSearch, setModelSearch] = useState('')
   const sourceField = useController({
     control: props.control,
     name: 'openrouter_reservation_source',
@@ -93,6 +95,10 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
     reserves.entries,
     preview?.items ?? []
   )
+  const modelKeyword = modelSearch.trim().toLowerCase()
+  const visibleRows = modelKeyword
+    ? rows.filter((row) => row.model.toLowerCase().includes(modelKeyword))
+    : rows
   const fieldErrors = [
     sourceField.fieldState.error?.message,
     reserveField.fieldState.error?.message,
@@ -102,7 +108,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
 
   return (
     <FieldSet
-      className='gap-2'
+      className='min-w-0 gap-2'
       aria-describedby={[
         descriptionId,
         sourceHintId,
@@ -162,9 +168,19 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           </span>
         </div>
       )}
+      {rows.length > 0 && (
+        <Input
+          type='search'
+          value={modelSearch}
+          onChange={(event) => setModelSearch(event.target.value)}
+          placeholder={t('Filter models...')}
+          aria-label={t('Filter models...')}
+          className='sm:w-64'
+        />
+      )}
       {rows.length > 0 ? (
         <OpenRouterReserveTable
-          rows={rows}
+          rows={visibleRows}
           sourceErrors={sources.errors}
           reserveErrors={reserves.errors}
           previewLoaded={preview != null}

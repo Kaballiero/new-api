@@ -146,6 +146,7 @@ interface OpenRouterOrderReservation {
 /** Reserve facts of an OpenRouter task order (openrouter_order_facts). */
 interface OpenRouterOrderFacts {
   reservation_source?: OpenRouterReservationSource
+  reservation_quantities?: Record<string, number>
   reservation?: OpenRouterOrderReservation
   configured_reservation?: OpenRouterOrderReservation
 }
@@ -413,6 +414,8 @@ export interface OpenRouterSyncAdminView {
   settle_allowed: boolean
   /** When the manual hold was reported to Telegram; 0 until reported. */
   alerted_at: number
+  /** Whether the "Needs decision" task filter selects this task. */
+  manual_hold: boolean
 }
 
 /** Frozen price basis an OpenRouter cost is settled on. */

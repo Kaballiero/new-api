@@ -127,6 +127,12 @@ func SyncManualFailReason(reason string) string {
 	return "OpenRouter synchronous manual reconciliation required: " + reason
 }
 
+// IsOpenRouterSyncManualHold reports a task held for manual reconciliation: a
+// failed task whose failure text carries a hold reason.
+func (t *Task) IsOpenRouterSyncManualHold() bool {
+	return t.Status == TaskStatusFailure && strings.HasPrefix(t.FailReason, SyncManualFailReason(""))
+}
+
 func MarkSyncManual(task *Task, reason string, now int64) {
 	task.Status, task.Progress, task.FinishTime = TaskStatusFailure, "100%", now
 	task.FailReason = SyncManualFailReason(reason)

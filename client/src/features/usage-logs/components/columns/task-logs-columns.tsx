@@ -65,8 +65,7 @@ function TaskDetailsCell(props: {
           />
           {t('View details')}
         </button>
-        {props.log.admin_info?.openrouter_sync?.billing_state ===
-        'manual_reconciliation' ? (
+        {props.log.admin_info?.openrouter_sync?.manual_hold ? (
           <StatusBadge
             label={t('Needs decision')}
             variant='warning'

@@ -348,7 +348,7 @@ it('renders the channel update as a readable summary and compact operation rows 
   expect(dialog).not.toHaveTextContent('changed_fields')
 })
 
-it('aligns every request field in the same label and value columns', async () => {
+it('aligns every request field in the same label and value columns and wraps long labels', async () => {
   const { dialog } = await openDetails({
     ...entry,
     token_ref: 'token-fingerprint',
@@ -362,11 +362,12 @@ it('aligns every request field in the same label and value columns', async () =>
     'Request ID',
     'Token identifier',
   ]) {
-    const row = within(dialog).getByText(label, { exact: true }).parentElement
-    expect(row).toHaveClass(
+    const labelElement = within(dialog).getByText(label, { exact: true })
+    expect(labelElement).toHaveClass('wrap-break-word')
+    expect(labelElement.parentElement).toHaveClass(
       'grid',
       'grid-cols-[5.25rem_minmax(0,1fr)]',
-      'sm:grid-cols-[7rem_minmax(0,1fr)]'
+      'sm:grid-cols-[9rem_minmax(0,1fr)]'
     )
   }
 })

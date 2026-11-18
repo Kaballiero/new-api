@@ -186,6 +186,14 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const isCommon = logCategory === 'common'
+  const emptyDescription =
+    logCategory === 'task'
+      ? t(
+          'No task logs available. Task logs will appear here once async tasks are submitted.'
+        )
+      : t(
+          'No usage logs available. Logs will appear here once API calls are made.'
+        )
 
   return (
     <DataTablePage
@@ -195,9 +203,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       isLoading={isLoadingData}
       isFetching={isFetching}
       emptyTitle={t('No Logs Found')}
-      emptyDescription={t(
-        'No usage logs available. Logs will appear here once API calls are made.'
-      )}
+      emptyDescription={emptyDescription}
       skeletonKeyPrefix='usage-log-skeleton'
       applyHeaderSize
       tableClassName={cn(
@@ -209,6 +215,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           table={table}
           isLoading={isLoadingData}
           logCategory={logCategory}
+          emptyDescription={emptyDescription}
         />
       }
       toolbar={

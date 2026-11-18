@@ -5588,7 +5588,7 @@
     "Timeline": "Dòng thời gian",
     "times": "lần",
     "Timezone": "Múi giờ",
-    "Timing": "Thời gian",
+    "Timing": "Thời lượng",
     "Tip": "Mẹo",
     "Tip: after configuring one model, select others in the table and use bulk copy.": "Mẹo: sau khi cấu hình một mô hình, hãy chọn các mô hình khác trong bảng và dùng tính năng sao chép hàng loạt.",
     "to": "đến",
@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "Số ký tự giọng nói đã giữ",
     "Reserved speech UTF-8 bytes": "Số byte UTF-8 giọng nói đã giữ",
     "Reserved speech seconds": "Số giây giọng nói đã giữ",
-    "Reserved search units": "Số đơn vị tìm kiếm đã giữ"
+    "Reserved search units": "Số đơn vị tìm kiếm đã giữ",
+    "Chat image": "Hình ảnh trò chuyện",
+    "Completions": "Hoàn thành văn bản",
+    "Decisions": "Quyết định",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "Chưa có nhật ký tác vụ. Nhật ký tác vụ sẽ xuất hiện tại đây khi có tác vụ bất đồng bộ được gửi."
   }
 }

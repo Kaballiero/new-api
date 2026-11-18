@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "Caractères de synthèse vocale réservés",
     "Reserved speech UTF-8 bytes": "Octets UTF-8 de synthèse vocale réservés",
     "Reserved speech seconds": "Secondes de synthèse vocale réservées",
-    "Reserved search units": "Unités de recherche réservées"
+    "Reserved search units": "Unités de recherche réservées",
+    "Chat image": "Image de discussion",
+    "Completions": "Complétions",
+    "Decisions": "Décisions",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "Aucun journal de tâches. Les journaux de tâches apparaîtront ici après la soumission de tâches asynchrones."
   }
 }

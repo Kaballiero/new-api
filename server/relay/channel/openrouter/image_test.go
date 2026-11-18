@@ -1731,7 +1731,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 					var costErr error
 					cost, costErr = common.ValidateOpenRouterCost([]byte(tc.cost))
 					require.NoError(t, costErr)
-					assert.NotContains(t, consume.Other, "openrouter_cost_source")
+					assert.Contains(t, consume.Other, `"openrouter_cost_source":"upstream"`)
 				}
 				assert.Equal(t, quota-common.QuotaRound(cost*common.QuotaPerUnit*1.5), user.Quota)
 				assert.Equal(t, 1, posts)

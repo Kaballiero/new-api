@@ -5588,7 +5588,7 @@
     "Timeline": "Хронология",
     "times": "раз",
     "Timezone": "Часовой пояс",
-    "Timing": "Время",
+    "Timing": "Длительность",
     "Tip": "Совет",
     "Tip: after configuring one model, select others in the table and use bulk copy.": "Совет: настроив одну модель, выберите другие в таблице и воспользуйтесь массовым копированием.",
     "to": "до",
@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "Символов синтеза речи в резерве",
     "Reserved speech UTF-8 bytes": "Байт UTF-8 синтеза речи в резерве",
     "Reserved speech seconds": "Секунд синтеза речи в резерве",
-    "Reserved search units": "Поисковых единиц в резерве"
+    "Reserved search units": "Поисковых единиц в резерве",
+    "Chat image": "Изображение в чате",
+    "Completions": "Завершения",
+    "Decisions": "Решения",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "Логов задач нет. Логи задач появятся здесь после отправки асинхронных задач."
   }
 }
