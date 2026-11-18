@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "Не меньше {{usd}} по ручному резерву",
     "Catalog fetched at {{time}}": "Каталог получен {{time}}",
     "Catalog is stale": "Каталог устарел",
+    "Example request: {{operation}}": "Пример запроса: {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "Пример запроса: {{operation}}, {{promptTokens}} токенов промпта и {{outputTokens}} токенов вывода",
     "Loading reserve examples...": "Загрузка примеров резерва...",
     "Failed to load reserve examples": "Не удалось загрузить примеры резерва",

@@ -38,7 +38,9 @@ type ReserveSettings struct {
 }
 
 // ReferenceRequest is the reference request of an upstream model of the
-// channel. Only and Ignore are its provider.only and provider.ignore.
+// channel: Chat Completions or Embeddings with PromptTokens, or the speech or
+// rerank reference of the gateway side. Only and Ignore are its provider.only
+// and provider.ignore.
 type ReferenceRequest struct {
 	// Model is the channel model: the billing model of a configured price.
 	Model         string
@@ -149,9 +151,16 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		return item
 	case slices.Equal(document.OutputModalities, []string{"embeddings"}):
 		request.Operation = "embeddings"
+	case slices.Contains(document.OutputModalities, "speech"):
+		// Speech and rerank are priced from the measured quantities of their
+		// own reference request, not from prompt tokens.
+		request.Operation, request.PromptTokens = "audio/speech", 0
+	case slices.Contains(document.OutputModalities, "rerank"):
+		request.Operation, request.PromptTokens = "rerank", 0
 	case !slices.Contains(document.OutputModalities, "text"):
 		return item
 	}
+	item.ReferenceOperation = &request.Operation
 	reserve, err := u.previewer.Preview(channel, request)
 	if err != nil {
 		item.ExampleStatus = ExampleStatusRefused
@@ -166,6 +175,11 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		if reserve.AdmissionPolicy != "" {
 			item.AdmissionPolicy = &reserve.AdmissionPolicy
 		}
+	}
+	if request.Operation == "audio/speech" {
+		// The gateway refuses provider routing filters on speech, so speech
+		// has no provider breakdown.
+		return item
 	}
 	var tags []string
 	for _, endpoint := range document.Endpoints {

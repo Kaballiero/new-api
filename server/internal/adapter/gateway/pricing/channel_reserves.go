@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"maps"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -35,9 +36,18 @@ func (r ChannelReserves) Settings(channel *domain.BuildChannel) (preview_channel
 	return reserves, nil
 }
 
-// Preview prices the reference request as an OpenAI client request routed to
-// the channel: Chat Completions or Embeddings with the measured prompt tokens
-// and no output limit.
+// Reference speech and rerank requests: a short speech input and a short
+// query over three short documents.
+var (
+	referenceSpeechInput     = strings.Repeat("a", 100)
+	referenceRerankQuery     = "What is the capital of France?"
+	referenceRerankDocuments = []string{"Paris is the capital of France.", "Berlin is the capital of Germany.", "Madrid is the capital of Spain."}
+)
+
+// Preview prices the reference request as a client request routed to the
+// channel: Chat Completions or Embeddings with the measured prompt tokens and
+// no output limit, OpenAI audio speech of the reference input, or Rerank of
+// the reference query and documents.
 func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_channel_reserves.ReferenceRequest) (preview_channel_reserves.ReservePreview, error) {
 	settings, err := r.channelSettings(channel)
 	if err != nil {
@@ -45,10 +55,17 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 	}
 	reference := map[string]any{"model": request.UpstreamModel}
 	format := types.RelayFormatOpenAI
-	if request.Operation == "embeddings" {
+	switch request.Operation {
+	case "embeddings":
 		reference["input"] = ""
 		format = types.RelayFormatEmbedding
-	} else {
+	case "audio/speech":
+		reference["input"] = referenceSpeechInput
+		format = types.RelayFormatOpenAIAudio
+	case "rerank":
+		reference["query"], reference["documents"] = referenceRerankQuery, referenceRerankDocuments
+		format = types.RelayFormatRerank
+	default:
 		reference["messages"] = []map[string]string{{"role": "user", "content": ""}}
 	}
 	if len(request.Only) > 0 {

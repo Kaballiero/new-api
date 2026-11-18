@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "Ít nhất {{usd}} theo dự trữ thủ công",
     "Catalog fetched at {{time}}": "Danh mục được lấy lúc {{time}}",
     "Catalog is stale": "Danh mục đã cũ",
+    "Example request: {{operation}}": "Yêu cầu mẫu: {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "Yêu cầu mẫu: {{operation}}, {{promptTokens}} token prompt và {{outputTokens}} token đầu ra",
     "Loading reserve examples...": "Đang tải ví dụ dự trữ...",
     "Failed to load reserve examples": "Không tải được ví dụ dự trữ",

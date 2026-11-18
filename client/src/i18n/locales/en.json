@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "At least {{usd}} by the manual reserve",
     "Catalog fetched at {{time}}": "Catalog fetched at {{time}}",
     "Catalog is stale": "Catalog is stale",
+    "Example request: {{operation}}": "Example request: {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens",
     "Loading reserve examples...": "Loading reserve examples...",
     "Failed to load reserve examples": "Failed to load reserve examples",
