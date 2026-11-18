@@ -76,9 +76,9 @@ func (tariffs requestTariffs) hasStaleDocument() bool {
 var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogStale, domain.ReserveSourceLive, domain.ReserveSourceCatalog}
 
 // loadTariffs takes the tariffs of every routable model once per tariff model.
-// The catalog prices text generation, embeddings, speech and rerank, Batch
-// included, on a channel on the official OpenRouter API; decisions, Chat audio
-// output, transcription and image output stay live. Such a model takes the
+// The catalog prices text generation, embeddings, speech, rerank and
+// decisions, Batch included, on a channel on the official OpenRouter API; Chat
+// audio output, transcription and image output stay live. Such a model takes the
 // catalog document of its tariff model while the catalog data is at most
 // maxAge old: its fetchedAt is the time the data last changed, so a catalog
 // nobody refreshed goes stale and the reserve falls back to live. Otherwise the model is discovered live; when
@@ -86,7 +86,7 @@ var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogS
 // error is returned (domain.ModelTariff).
 func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	published := u.catalog.Load()
-	liveOperation := in.Decisions || in.Audio || in.ImageOutput || in.ImageReserveOnly
+	liveOperation := in.Audio || in.ImageOutput || in.ImageReserveOnly
 	var catalog map[string]domain.NativeEndpointResponse
 	fresh := false
 	if published != nil && !liveOperation && domain.IsOpenRouterCatalogBaseURL(in.ChannelBaseURL) {

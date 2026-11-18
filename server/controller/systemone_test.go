@@ -93,7 +93,7 @@ func TestSystemOneRelay(t *testing.T) {
 		name, cost, capability, provider                                                                                string
 		upstreamStatus, status, quota                                                                                   int
 		missing, malformed, disconnect, timeout, noReserve, empty, unsupported, duplicate, override, frozen, configured bool
-		nullProbability, oversizedUsage, missingID, mismatchID, metadata                                                bool
+		nullProbability, oversizedUsage, missingID, mismatchID, metadata, unpriced                                      bool
 	}{
 		{name: "typed result and raw order", cost: "0.02", status: 200, quota: 20000},
 		{name: "OR metadata with required parameters", metadata: true, cost: "0.02", status: 200, quota: 20000},
@@ -112,7 +112,8 @@ func TestSystemOneRelay(t *testing.T) {
 		{name: "308 no replay", upstreamStatus: 308, status: 308},
 		{name: "disconnect no replay", disconnect: true, status: 500},
 		{name: "timeout no replay", timeout: true, status: 500},
-		{name: "unknown quantity no reserve", noReserve: true, status: 400},
+		{name: "endpoint prices without reserve", noReserve: true, cost: "0.0002", status: 200, quota: 200},
+		{name: "unpriced endpoint without reserve", noReserve: true, unpriced: true, status: 400},
 		{name: "empty endpoints", empty: true, status: 400},
 		{name: "wrong capability", capability: "text", status: 400},
 		{name: "provider excluded", provider: "other", status: 400},
@@ -144,6 +145,10 @@ func TestSystemOneRelay(t *testing.T) {
 			if tc.configured {
 				expectedReserve = 60000
 			}
+			if tc.noReserve {
+				// 231 UTF-8 bytes of state and questions at $0.000001 a token.
+				expectedReserve = 231
+			}
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "Bearer fixture-provider", r.Header.Get("Authorization"))
 				w.Header().Set("Content-Type", "application/json")
@@ -156,6 +161,9 @@ func TestSystemOneRelay(t *testing.T) {
 					endpoints := `[{"model_id":"vendor/decision-fixture","tag":"fixture","status":0,"context_length":32000,"max_completion_tokens":1000,"pricing":{"prompt":"0.000001","completion":"0"}}]`
 					if tc.empty {
 						endpoints = "[]"
+					}
+					if tc.unpriced {
+						endpoints = strings.Replace(endpoints, `"prompt":"0.000001",`, "", 1)
 					}
 					identity := upstreamModel
 					if tc.missingID {

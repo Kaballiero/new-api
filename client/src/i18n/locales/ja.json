@@ -6389,6 +6389,7 @@
     "Upstream cost": "上流コスト",
     "OpenRouter charge unknown": "OpenRouter の請求額が不明",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "リクエストは OpenRouter に到達しましたが、コストが確認されていません。解決する前に OpenRouter で請求を確認してください。",
-    "Reserved web searches": "予約したウェブ検索回数"
+    "Reserved web searches": "予約したウェブ検索回数",
+    "Reserved prompt tokens": "予約したプロンプトトークン数"
   }
 }
