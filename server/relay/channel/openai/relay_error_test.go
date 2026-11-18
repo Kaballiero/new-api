@@ -654,6 +654,8 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 		{name: "responses/nonstream without terminal cost", format: responses, upstream: responsesNonstream, deferred: true},
 		{name: "responses/nonstream without identity refunds", format: responses, upstream: responsesNonstreamWithoutID, wantErr: missingCost},
+		{name: "responses/nonstream failed with identity defers", format: responses, upstream: `{"id":"` + generationID + `","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"Upstream failed"}}`,
+			deferred: true, wantErr: "Upstream failed", undeliveredResult: true},
 		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
 		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
 		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", undeliveredResult: true},
