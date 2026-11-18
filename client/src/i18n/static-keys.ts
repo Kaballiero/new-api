@@ -23,6 +23,7 @@ export const STATIC_I18N_KEYS = [
   'Needs decision',
   'Awaiting cost',
   // OpenRouter synchronous task action labels.
+  'Audio',
   'Chat image',
   'Completions',
   'Decisions',
