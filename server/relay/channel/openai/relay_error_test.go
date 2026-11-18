@@ -1082,7 +1082,8 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				assert.Nil(t, info.OpenRouterCost.FloorReserveUSD)
 			case openrouter.ReserveAddOn:
 				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
-				assert.Nil(t, info.OpenRouterCost.FloorReserveUSD)
+				require.NotNil(t, info.OpenRouterCost.FloorReserveUSD, "the floor still bounds a request with the search add-on")
+				assert.Equal(t, 2.0, *info.OpenRouterCost.FloorReserveUSD)
 				require.NotNil(t, info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, 2.0, *info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, requestedModel, info.OpenRouterCost.AddOnReserveModel)

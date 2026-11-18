@@ -93,9 +93,9 @@ type Estimate struct {
 	USD                                      float64
 	InputUSD, PromptPriceUSD, OutputPriceUSD decimal.Decimal
 	OutputTokens                             int
-	// IncludesAddOnReserve reports that the maximum endpoint cost includes the
-	// search reserve.
-	IncludesAddOnReserve bool
+	// IncludesSearchReserve reports that the maximum endpoint cost includes the
+	// search reserve (SearchReserveUSD).
+	IncludesSearchReserve bool
 	// Source is what the reserve is priced from (reserveSource); the manual
 	// reserve when the floor exceeds the estimate.
 	Source domain.ReserveSource
@@ -460,7 +460,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
-				estimate.IncludesAddOnReserve = includesReserve
+				estimate.IncludesSearchReserve = includesReserve
 			}
 			found = true
 		}

@@ -158,8 +158,12 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 			info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
 		}
 	case pricingdomain.AdmissionPolicyModelReserveAddOn:
+		// The search reserve is added on top of an estimate the floor still
+		// bounds from below.
 		info.OpenRouterCost.AddOnReserveUSD = reserve
 		info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
+		info.OpenRouterCost.FloorReserveUSD = reserve
+		info.OpenRouterCost.FloorReserveModel = estimator.ReserveModel
 	case pricingdomain.AdmissionPolicyModelReserveFloor:
 		info.OpenRouterCost.FloorReserveUSD = reserve
 		info.OpenRouterCost.FloorReserveModel = estimator.ReserveModel

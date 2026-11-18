@@ -483,7 +483,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	switch {
 	case approximateReserve:
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
-	case floorReserve && estimate.IncludesAddOnReserve:
+	case floorReserve && estimate.IncludesSearchReserve:
 		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	case floorReserve:
 		e.ReserveUse, e.ReserveModel = ReserveFloor, request.Model

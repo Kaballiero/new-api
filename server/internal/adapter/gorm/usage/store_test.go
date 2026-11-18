@@ -210,8 +210,8 @@ func TestSerializerWritesOpenRouterAdmissionPolicy(t *testing.T) {
 	}{
 		{"floor", domain.OpenRouterCostState{ReserveSource: "manual", FloorReserveUSD: &reserve, FloorReserveModel: "acme/a"},
 			map[string]any{"openrouter_admission_policy": "model_reserve_floor", "openrouter_floor_reserve_usd": 2.0, "openrouter_floor_reserve_model": "acme/a"}},
-		{"search add-on", domain.OpenRouterCostState{ReserveSource: "catalog", AddOnReserveUSD: &reserve, AddOnReserveModel: "acme/a"},
-			map[string]any{"openrouter_admission_policy": "model_reserve_add_on", "openrouter_add_on_reserve_usd": 2.0, "openrouter_add_on_reserve_model": "acme/a"}},
+		{"search add-on over the floor", domain.OpenRouterCostState{ReserveSource: "catalog", AddOnReserveUSD: &reserve, AddOnReserveModel: "acme/a", FloorReserveUSD: &reserve, FloorReserveModel: "acme/a"},
+			map[string]any{"openrouter_admission_policy": "model_reserve_add_on", "openrouter_add_on_reserve_usd": 2.0, "openrouter_add_on_reserve_model": "acme/a", "openrouter_floor_reserve_usd": 2.0, "openrouter_floor_reserve_model": "acme/a"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			other := consumptionOther(domain.Consumption{Kind: domain.TextConsumption, Request: domain.RequestFacts{ContextPresent: true, OpenRouterCost: &tc.state}, Text: &domain.TextFacts{}}, logMetadata{})

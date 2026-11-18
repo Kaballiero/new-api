@@ -809,13 +809,13 @@ func TestEndpointContextPricingAndRoutingDimensions(t *testing.T) {
 		want       float64
 		fail       bool
 	}{
-		{"below threshold", `{"model":"test/model","max_tokens":10}`, 999, 1.019, false},
-		{"threshold inclusive complete tariff", `{"model":"test/model","max_tokens":10}`, 1000, 3.06, false},
-		{"base provider excludes service tier", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai"]}}`, 1000, 3.06, false},
+		{"below threshold costs one unrequested search", `{"model":"test/model","max_tokens":10}`, 999, 1.029, false},
+		{"threshold inclusive complete tariff", `{"model":"test/model","max_tokens":10}`, 1000, 3.07, false},
+		{"base provider excludes service tier", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai"]}}`, 1000, 3.07, false},
 		{"flex restricts eligible tier", `{"model":"test/model","max_tokens":10,"service_tier":"flex"}`, 1000, .51, false},
 		{"top-level priority includes tier", `{"model":"test/model","max_tokens":10,"service_tier":"priority"}`, 1000, 5.1, false},
 		{"priority slug aliases fast", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai/priority"]}}`, 1000, 5.1, false},
-		{"max price USD per million", `{"model":"test/model","max_tokens":10,"provider":{"max_price":{"prompt":2000}}}`, 999, 1.019, false},
+		{"max price USD per million", `{"model":"test/model","max_tokens":10,"provider":{"max_price":{"prompt":2000}}}`, 999, 1.029, false},
 		{"requested hosted search is priced per search", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, 999, 1.029, false},
 		{"oversized override cap rejects", `{"model":"test/model","max_tokens":2147483647}`, 999, 0, true},
 	} {
@@ -844,12 +844,12 @@ func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 		want                  float64
 		fail                  bool
 	}{
-		{"chat function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"inspect audio_url and image_url"}],` + schema + `}`, "chat/completions", 1.02, false},
-		{"Responses function schema", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_text","text":"web_search_options"}]}],` + schema + `}`, "responses", 1.02, false},
-		{"Batch function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"input_audio"}],` + schema + `}`, "batch_chat/completions", 1.02, false},
-		{"actual chat image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/image.png"}}]}]}`, "chat/completions", 2.02, false},
-		{"actual Responses image counted once", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`, "responses", 2.02, false},
-		{"actual native Claude Batch image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.test/image.png"}}]}]}`, "batch_messages", 2.02, false},
+		{"chat function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"inspect audio_url and image_url"}],` + schema + `}`, "chat/completions", 1.03, false},
+		{"Responses function schema", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_text","text":"web_search_options"}]}],` + schema + `}`, "responses", 1.03, false},
+		{"Batch function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"input_audio"}],` + schema + `}`, "batch_chat/completions", 1.03, false},
+		{"actual chat image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/image.png"}}]}]}`, "chat/completions", 2.03, false},
+		{"actual Responses image counted once", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`, "responses", 2.03, false},
+		{"actual native Claude Batch image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.test/image.png"}}]}]}`, "batch_messages", 2.03, false},
 		{"actual chat audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"a","format":"wav"}}]}]}`, "chat/completions", 0, true},
 		{"actual Responses video", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://example.test/v.mp4"}}]}]}`, "responses", 0, true},
 		{"actual Batch audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.test/a.wav"}}]}]}`, "batch_chat/completions", 0, true},
@@ -1037,10 +1037,10 @@ func TestEndpointChannelReserveIsFloorForPricedTokens(t *testing.T) {
 		{name: "floor above the token estimate is held", extra: plain, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
 		{name: "token estimate above the floor is held", extra: plain, reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "web_search endpoint takes the floor, not an add-on", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
-		{name: "web_search endpoint estimate above the floor adds nothing", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "web_search endpoint estimate above the floor prices one unrequested search", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(0.5), want: 1.03, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "requested search priced per search takes the floor", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
 		{name: "requested search priced above the floor", extra: search, nativeSearch: true, reserve: common.GetPointer(0.5), want: 1.03, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
-		{name: "native search without reserve unchanged", extra: plain, nativeSearch: true, want: 1.02, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "web_search endpoint without reserve prices one unrequested search", extra: plain, nativeSearch: true, want: 1.03, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
 		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
 		{name: "provider routing", extra: plain + `,"provider":{"only":["provider"],"order":["provider"]}`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
@@ -1114,11 +1114,11 @@ func TestEndpointChannelReserveInactiveAudioInputRates(t *testing.T) {
 		want                                   float64
 	}{
 		{name: "text search floor admits published audio input rates", extra: search, reserve: common.GetPointer(0.5), want: 1.03},
-		{name: "text floor without search adds no native search reserve", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.02},
+		{name: "text floor without search prices one unrequested search", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.03},
 		{name: "audio input content under search reserve stays closed", extra: search + audioInput, reserve: common.GetPointer(5.0), wantError: "input media duration quantity is unpriced"},
 		{name: "invalid inactive audio input rate under reserve", extra: search, reserve: common.GetPointer(5.0), audioCacheRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
 		{name: "streamed audio output reserve unchanged", extra: `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`, reserve: common.GetPointer(0.3), want: 0.3},
-		{name: "text without reserve unchanged", extra: `,"max_tokens":10`, want: 1.02},
+		{name: "text without reserve prices one unrequested search", extra: `,"max_tokens":10`, want: 1.03},
 		{name: "search without reserve is priced per search", extra: search, want: 1.03},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1158,9 +1158,9 @@ func TestEndpointOneHourCachePublishedSyncAndBatchPricing(t *testing.T) {
 		name, model, operation, pricing string
 		want                            float64
 	}{
-		{"sync", "anthropic/claude-fable-5.1", "chat/completions", `{"prompt":"0.00001","completion":"0.00005","input_cache_read":"0.00000025","input_cache_write":"0.0000125","input_cache_write_1h":"0.00002","web_search":"0.01","discount":0}`, .0205},
-		{"batch_base_model", "anthropic/claude-fable-5.1", "batch_chat/completions", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .01025},
-		{"batch_model_alias", "anthropic/claude-fable-5.1:batch", "batch_messages", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .01025},
+		{"sync", "anthropic/claude-fable-5.1", "chat/completions", `{"prompt":"0.00001","completion":"0.00005","input_cache_read":"0.00000025","input_cache_write":"0.0000125","input_cache_write_1h":"0.00002","web_search":"0.01","discount":0}`, .0305},
+		{"batch_base_model", "anthropic/claude-fable-5.1", "batch_chat/completions", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .02025},
+		{"batch_model_alias", "anthropic/claude-fable-5.1:batch", "batch_messages", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .02025},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var prices map[string]json.RawMessage

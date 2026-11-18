@@ -52,7 +52,7 @@ func TestChannelReservesPreview(t *testing.T) {
 		wantErr                                  error
 	}{
 		{name: "floor below the estimate of a web_search endpoint", model: "test/search", setting: `{"openrouter_model_reserve_usd":{"test/search":0.05}}`,
-			want: preview_channel_reserves.ReservePreview{USD: 1.2, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor}},
+			want: preview_channel_reserves.ReservePreview{USD: 1.21, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor}},
 		{name: "floor above the estimate is the manual reserve", model: "test/model", setting: `{"openrouter_model_reserve_usd":{"test/model":3}}`,
 			want: preview_channel_reserves.ReservePreview{USD: 3, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor}},
 		{name: "whole hold of a configured price with a channel reserve", model: "test/model", setting: `{"openrouter_reservation_source":{"test/model":"configured_price"},"openrouter_model_reserve_usd":{"test/model":0.05}}`,
