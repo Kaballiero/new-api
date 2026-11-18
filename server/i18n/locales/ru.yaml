@@ -651,6 +651,7 @@ tasks.sync_manual_holds_subject: "OpenRouter: резервы ждут ручно
 tasks.sync_manual_holds: "Новых резервов OpenRouter в ручной сверке: {{.Count}}, всего удержано {{.Reserved}}. Резервы удерживаются, пока root не разберёт каждый в деталях задачи в журнале задач.\n\nРезервы (показано {{.Shown}}/{{.Count}}):"
 tasks.sync_estimate_settlements_subject: "OpenRouter: стоимость списана по оценке"
 tasks.sync_estimate_settlements: "Результатов OpenRouter, доставленных без стоимости провайдера и списанных по оценке: {{.Count}}, всего списано {{.Charged}}. Текст списан по токенам по максимальному тарифу резерва, картинка или видео — по резерву; оценка не превышает резерв. Сверьте их с активностью OpenRouter.\n\nСписания (показано {{.Shown}}/{{.Count}}):"
+tasks.sync_stalled_estimate_settlements: "Требуют починки: {{.Count}} списаний по оценке, заявленных более 30 минут назад, так и не изменили балансы; повторы не проходят. Задачи (показано {{.Shown}}/{{.Count}}): {{.TaskIDs}}"
 
 # Batch messages: Chinese locales preserve the previous response bytes.
 batch.batch_busy: "Сверка пакетной задачи уже выполняется"

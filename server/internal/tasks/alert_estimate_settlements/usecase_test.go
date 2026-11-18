@@ -40,17 +40,28 @@ func (s *fakeStore) MarkEstimateAlerted(task *domain.Task, alertedAt int64) erro
 	return nil
 }
 
-type fakeAlerts struct {
-	summaries [][]string
-	err       error
+func (s *fakeStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
+	s.marked[task.ID] = alertedAt
+	task.PrivateData.OpenRouterSyncState().AlertedAt = alertedAt
+	return nil
 }
 
-func (a *fakeAlerts) EstimateSettlements(tasks []*domain.Task) error {
-	var taskIDs []string
-	for _, task := range tasks {
+type fakeAlerts struct {
+	summaries     [][]string
+	stalledClaims [][]string
+	err           error
+}
+
+func (a *fakeAlerts) EstimateSettlements(charges, stalledClaims []*domain.Task) error {
+	var taskIDs, stalledIDs []string
+	for _, task := range charges {
 		taskIDs = append(taskIDs, task.TaskID)
 	}
+	for _, task := range stalledClaims {
+		stalledIDs = append(stalledIDs, task.TaskID)
+	}
 	a.summaries = append(a.summaries, taskIDs)
+	a.stalledClaims = append(a.stalledClaims, stalledIDs)
 	return a.err
 }
 
@@ -123,4 +134,44 @@ func TestExecuteResendsOnlyTheChargesItCouldNotMark(t *testing.T) {
 	require.NoError(t, usecase.Execute(context.Background()))
 	require.Len(t, alerts.summaries, 2)
 	assert.Equal(t, []string{"task_2"}, alerts.summaries[1])
+}
+
+func TestExecuteReportsStalledEstimateClaimsOnce(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	claim := func(id int64, age time.Duration, alertedAt int64) *domain.Task {
+		return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), FailReason: domain.SyncEstimatePendingFailReason, FinishTime: now.Add(-age).Unix(),
+			PrivateData: domain.TaskPrivateData{Reconciliation: &domain.TaskReconciliation{UpstreamCostEstimated: true},
+				OpenRouterSync: &domain.OpenRouterSyncTask{AlertedAt: alertedAt}}}
+	}
+	for _, tc := range []struct {
+		name        string
+		tasks       []*domain.Task
+		wantStalled []string
+		wantCharges []string
+	}{
+		{name: "a claim pending for the stall age needs repair", tasks: []*domain.Task{claim(1, domain.SyncSettlementStallAge, 0)}, wantStalled: []string{"task_1"}},
+		{name: "a younger claim is still retried", tasks: []*domain.Task{claim(1, domain.SyncSettlementStallAge-time.Second, 0)}},
+		{name: "a claim reported before is not resent", tasks: []*domain.Task{claim(1, domain.SyncSettlementStallAge, now.Unix())}},
+		{name: "charges and stalled claims share one summary",
+			tasks:       []*domain.Task{claim(1, 40*time.Minute, 0), estimateCharge(2, now.Unix(), true)},
+			wantStalled: []string{"task_1"}, wantCharges: []string{"task_2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{tasks: tc.tasks, marked: map[int64]int64{}}
+			alerts := &fakeAlerts{}
+			usecase := NewUsecase(store, alerts, &fakeDiagnostics{}, func() time.Time { return now })
+
+			require.NoError(t, usecase.Execute(context.Background()))
+			if tc.wantStalled == nil && tc.wantCharges == nil {
+				assert.Empty(t, alerts.summaries)
+				return
+			}
+			assert.Equal(t, [][]string{tc.wantCharges}, alerts.summaries)
+			assert.Equal(t, [][]string{tc.wantStalled}, alerts.stalledClaims)
+			assert.Equal(t, now.Unix(), tc.tasks[0].PrivateData.OpenRouterSyncState().AlertedAt, "the claim is marked reported to root")
+
+			require.NoError(t, usecase.Execute(context.Background()))
+			assert.Len(t, alerts.summaries, 1, "a reported claim is not resent")
+		})
+	}
 }

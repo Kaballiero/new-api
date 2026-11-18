@@ -539,15 +539,17 @@ func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
 	finished("task_failed_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusFailure, "", 150)
 	finished("task_other_platform", "suno", record.TaskStatusSuccess, "", 150)
 	pending := finished("task_pending", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, domain.SyncEstimatePendingFailReason, 10)
+	claimed := finished("task_claimed", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, domain.SyncEstimatePendingFailReason, 150)
 
 	charges, err := store.GetEstimateCharges(100, 0, 10)
 	require.NoError(t, err)
-	require.Len(t, charges, 3)
-	assert.Equal(t, []string{text.TaskID, image.TaskID, video.TaskID}, []string{charges[0].TaskID, charges[1].TaskID, charges[2].TaskID})
-	assert.Equal(t, video.ID, charges[2].ID)
-	assert.Equal(t, int64(200), charges[2].FinishTime)
-	assert.True(t, charges[2].PrivateData.Reconciliation.UpstreamCostEstimated)
-	assert.Empty(t, charges[2].FailReason, "only the columns the summary reads")
+	require.Len(t, charges, 4)
+	assert.Equal(t, []string{text.TaskID, image.TaskID, claimed.TaskID, video.TaskID}, []string{charges[0].TaskID, charges[1].TaskID, charges[2].TaskID, charges[3].TaskID})
+	assert.Equal(t, video.ID, charges[3].ID)
+	assert.Equal(t, int64(200), charges[3].FinishTime)
+	assert.True(t, charges[3].PrivateData.Reconciliation.UpstreamCostEstimated)
+	assert.Equal(t, domain.SyncEstimatePendingFailReason, charges[2].FailReason, "a claim is told apart by its fail reason")
+	assert.Zero(t, charges[3].Quota, "only the columns the summary reads")
 
 	charges, err = store.GetEstimateCharges(100, text.ID, 1)
 	require.NoError(t, err)
@@ -556,7 +558,7 @@ func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
 
 	holds, err := store.GetPendingEstimateSettlements(0, 10)
 	require.NoError(t, err)
-	require.Len(t, holds, 1, "only the unapplied claim, however old")
+	require.Len(t, holds, 2, "only the unapplied claims, however old")
 	assert.Equal(t, pending.TaskID, holds[0].TaskID)
 	assert.Equal(t, 7, holds[0].Quota, "a retried settlement reads the whole row")
 }

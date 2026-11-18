@@ -9,16 +9,19 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 )
 
-// Store pages the tasks that may carry an estimate charge by (finish_time, id)
-// and marks the reported estimate charges.
+// Store pages the tasks that may carry an estimate charge or claim by
+// (finish_time, id), marks the reported estimate charges and the stalled
+// claims reported to root.
 type Store interface {
 	EstimateCharges(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error)
 	MarkEstimateAlerted(task *domain.Task, alertedAt int64) error
+	MarkAlerted(task *domain.Task, alertedAt int64) error
 }
 
-// Alerts delivers one summary of estimate charges to the operators.
+// Alerts delivers one summary of estimate charges and stalled estimate claims
+// to the operators.
 type Alerts interface {
-	EstimateSettlements(tasks []*domain.Task) error
+	EstimateSettlements(charges, stalledClaims []*domain.Task) error
 }
 type Diagnostics interface {
 	Warn(ctx context.Context, message string)
@@ -45,16 +48,18 @@ func NewUsecase(store Store, alerts Alerts, diagnostics Diagnostics, now func() 
 }
 
 // Execute reports every estimate charge of the alert window not reported
-// before in one summary and marks those charges reported. A summary that is
-// not delivered leaves them for the next run; a failed summary never undoes a
-// charge. A charge that leaves the window unreported is logged.
+// before, and every estimate claim of the window whose balances have not moved
+// for domain.SyncSettlementStallAge, in one summary and marks them reported. A
+// summary that is not delivered leaves them for the next run; a failed summary
+// never undoes a charge. One that leaves the window unreported is logged.
 func (u Usecase) Execute(ctx context.Context) error {
-	windowStart := u.now().Add(-estimateAlertWindow).Unix()
+	now := u.now()
+	windowStart := now.Add(-estimateAlertWindow).Unix()
 	afterFinishTime, afterID := windowStart, int64(0)
 	if previous := *u.windowStart; previous != 0 && previous < windowStart {
 		afterFinishTime = previous
 	}
-	var unreported, agedOut []*domain.Task
+	var unreported, stalledClaims, agedOut []*domain.Task
 	for ctx.Err() == nil {
 		tasks, err := u.store.EstimateCharges(afterFinishTime, afterID, pageSize)
 		if err != nil {
@@ -62,12 +67,21 @@ func (u Usecase) Execute(ctx context.Context) error {
 		}
 		for _, task := range tasks {
 			afterFinishTime, afterID = task.FinishTime, task.ID
-			if r := task.PrivateData.Reconciliation; r == nil || !r.UpstreamCostEstimated || !r.MainApplied || r.EstimateAlertedAt != 0 {
+			// A claim records its finish time, so its age is the time its
+			// balances have not moved.
+			stalledClaim := task.FailReason == domain.SyncEstimatePendingFailReason && task.PrivateData.OpenRouterSyncState().AlertedAt == 0 &&
+				now.Sub(time.Unix(task.FinishTime, 0)) >= domain.SyncSettlementStallAge
+			r := task.PrivateData.Reconciliation
+			charge := r != nil && r.UpstreamCostEstimated && r.MainApplied && r.EstimateAlertedAt == 0
+			if !stalledClaim && !charge {
 				continue
 			}
-			if task.FinishTime < windowStart {
+			switch {
+			case task.FinishTime < windowStart:
 				agedOut = append(agedOut, task)
-			} else {
+			case stalledClaim:
+				stalledClaims = append(stalledClaims, task)
+			default:
 				unreported = append(unreported, task)
 			}
 		}
@@ -84,17 +98,22 @@ func (u Usecase) Execute(ctx context.Context) error {
 		for i, task := range agedOut {
 			taskIDs[i] = task.TaskID
 		}
-		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter estimate charges left the alert window unreported: %s", strings.Join(taskIDs, ", ")))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter estimate charges and stalled claims left the alert window unreported: %s", strings.Join(taskIDs, ", ")))
 	}
-	if len(unreported) == 0 {
+	if len(unreported)+len(stalledClaims) == 0 {
 		return nil
 	}
-	if err := u.alerts.EstimateSettlements(unreported); err != nil {
+	if err := u.alerts.EstimateSettlements(unreported, stalledClaims); err != nil {
 		return err
 	}
-	alertedAt := u.now().Unix()
+	alertedAt := now.Unix()
 	for _, task := range unreported {
 		if err := u.store.MarkEstimateAlerted(task, alertedAt); err != nil {
+			return err
+		}
+	}
+	for _, task := range stalledClaims {
+		if err := u.store.MarkAlerted(task, alertedAt); err != nil {
 			return err
 		}
 	}

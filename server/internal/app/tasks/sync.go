@@ -126,7 +126,7 @@ func (reconciliationAlerts) ManualHolds(holds []*domain.Task) error {
 	return notifications.TelegramChat(subject, content)
 }
 
-func (reconciliationAlerts) EstimateSettlements(tasks []*domain.Task) error {
-	subject, content := runtime.EstimateSettlementsNotification(channelruntime.RootUserLanguage(), tasks)
+func (reconciliationAlerts) EstimateSettlements(charges, stalledClaims []*domain.Task) error {
+	subject, content := runtime.EstimateSettlementsNotification(channelruntime.RootUserLanguage(), charges, stalledClaims)
 	return notifications.TelegramChat(subject, content)
 }

@@ -85,13 +85,22 @@ func TestEstimateSettlementsNotificationSummarizesChargesForRoot(t *testing.T) {
 		charges = append(charges, &domain.Task{TaskID: fmt.Sprintf("task_%d", i), Action: "image",
 			PrivateData: domain.TaskPrivateData{Reconciliation: &domain.TaskReconciliation{ReservedQuota: 5000, TargetQuota: 2500}}})
 	}
-	subject, content := EstimateSettlementsNotification("en", charges)
+	subject, content := EstimateSettlementsNotification("en", charges, nil)
 	assert.Equal(t, "OpenRouter: costs charged by estimate", subject)
 	assert.True(t, strings.HasPrefix(content, "OpenRouter results delivered without an upstream cost were charged an estimate: 13, $0.065000 charged in total."), content)
 	assert.Contains(t, content, "Charges (showing 12/13):\n- task_0 (image): $0.005000")
 	assert.NotContains(t, content, "task_12")
+	assert.NotContains(t, content, "Need repair")
 
-	subject, content = EstimateSettlementsNotification("ru", charges[:1])
+	stalledClaims := []*domain.Task{{TaskID: "task_stalled"}}
+	_, content = EstimateSettlementsNotification("en", charges[:1], stalledClaims)
+	assert.True(t, strings.HasSuffix(content, "$0.005000\n\nNeed repair: 1 estimate settlements claimed over 30 minutes ago never moved the balances; the retries keep failing. Tasks (showing 1/1): task_stalled"), content)
+
+	_, content = EstimateSettlementsNotification("en", nil, stalledClaims)
+	assert.True(t, strings.HasPrefix(content, "Need repair: 1 estimate settlements"), "a summary without charges has only the repair line: %s", content)
+
+	subject, content = EstimateSettlementsNotification("ru", charges[:1], stalledClaims)
 	assert.Equal(t, "OpenRouter: стоимость списана по оценке", subject)
 	assert.True(t, strings.HasPrefix(content, "Результатов OpenRouter, доставленных без стоимости провайдера и списанных по оценке: 1, всего списано $0.005000."), content)
+	assert.Contains(t, content, "\n\nТребуют починки: 1 списаний по оценке")
 }
