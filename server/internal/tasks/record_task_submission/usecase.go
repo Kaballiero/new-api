@@ -32,7 +32,7 @@ func (Usecase) Execute(_ context.Context, input Input) (*domain.Task, error) {
 	task.PrivateData.TokenId, task.PrivateData.NodeName = input.TokenID, input.NodeName
 	task.PrivateData.BillingContext = input.Billing
 	execution := input.Execution
-	if input.CostBasis != nil || (execution != nil && execution.TaskPlugin != nil && execution.TaskPlugin.Key == "openrouter-video") {
+	if input.CostBasis != nil || (execution != nil && execution.TaskPlugin != nil && execution.TaskPlugin.Key == string(domain.TaskPlatformOpenRouterVideo)) {
 		input.Billing.SettlementMode = domain.TaskSettlementOpenRouterCostV1
 		if input.CostBasis != nil {
 			basis := *input.CostBasis
