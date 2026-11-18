@@ -38,12 +38,14 @@ type ReserveSettings struct {
 }
 
 // ReferenceRequest is the reference request of an upstream model of the
-// channel. Only and Ignore are its provider.only and provider.ignore.
+// channel: Chat Completions or Embeddings with PromptTokens, or the speech or
+// rerank reference of the gateway side. Only and Ignore are its provider.only
+// and provider.ignore.
 type ReferenceRequest struct {
 	// Model is the channel model: the billing model of a configured price.
 	Model         string
 	UpstreamModel string
-	Operation     string
+	Operation     ReferenceOperation
 	PromptTokens  int
 	Only, Ignore  []string
 }
@@ -103,7 +105,7 @@ func (u Usecase) Execute(channelID int) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	out := Output{Reference: Reference{Operation: "chat/completions", PromptTokens: referencePromptTokens, OutputTokens: u.outputTokens}, Items: []Item{}}
+	out := Output{Reference: Reference{Operation: ReferenceOperationChatCompletions, PromptTokens: referencePromptTokens, OutputTokens: u.outputTokens}, Items: []Item{}}
 	var catalog map[string]domain.NativeEndpointResponse
 	if published := u.catalog.Load(); published != nil {
 		out.FetchedAt = &published.FetchedAt
@@ -143,15 +145,24 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		item.ManualUSD = &reserve
 	}
 	document, documented := catalog[domain.UpstreamTariffModel(upstream, false)]
-	request := ReferenceRequest{Model: model, UpstreamModel: upstream, Operation: "chat/completions", PromptTokens: referencePromptTokens}
+	request := ReferenceRequest{Model: model, UpstreamModel: upstream, Operation: ReferenceOperationChatCompletions, PromptTokens: referencePromptTokens}
+	// The output modalities choose the reference in this order: embeddings
+	// only, then speech, then rerank, then text; a model with none of them
+	// stays live only. Speech and rerank are priced from the measured
+	// quantities of their own reference request, not from prompt tokens.
 	switch {
 	case !documented:
 		return item
 	case slices.Equal(document.OutputModalities, []string{"embeddings"}):
-		request.Operation = "embeddings"
+		request.Operation = ReferenceOperationEmbeddings
+	case slices.Contains(document.OutputModalities, "speech"):
+		request.Operation, request.PromptTokens = ReferenceOperationAudioSpeech, 0
+	case slices.Contains(document.OutputModalities, "rerank"):
+		request.Operation, request.PromptTokens = ReferenceOperationRerank, 0
 	case !slices.Contains(document.OutputModalities, "text"):
 		return item
 	}
+	item.ReferenceOperation = &request.Operation
 	reserve, err := u.previewer.Preview(channel, request)
 	if err != nil {
 		item.ExampleStatus = ExampleStatusRefused
@@ -166,6 +177,11 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		if reserve.AdmissionPolicy != "" {
 			item.AdmissionPolicy = &reserve.AdmissionPolicy
 		}
+	}
+	if request.Operation == ReferenceOperationAudioSpeech {
+		// The gateway refuses provider routing filters on speech, so speech
+		// has no provider breakdown.
+		return item
 	}
 	var tags []string
 	for _, endpoint := range document.Endpoints {

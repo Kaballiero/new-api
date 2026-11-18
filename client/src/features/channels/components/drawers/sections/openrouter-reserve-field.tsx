@@ -168,6 +168,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           sourceErrors={sources.errors}
           reserveErrors={reserves.errors}
           previewLoaded={preview != null}
+          referenceOperation={preview?.reference.operation}
           unsaved={unsaved}
           disabled={props.disabled}
           onSourceChange={(model, source) => {

@@ -108,16 +108,9 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	return tariffs, nil
 }
 
-// reserveSource names what the reserve of a request is priced from: the
-// configured price, then the approximate (manual) reserve of the channel,
-// then the model tariffs by tariffSourcePrecedence.
-func reserveSource(in Input, tariffs requestTariffs) domain.ReserveSource {
-	if in.ConfiguredPrice {
-		return domain.ReserveSourceConfiguredPrice
-	}
-	if in.ApproximateReserveUSD != nil {
-		return domain.ReserveSourceManual
-	}
+// tariffSource names the model tariffs the reserve of a request is priced
+// from by tariffSourcePrecedence.
+func (tariffs requestTariffs) tariffSource() domain.ReserveSource {
 	source := domain.ReserveSourceCatalog
 	for _, tariff := range tariffs {
 		if slices.Index(tariffSourcePrecedence, tariff.source) < slices.Index(tariffSourcePrecedence, source) {

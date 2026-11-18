@@ -63,6 +63,7 @@ const reservesPreview: OpenRouterReserves = {
       configured_usd: null,
       effective_source: 'catalog',
       admission_policy: 'upstream_estimate',
+      reference_operation: 'chat/completions',
       example_usd: 0.0571,
       example_status: 'ok',
       example_error: null,
@@ -81,6 +82,7 @@ const reservesPreview: OpenRouterReserves = {
       configured_usd: 0.4,
       effective_source: 'live',
       admission_policy: 'model_reserve_add_on',
+      reference_operation: null,
       example_usd: null,
       example_status: 'live_only',
       example_error: null,
@@ -360,6 +362,33 @@ describe('OpenRouter reserve table', () => {
     const refusedProvider = within(providers).getByText('groq').closest('li')
     expect(refusedProvider).toHaveTextContent('Refused')
     expect(refusedProvider).not.toHaveTextContent('$')
+  })
+
+  test('row priced from its own reference request names that operation', async () => {
+    const [catalogItem, liveItem] = reservesPreview.items
+    mockReservesResponse({
+      success: true,
+      data: {
+        ...reservesPreview,
+        items: [
+          catalogItem,
+          {
+            ...liveItem,
+            effective_source: 'manual',
+            reference_operation: 'audio/speech',
+            example_usd: 0.1,
+            example_status: 'ok',
+          },
+        ],
+      },
+    })
+    renderReserveForm()
+    const row = reserveRow('other/reasoner')
+    expect(await row.findByText('$0.10')).toBeVisible()
+    expect(row.getByText('Example request: audio/speech')).toBeVisible()
+    expect(
+      reserveRow('openai/gpt-5-mini').queryByText(/^Example request: /)
+    ).not.toBeInTheDocument()
   })
 
   test('live-only row says it is priced live and shows its known lower bounds', async () => {

@@ -74,19 +74,20 @@ var channelReservesResponse = func() map[string]any {
 	provider := map[string]any{"type": "object", "required": []string{"tag", "tier", "usd"}, "properties": map[string]any{
 		"tag": str, "tier": map[string]any{"type": "string", "enum": []string{"default", "priority", "flex", "ultrafast"}}, "usd": nullableNumber,
 	}}
-	item := map[string]any{"type": "object", "required": []string{"model", "upstream_model", "in_channel", "configured_source", "manual_usd", "configured_usd", "effective_source", "admission_policy", "example_usd", "example_status", "example_error", "providers"}, "properties": map[string]any{
-		"model":             str,
-		"upstream_model":    nullableString,
-		"in_channel":        map[string]any{"type": "boolean"},
-		"configured_source": map[string]any{"type": "string", "nullable": true, "enum": []any{"upstream", "configured_price", nil}},
-		"manual_usd":        nullableNumber,
-		"configured_usd":    nullableNumber,
-		"effective_source":  map[string]any{"type": "string", "nullable": true, "enum": []any{"catalog", "catalog_stale", "live", "configured_price", "manual", nil}},
-		"admission_policy":  map[string]any{"type": "string", "nullable": true, "enum": []any{"model_approximate_reserve", "model_reserve_add_on", "model_reserve_floor", "sonar_research_approximate_reserve", nil}},
-		"example_usd":       nullableNumber,
-		"example_status":    map[string]any{"type": "string", "enum": []string{"ok", "live_only", "needs_live_check", "refused"}},
-		"example_error":     nullableString,
-		"providers":         map[string]any{"type": "array", "items": provider},
+	item := map[string]any{"type": "object", "required": []string{"model", "upstream_model", "in_channel", "configured_source", "manual_usd", "configured_usd", "effective_source", "admission_policy", "reference_operation", "example_usd", "example_status", "example_error", "providers"}, "properties": map[string]any{
+		"model":               str,
+		"upstream_model":      nullableString,
+		"in_channel":          map[string]any{"type": "boolean"},
+		"configured_source":   map[string]any{"type": "string", "nullable": true, "enum": []any{"upstream", "configured_price", nil}},
+		"manual_usd":          nullableNumber,
+		"configured_usd":      nullableNumber,
+		"effective_source":    map[string]any{"type": "string", "nullable": true, "enum": []any{"catalog", "catalog_stale", "live", "configured_price", "manual", nil}},
+		"admission_policy":    map[string]any{"type": "string", "nullable": true, "enum": []any{"model_approximate_reserve", "model_reserve_add_on", "model_reserve_floor", "sonar_research_approximate_reserve", nil}},
+		"reference_operation": map[string]any{"type": "string", "nullable": true, "enum": []any{"chat/completions", "embeddings", "audio/speech", "rerank", nil}},
+		"example_usd":         nullableNumber,
+		"example_status":      map[string]any{"type": "string", "enum": []string{"ok", "live_only", "needs_live_check", "refused"}},
+		"example_error":       nullableString,
+		"providers":           map[string]any{"type": "array", "items": provider},
 	}}
 	data := map[string]any{"type": "object", "required": []string{"fetched_at", "catalog_stale", "reference", "items"}, "properties": map[string]any{
 		"fetched_at":    map[string]any{"type": "string", "format": "date-time", "nullable": true},

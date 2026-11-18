@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "Au moins {{usd}} selon la réserve manuelle",
     "Catalog fetched at {{time}}": "Catalogue récupéré le {{time}}",
     "Catalog is stale": "Le catalogue est obsolète",
+    "Example request: {{operation}}": "Exemple de requête : {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "Exemple de requête : {{operation}}, {{promptTokens}} jetons de prompt et {{outputTokens}} jetons de sortie",
     "Loading reserve examples...": "Chargement des exemples de réserve...",
     "Failed to load reserve examples": "Échec du chargement des exemples de réserve",

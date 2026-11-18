@@ -306,7 +306,7 @@ func TestExecuteSourceOrder(t *testing.T) {
 		{name: "empty pool is refused when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "empty pool takes the local cover when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "empty pool of one model is refused when live fails, not priced by the other", models: []string{"acme/a", "acme/b"}, only: []string{"p"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced, "acme/b": routedP("0.001", "0.002")}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
-		{name: "missing price is checked against live", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
+		{name: "missing price is checked against live", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: 2.04, source: domain.ReserveSourceLive, liveAsked: []string{"acme/a"}},
 		{name: "missing price falls to the local cover when live fails", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "missing price is refused when live fails", models: []string{"acme/a"}, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/a"}},
 		{name: "missing price of a stale document is not checked again", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": unpriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
@@ -320,7 +320,9 @@ func TestExecuteSourceOrder(t *testing.T) {
 		{name: "require_parameters narrowing is refused when live fails", models: []string{"acme/a"}, temperature: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "require_parameters narrowing takes the local cover when live fails", models: []string{"acme/a"}, temperature: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "audio stays live", models: []string{"acme/a"}, audio: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
-		{name: "a stale document is reported under a configured price", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
+		{name: "a configured price below the cost of a stale document", models: []string{"acme/a"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalogStale, wantStale: true, liveAsked: []string{"acme/a"}},
+		{name: "a configured price below the catalog cost", models: []string{"acme/a"}, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalog},
+		{name: "a floor below the catalog cost", models: []string{"acme/a"}, floor: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: 1.02, source: domain.ReserveSourceCatalog},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
@@ -511,7 +513,7 @@ func TestExecutePricesDecisions(t *testing.T) {
 		{name: "price missing from live takes the manual reserve", catalog: response(`{"completion":"0"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"completion":"0"}`)}, manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual, liveAsked: []string{"acme/decide"}},
 		{name: "search price missing from live takes the manual reserve", catalog: response(`{"prompt":"0","completion":"0","web_search":null}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"prompt":"0","completion":"0","web_search":null}`)}, manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual, liveAsked: []string{"acme/decide"}},
 		{name: "price missing from live without a manual reserve is refused", catalog: response(`{"completion":"0"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"completion":"0"}`)}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/decide"}},
-		{name: "manual reserve below the cost is raised to it", catalog: searching, manual: &lowManual, wantUSD: .0423, wantSource: domain.ReserveSourceManual},
+		{name: "manual reserve below the cost is raised to it", catalog: searching, manual: &lowManual, wantUSD: .0423, wantSource: domain.ReserveSourceCatalog},
 		{name: "non-zero completion rate is refused", catalog: response(`{"prompt":"0.0000003","completion":"0.00001"}`), wantErr: "OpenRouter estimate unavailable: OpenRouter decisions output quantity is unmeasured: completion"},
 		{name: "non-zero reasoning rate is refused", catalog: response(`{"prompt":"0.0000003","completion":"0","internal_reasoning":"0.00001"}`), wantErr: "OpenRouter estimate unavailable: OpenRouter decisions output quantity is unmeasured: internal_reasoning"},
 		{name: "non-zero completion rate takes the manual reserve", catalog: response(`{"prompt":"0.0000003","completion":"0.00001"}`), manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual},
@@ -587,7 +589,7 @@ func TestExecuteUnitCost(t *testing.T) {
 		endpoint.Pricing = endpointPricing(t, deps, pricing)
 		return endpoint
 	}
-	manual, lowManual := .5, .01
+	manual, lowManual, equalManual := .5, .01, .03
 	for _, tc := range []struct {
 		name      string
 		endpoints []domain.NativePricedEndpoint
@@ -604,7 +606,8 @@ func TestExecuteUnitCost(t *testing.T) {
 		{name: "maximum over the endpoints", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003")), endpoint("seed", price(seconds, "0.0025"))}, wantUSD: .075, source: domain.ReserveSourceCatalog},
 		{name: "a zero price of an unmeasured dimension bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"), price(domain.PriceDimension{}, "0"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
 		{name: "a measured zero quantity bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{characters: 0}, wantUSD: 0, source: domain.ReserveSourceCatalog},
-		{name: "a manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &lowManual, wantUSD: .03, source: domain.ReserveSourceManual},
+		{name: "a manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &lowManual, wantUSD: .03, source: domain.ReserveSourceCatalog},
+		{name: "a manual reserve equal to the cost keeps the catalog source", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &equalManual, wantUSD: .03, source: domain.ReserveSourceCatalog},
 		{name: "a manual reserve above the cost is kept", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
 		{name: "an unknown price is refused", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, "0.00003"), price(domain.PriceDimension{}, ""))}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit price is unknown"},
 		{name: "an unknown price takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, ""))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
@@ -619,7 +622,7 @@ func TestExecuteUnitCost(t *testing.T) {
 		{name: "rerank per token", endpoints: []domain.NativePricedEndpoint{endpoint("voyageai", price(inputTokens, "0.05"))}, units: rerankUnits, rerank: true, wantUSD: .0015, source: domain.ReserveSourceCatalog},
 		{name: "rerank maximum over search prices", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, "0.001")), endpoint("bedrock", price(searches, "0.002"))}, units: rerankUnits, rerank: true, wantUSD: .004, source: domain.ReserveSourceCatalog},
 		{name: "rerank maximum over search and token prices", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, "0.001")), endpoint("mongodb", price(inputTokens, "0.1"))}, units: rerankUnits, rerank: true, wantUSD: .003, source: domain.ReserveSourceCatalog},
-		{name: "rerank manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("voyageai", price(inputTokens, "0.5"))}, units: rerankUnits, rerank: true, manual: &lowManual, wantUSD: .015, source: domain.ReserveSourceManual},
+		{name: "rerank manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("voyageai", price(inputTokens, "0.5"))}, units: rerankUnits, rerank: true, manual: &lowManual, wantUSD: .015, source: domain.ReserveSourceCatalog},
 		{name: "rerank unknown price is refused", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, ""))}, units: rerankUnits, rerank: true, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit price is unknown"},
 		{name: "rerank unknown price takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, ""))}, units: rerankUnits, rerank: true, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
 	} {

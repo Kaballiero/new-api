@@ -64,6 +64,9 @@ type OpenRouterReserveTableProps = {
   sourceErrors: Map<string, OpenRouterPolicyEntryError | undefined>
   reserveErrors: Map<string, OpenRouterPolicyEntryError | undefined>
   previewLoaded: boolean
+  // The operation of the response-level example request; a row names its own
+  // reference operation only when it differs.
+  referenceOperation?: string
   unsaved: boolean
   disabled: boolean
   onSourceChange: (model: string, source: string) => void
@@ -230,6 +233,7 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
               return (
                 <OpenRouterReserveExample
                   item={preview}
+                  referenceOperation={props.referenceOperation}
                   usdFormatter={usdFormatter}
                 />
               )
@@ -284,20 +288,32 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
 
 function OpenRouterReserveExample(props: {
   item: OpenRouterReserveItem
+  referenceOperation?: string
   usdFormatter: Intl.NumberFormat
 }) {
   const { t } = useTranslation()
   const isLive = OPENROUTER_LIVE_EXAMPLE_STATUSES.has(props.item.example_status)
   const isRefused =
     props.item.example_status === OPENROUTER_REFUSED_EXAMPLE_STATUS
+  const ownReference = props.item.reference_operation != null &&
+    props.item.reference_operation !== props.referenceOperation && (
+      <span className='text-muted-foreground'>
+        {t('Example request: {{operation}}', {
+          operation: props.item.reference_operation,
+        })}
+      </span>
+    )
   if (!isLive && !isRefused) {
     if (props.item.example_usd == null) {
       return <span className='text-muted-foreground'>-</span>
     }
     return (
-      <span className='font-mono text-xs'>
-        {props.usdFormatter.format(props.item.example_usd)}
-      </span>
+      <div className='flex flex-col gap-0.5 text-xs whitespace-normal'>
+        <span className='font-mono'>
+          {props.usdFormatter.format(props.item.example_usd)}
+        </span>
+        {ownReference}
+      </div>
     )
   }
   return (
@@ -307,6 +323,7 @@ function OpenRouterReserveExample(props: {
       ) : (
         <span className='text-destructive'>{props.item.example_error}</span>
       )}
+      {ownReference}
       {props.item.configured_usd != null && (
         <span className='text-muted-foreground'>
           {t('At least {{usd}} by the configured price', {

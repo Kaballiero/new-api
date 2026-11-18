@@ -15,13 +15,14 @@ type Output struct {
 	Items        []Item     `json:"items"`
 }
 
-// Reference is the request each example prices: a nonstream request without
-// an output limit, so the gateway reserves OutputTokens capped by the
-// endpoint.
+// Reference is the request the Chat Completions and Embeddings examples
+// price: a nonstream request without an output limit, so the gateway reserves
+// OutputTokens capped by the endpoint. Speech and rerank examples price their
+// own reference request (Item.ReferenceOperation).
 type Reference struct {
-	Operation    string `json:"operation"`
-	PromptTokens int    `json:"prompt_tokens"`
-	OutputTokens int    `json:"output_tokens"`
+	Operation    ReferenceOperation `json:"operation"`
+	PromptTokens int                `json:"prompt_tokens"`
+	OutputTokens int                `json:"output_tokens"`
 }
 
 // Item is a channel model or a reserve setting key of a model outside the
@@ -35,10 +36,13 @@ type Item struct {
 	ConfiguredUSD    *float64                `json:"configured_usd"`
 	EffectiveSource  *domain.ReserveSource   `json:"effective_source"`
 	AdmissionPolicy  *domain.AdmissionPolicy `json:"admission_policy"`
-	ExampleUSD       *float64                `json:"example_usd"`
-	ExampleStatus    ExampleStatus           `json:"example_status"`
-	ExampleError     *string                 `json:"example_error"`
-	Providers        []Provider              `json:"providers"`
+	// ReferenceOperation is the operation of the reference request the
+	// example prices; nil when no reference request is priced (live_only).
+	ReferenceOperation *ReferenceOperation `json:"reference_operation"`
+	ExampleUSD         *float64            `json:"example_usd"`
+	ExampleStatus      ExampleStatus       `json:"example_status"`
+	ExampleError       *string             `json:"example_error"`
+	Providers          []Provider          `json:"providers"`
 }
 
 // Provider is the example of an item restricted to one endpoint tag of the
@@ -49,6 +53,17 @@ type Provider struct {
 	USD  *float64           `json:"usd"`
 }
 
+// ReferenceOperation is the operation of a reference request, as the gateway
+// names it.
+type ReferenceOperation string
+
+const (
+	ReferenceOperationChatCompletions ReferenceOperation = "chat/completions"
+	ReferenceOperationEmbeddings      ReferenceOperation = "embeddings"
+	ReferenceOperationAudioSpeech     ReferenceOperation = "audio/speech"
+	ReferenceOperationRerank          ReferenceOperation = "rerank"
+)
+
 // ExampleStatus tells whether the example of an item is priced.
 type ExampleStatus string
 
@@ -56,8 +71,9 @@ const (
 	ExampleStatusOK ExampleStatus = "ok"
 	// ExampleStatusLiveOnly is a model the upstream catalog does not price
 	// for the channel: no published or a stale catalog, a channel off the
-	// official OpenRouter API, a model outside the catalog or without text or
-	// embeddings output. The gateway prices it from live endpoints.
+	// official OpenRouter API, a model outside the catalog or without text,
+	// embeddings, speech or rerank output. The gateway prices it from live
+	// endpoints.
 	ExampleStatusLiveOnly ExampleStatus = "live_only"
 	// ExampleStatusNeedsLiveCheck is a catalog model the gateway checks
 	// against live endpoints, for example for a missing price.

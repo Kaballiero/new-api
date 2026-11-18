@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -1205,17 +1206,20 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 		noPolicy, wrongPolicy, noPrice, useRatio          bool
 		missingCost, insufficient, knownAboveLocal        bool
 		zeroTariffs                                       bool
+		// wantSource is the reserve source of an admitted configured price
+		// reserve; configured_price when empty.
+		wantSource pricingdomain.ReserveSource
 	}{
 		{name: "fixed configured price", price: 2},
 		{name: "configured price preserves minimum", price: 2, minimum: 3},
-		{name: "known upstream cost wins", price: 2, rateKey: "completion", rate: "1", knownAboveLocal: true},
+		{name: "known upstream cost wins", price: 2, rateKey: "completion", rate: "1", knownAboveLocal: true, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "expression uses effective payload", expression: `param("max_tokens") == 128 ? tier("effective", fixed(2)) : tier("other", fixed(7))`},
 		{name: "token expression uses USD per million", expression: `tier("tokens", c * 15625)`},
 		{name: "expression receives request headers", expression: `header("x-reserve") == "yes" ? tier("header", fixed(2)) : tier("other", fixed(7))`},
 		{name: "legacy ratio convention", useRatio: true, ratio: 5000},
 		{name: "unknown reasoning accepted by positive estimate", price: 2, rateKey: "internal_reasoning", rate: "0.000003"},
-		{name: "zero local does not erase upstream", price: 0},
-		{name: "confirmed zero preserved", price: 0, zeroTariffs: true},
+		{name: "zero local does not erase upstream", price: 0, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "confirmed zero preserved", price: 0, zeroTariffs: true, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "zero cannot cover unknown quantity", rateKey: "internal_reasoning", rate: "0.000003", wantError: "requires a positive reserve"},
 		{name: "disabled by default", price: 2, noPolicy: true},
 		{name: "explicit upstream", price: 2, source: dto.OpenRouterReservationUpstream},
@@ -1327,7 +1331,9 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 				assert.Equal(t, pricingdomain.ReserveSourceLive, info.OpenRouterCost.ReserveSource)
 			} else {
 				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
-				assert.Equal(t, pricingdomain.ReserveSourceConfiguredPrice, info.OpenRouterCost.ReserveSource)
+				// The configured price names the reserve only above the
+				// upstream estimate.
+				assert.Equal(t, cmp.Or(tc.wantSource, pricingdomain.ReserveSourceConfiguredPrice), info.OpenRouterCost.ReserveSource)
 				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)
@@ -2782,6 +2788,15 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			require.True(t, exists)
 			assert.Equal(t, "rerank", task.Action)
 			assert.Equal(t, constant.TaskPlatformOpenRouterRerank, task.Platform)
+			// The task facts carry the reserve source to the reservation log.
+			wantSource := "manual"
+			if tc.configured {
+				wantSource = "configured_price"
+			}
+			assert.Equal(t, wantSource, task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+			var reservation Log
+			require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
+			assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"`+wantSource+`"`)
 			assert.Nil(t, task.PrivateData.OpenRouterAudio)
 			require.NotNil(t, task.PrivateData.OpenRouterSync)
 			if task.PrivateData.OpenRouterSync.ResultReady {

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/preview_channel_reserves"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,16 @@ func TestChannelReservesPreview(t *testing.T) {
 		require.NoError(t, common.UnmarshalJsonStr(pricing, &prices))
 		return domain.NativeEndpointResponse{Endpoints: []domain.NativePricedEndpoint{{Tag: tag, MaxCompletionTokens: 100, Pricing: prices}}, OutputModalities: output}
 	}
+	// unitTariff prices one unit of a speech or rerank endpoint at usd.
+	unitTariff := func(billable domain.PriceBillable, unit domain.PriceUnit, usd string, output string) domain.NativeEndpointResponse {
+		response := tariff("provider", `{"prompt":"0","completion":"0"}`, output)
+		amount := decimal.RequireFromString(usd)
+		response.Endpoints[0].UnitPrices = []domain.EndpointUnitPrice{{Dimension: domain.PriceDimension{Billable: billable, Unit: unit}, USD: &amount}}
+		return response
+	}
 	pricingruntime.UpstreamCatalogTariffs.Store(&domain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]domain.NativeEndpointResponse{
+		"test/speech":                    unitTariff(domain.PriceBillableOutputSpeech, domain.PriceUnitCharacter, "0.00003", "speech"),
+		"test/rerank":                    unitTariff(domain.PriceBillableSearch, domain.PriceUnitSearch, "0.002", "rerank"),
 		"test/model":                     tariff("provider", `{"prompt":"0.001","completion":"0.002"}`, "text"),
 		"test/search":                    tariff("provider", `{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`, "text"),
 		"test/embed":                     tariff("provider", `{"prompt":"0.001"}`, "embeddings"),
@@ -47,9 +57,10 @@ func TestChannelReservesPreview(t *testing.T) {
 	configuredUSD := 5.0
 
 	for _, tc := range []struct {
-		name, model, operation, setting, baseURL string
-		want                                     preview_channel_reserves.ReservePreview
-		wantErr                                  error
+		name, model, setting, baseURL string
+		operation                     preview_channel_reserves.ReferenceOperation
+		want                          preview_channel_reserves.ReservePreview
+		wantErr                       error
 	}{
 		{name: "floor below the estimate of a web_search endpoint", model: "test/search", setting: `{"openrouter_model_reserve_usd":{"test/search":0.05}}`,
 			want: preview_channel_reserves.ReservePreview{USD: 1.21, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor}},
@@ -61,8 +72,16 @@ func TestChannelReservesPreview(t *testing.T) {
 			want: preview_channel_reserves.ReservePreview{USD: 5, Source: domain.ReserveSourceConfiguredPrice, ConfiguredUSD: &configuredUSD}},
 		{name: "legacy Sonar research reserve", model: "perplexity/sonar-deep-research", setting: `{"openrouter_sonar_research_reserve_usd":2}`,
 			want: preview_channel_reserves.ReservePreview{USD: 2, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicySonarResearchApproximateReserve}},
-		{name: "embeddings", model: "test/embed", operation: "embeddings",
+		{name: "embeddings", model: "test/embed", operation: preview_channel_reserves.ReferenceOperationEmbeddings,
 			want: preview_channel_reserves.ReservePreview{USD: 1, Source: domain.ReserveSourceCatalog}},
+		{name: "speech of the reference input", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech,
+			want: preview_channel_reserves.ReservePreview{USD: .003, Source: domain.ReserveSourceCatalog}},
+		{name: "speech reserve above the estimate is the manual reserve", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech, setting: `{"openrouter_model_reserve_usd":{"test/speech":0.1}}`,
+			want: preview_channel_reserves.ReservePreview{USD: .1, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
+		{name: "rerank of the reference documents", model: "test/rerank", operation: preview_channel_reserves.ReferenceOperationRerank,
+			want: preview_channel_reserves.ReservePreview{USD: .002, Source: domain.ReserveSourceCatalog}},
+		{name: "rerank reserve below the estimate keeps the catalog source", model: "test/rerank", operation: preview_channel_reserves.ReferenceOperationRerank, setting: `{"openrouter_model_reserve_usd":{"test/rerank":0.001}}`,
+			want: preview_channel_reserves.ReservePreview{USD: .002, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
 		{name: "outside the catalog", model: "other/model", baseURL: live.URL, wantErr: domain.ErrEndpointDiscoveryMissing},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -70,7 +89,7 @@ func TestChannelReservesPreview(t *testing.T) {
 			if tc.baseURL != "" {
 				base = tc.baseURL
 			}
-			operation := "chat/completions"
+			operation := preview_channel_reserves.ReferenceOperationChatCompletions
 			if tc.operation != "" {
 				operation = tc.operation
 			}

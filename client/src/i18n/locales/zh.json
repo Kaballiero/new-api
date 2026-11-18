@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "按手动预留至少 {{usd}}",
     "Catalog fetched at {{time}}": "目录获取于 {{time}}",
     "Catalog is stale": "目录已过期",
+    "Example request: {{operation}}": "示例请求：{{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "示例请求：{{operation}}，{{promptTokens}} 个提示 token 和 {{outputTokens}} 个输出 token",
     "Loading reserve examples...": "正在加载预留示例...",
     "Failed to load reserve examples": "加载预留示例失败",

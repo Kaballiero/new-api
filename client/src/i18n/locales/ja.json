@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "手動予約額で最低 {{usd}}",
     "Catalog fetched at {{time}}": "カタログ取得日時 {{time}}",
     "Catalog is stale": "カタログが古くなっています",
+    "Example request: {{operation}}": "リクエスト例: {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "リクエスト例: {{operation}}、プロンプト {{promptTokens}} トークン、出力 {{outputTokens}} トークン",
     "Loading reserve examples...": "予約額の例を読み込み中...",
     "Failed to load reserve examples": "予約額の例を読み込めませんでした",

@@ -3095,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "依手動預留至少 {{usd}}",
     "Catalog fetched at {{time}}": "目錄擷取於 {{time}}",
     "Catalog is stale": "目錄已過期",
+    "Example request: {{operation}}": "範例請求：{{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "範例請求：{{operation}}，{{promptTokens}} 個提示 token 與 {{outputTokens}} 個輸出 token",
     "Loading reserve examples...": "正在載入預留範例...",
     "Failed to load reserve examples": "載入預留範例失敗",
