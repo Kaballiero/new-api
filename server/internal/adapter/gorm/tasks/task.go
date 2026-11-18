@@ -24,6 +24,10 @@ import (
 // synchronous reservation lifecycle instead of provider polling.
 var openRouterSyncPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}
 
+// openRouterEstimateHoldPlatforms are the synchronous platforms whose manual
+// holds can settle at an estimate: text on chat-image and native images.
+var openRouterEstimateHoldPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterChatImage, constant.TaskPlatformOpenRouterImage}
+
 // Store executes task queries and mutations against the current primary database.
 type Store struct {
 	db       func() *gorm.DB
@@ -314,6 +318,43 @@ func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {
 	})
 }
 
+// GetPendingEstimateSettlements pages the estimate claims whose balances have
+// not moved yet, as whole rows.
+func (s Store) GetPendingEstimateSettlements(afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.db().Where("platform IN ? AND status = ? AND fail_reason = ?", openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimatePendingFailReason).
+		Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// GetEstimateCharges pages the tasks that may carry an estimate charge, holds
+// settled at an estimate and successful OpenRouter videos, that finished
+// after the (finish_time, id) cursor, in that order, with only the columns
+// the estimate summary reads. The keyset lets the finish_time index bound the
+// scan.
+func (s Store) GetEstimateCharges(afterFinishTime, afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.db().Select("id", "task_id", "action", "finish_time", "private_data").
+		Where("((platform IN ? AND status = ? AND fail_reason = ?) OR (platform = ? AND status = ?))",
+			openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimateSettledFailReason, constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess).
+		Where("finish_time >= ? AND (finish_time > ? OR id > ?)", afterFinishTime, afterFinishTime, afterID).
+		Order("finish_time").Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// MarkEstimateAlerted records when an estimate charge was reported on the
+// locked row, keeping every other field another writer may have changed.
+func (s Store) MarkEstimateAlerted(id, alertedAt int64) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
+		var saved record.Task
+		if err := locking.LockForUpdate(tx).First(&saved, id).Error; err != nil {
+			return err
+		}
+		saved.PrivateData.Reconciliation.EstimateAlertedAt = alertedAt
+		return tx.Model(&record.Task{}).Where("id = ?", id).Update("private_data", saved.PrivateData).Error
+	})
+}
+
 func (s Store) manualHolds() *gorm.DB {
 	return s.db().Model(&record.Task{}).
 		Where("status = ?", record.TaskStatusFailure).
@@ -587,8 +628,12 @@ func (s Store) ApplyTaskCostSettlement(t *record.Task) (string, error) {
 		delta := state.TargetQuota - state.ReservedQuota
 		// The conditional write also claims the SQLite row before any balances move.
 		state.MainApplied = true
-		result := tx.Model(&record.Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).
-			Updates(map[string]any{"quota": state.TargetQuota, "private_data": saved.PrivateData})
+		updates := map[string]any{"quota": state.TargetQuota, "private_data": saved.PrivateData}
+		// An estimate claim leaves the pending retry once its balances move.
+		if saved.FailReason == domain.SyncEstimatePendingFailReason {
+			updates["fail_reason"] = domain.SyncEstimateSettledFailReason
+		}
+		result := tx.Model(&record.Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -642,6 +687,9 @@ func (s Store) ApplyTaskCostSettlement(t *record.Task) (string, error) {
 	if err == nil {
 		t.Quota = t.PrivateData.Reconciliation.TargetQuota
 		t.PrivateData.Reconciliation.MainApplied = true
+		if t.FailReason == domain.SyncEstimatePendingFailReason {
+			t.FailReason = domain.SyncEstimateSettledFailReason
+		}
 	}
 	return tokenKey, err
 }

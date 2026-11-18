@@ -283,7 +283,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			}
 		}
 	}
-	if platform == "openrouter-video" {
+	if platform == constant.TaskPlatformOpenRouterVideo {
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
 		effective, applyErr := billinggateway.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
 		if applyErr != nil {
@@ -395,7 +395,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 9. 发送请求
-	if platform == "openrouter-video" {
+	if platform == constant.TaskPlatformOpenRouterVideo {
 		// A failed receipt may still represent an accepted paid job.
 		c.Set("openrouter_video_dispatched", true)
 	}
@@ -407,7 +407,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		return nil, mapping.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && !(platform == "openrouter-video" && resp.StatusCode == http.StatusAccepted) {
+	if resp.StatusCode != http.StatusOK && !(platform == constant.TaskPlatformOpenRouterVideo && resp.StatusCode == http.StatusAccepted) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, mapping.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}

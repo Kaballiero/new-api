@@ -27,7 +27,7 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 		billing = SyncBillingManualReconciliation
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled", "auto_released", SyncReasonReservationRefused:
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled", "auto_released", SyncReasonReservationRefused, SyncReasonEstimateSettled:
 		reason = a.LastError
 	default:
 		if billing == SyncBillingManualReconciliation {
@@ -43,7 +43,7 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 	}
 	return map[string]any{"submission_state": submission, "billing_state": billing, "reason_code": reason,
 		"replay_allowed": false, "identity_available": task.PrivateData.UpstreamTaskID != "" && !a.IdentityConflict,
-		"cost_confirmed": r.HasUpstreamCost && r.UpstreamCostConfirmed, "next_lookup_at": nextLookup,
+		"cost_confirmed": r.HasUpstreamCost && r.UpstreamCostConfirmed && !r.UpstreamCostEstimated, "next_lookup_at": nextLookup,
 		"result_ready": a.ResultReady, "result_failed": a.ResultFailed}
 }
 
@@ -73,5 +73,6 @@ func OpenRouterSyncAdminView(task *Task) map[string]any {
 	view["release_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease) || retryable && r.UpstreamCostUSD == 0
 	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorSettle) || retryable && r.UpstreamCostUSD > 0
 	view["alerted_at"] = a.AlertedAt
+	view["cost_estimated"] = r.UpstreamCostEstimated
 	return view
 }

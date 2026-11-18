@@ -60,10 +60,14 @@ func (u Usecase) Execute(ctx context.Context, input Input) error {
 	if state.GenerationID != "" && len(state.GenerationID) <= 512 {
 		task.PrivateData.UpstreamTaskID = state.GenerationID
 	}
-	if !state.Final && task.PrivateData.UpstreamTaskID == "" && task.Platform != string(domain.TaskPlatformOpenRouterChatImage) {
+	// A native image has no cost lookup: one delivered without its cost waits
+	// for the estimate settlement in manual reconciliation.
+	nativeImage := task.Platform == string(domain.TaskPlatformOpenRouterImage)
+	if !state.Final && task.PrivateData.UpstreamTaskID == "" && task.Platform != string(domain.TaskPlatformOpenRouterChatImage) && !nativeImage {
 		return errors.New("OpenRouter synchronous cost and generation identity are unavailable")
 	}
 	a.ResultReady, a.ResultMimeType, a.ResultSize = true, input.MimeType, input.BodySize
+	a.UsageEstimateUSD = state.UsageEstimateUSD
 	r.SubmissionPending = false
 	a.NextPoll = u.now().Unix()
 	finishAfterSettlement := false
@@ -71,7 +75,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) error {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		r.UpstreamIsBYOK, r.UpstreamCostDetails = state.IsBYOK, string(state.CostDetails)
 		finishAfterSettlement = domain.ConfirmSyncCost(task, u.now(), u.settlement.Prepare)
-	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && a.MetadataURL == "" {
+	} else if nativeImage || task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && a.MetadataURL == "" {
 		domain.MarkSyncManual(task, "missing_generation_identity", u.now().Unix())
 	}
 	u.codec.Project(task)

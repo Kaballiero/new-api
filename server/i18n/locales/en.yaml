@@ -649,6 +649,8 @@ tasks.mj_timeout: "Upstream task timed out (more than 1 hour)"
 tasks.mj_failure: "Image composition failed"
 tasks.sync_manual_holds_subject: "OpenRouter: reserves need manual reconciliation"
 tasks.sync_manual_holds: "New OpenRouter reserves in manual reconciliation: {{.Count}}, {{.Reserved}} held in total. The reserves stay held until root resolves each one in the task details of the task logs.\n\nHolds (showing {{.Shown}}/{{.Count}}):"
+tasks.sync_estimate_settlements_subject: "OpenRouter: costs charged by estimate"
+tasks.sync_estimate_settlements: "OpenRouter results delivered without an upstream cost were charged an estimate: {{.Count}}, {{.Charged}} charged in total. A text is charged its tokens at the largest tariff of its reserve, an image or a video its reserve; no estimate exceeds the reserve. Check them against the OpenRouter activity.\n\nCharges (showing {{.Shown}}/{{.Count}}):"
 
 # Batch messages: Chinese locales preserve the previous response bytes.
 batch.batch_busy: "batch reconciliation is already in progress"

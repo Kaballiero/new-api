@@ -7,11 +7,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 
 	"github.com/shopspring/decimal"
 )
 
 type OpenRouterCostBasis = common.OpenRouterCostBasis
+
+// OpenRouterCostSourceEstimate marks a CostUSD estimated in place of a missing
+// upstream cost.
+const OpenRouterCostSourceEstimate = usagedomain.OpenRouterCostSourceEstimate
 
 // OpenRouterCostState is independent of token projections and estimates.
 type OpenRouterCostState struct {
@@ -64,6 +69,10 @@ type OpenRouterCostState struct {
 	ReserveQuantities map[pricingdomain.ReserveQuantity]int
 	// OutputReserve is set for a text reserve priced from endpoint tariffs.
 	OutputReserve *OpenRouterOutputReserve
+	// UsageEstimateUSD prices the usage of a delivered text at the largest
+	// endpoint tariffs of OutputReserve, capped by the reserve; zero without
+	// a tariff.
+	UsageEstimateUSD float64
 }
 
 // OpenRouterOutputReserve bounds a text reserve over its eligible endpoints:

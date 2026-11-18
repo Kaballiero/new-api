@@ -175,11 +175,12 @@ func TestNativeImageResponseContract(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, errorText string
 		cost                  float64
+		costMissing           bool
 	}{
 		{name: "image and authoritative USD", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q,"media_type":"image/png"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"cost":0.04}}`, encoded), cost: 0.04},
 		{name: "explicit free price", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}],"usage":{"cost":0}}`, encoded)},
-		{name: "no usage", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}]}`, encoded), errorText: "cost is missing"},
-		{name: "null cost", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}],"usage":{"cost":null}}`, encoded), errorText: "cost is missing"},
+		{name: "no usage", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}]}`, encoded), costMissing: true},
+		{name: "null cost", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}],"usage":{"cost":null}}`, encoded), costMissing: true},
 		{name: "negative charge", body: fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q}],"usage":{"cost":-1}}`, encoded), errorText: "invalid OpenRouter image cost"},
 		{name: "no image despite HTTP200", body: `{"created":123,"data":[],"usage":{"cost":0.04}}`, errorText: "no valid image"},
 		{name: "invalid image despite HTTP200", body: `{"created":123,"data":[{"b64_json":"aGVsbG8="}],"usage":{"cost":0.04}}`, errorText: "invalid OpenRouter raster"},
@@ -196,7 +197,11 @@ func TestNativeImageResponseContract(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, response.Data, 1)
 			assert.Equal(t, encoded, response.Data[0].B64JSON)
-			assert.Equal(t, tc.cost, usage.Cost)
+			if tc.costMissing {
+				assert.Nil(t, usage.Cost, "a missing cost stays distinct from an explicit zero")
+			} else {
+				assert.Equal(t, tc.cost, usage.Cost)
+			}
 			assert.Zero(t, usage.TotalTokens, "cost billing must not invent tokens")
 		})
 	}
@@ -1444,6 +1449,8 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		// estimateAboveReserve is a tariff estimate above the channel reserve,
 		// which names the reserve live.
 		estimateAboveReserve bool
+		// partialImages requests two images while the upstream returns one.
+		partialImages bool
 	}{
 		{name: "empty reservation source", reserve: .02, sourceSet: true, wantError: "unsupported OpenRouter image reservation source"},
 		{name: "unknown reservation source", reserve: .02, sourceSet: true, source: "invalid", wantError: "unsupported OpenRouter image reservation source"},
@@ -1464,6 +1471,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "reserve floor", reserve: .06, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
 		{name: "legacy known price without storage", noReserve: true, storageDisabled: true, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
 		{name: "published zero", noReserve: true, cost: "0", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0}]`},
+		{name: "missing cost without storage charges the estimate", noReserve: true, storageDisabled: true, pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
 		{name: "no reserve", noReserve: true, wantError: "tariff unavailable"},
 		{name: "alias reserve rejected", reserve: .02, aliasReserve: true, wantError: "tariff unavailable"},
 		{name: "zero reserve", wantError: "invalid OpenRouter image channel reserve"},
@@ -1489,6 +1497,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "multiple references", reserve: .02, extra: `"image":["https://example.com/a","https://example.com/b"]`, wantError: "unpriced OpenRouter image requires"},
 		{name: "client reserve closed", reserve: .02, extra: `"openrouter_model_reserve_usd":100`, wantError: "is unsupported"},
 		{name: "missing cost", reserve: .02},
+		{name: "partial images without cost stay with root", reserve: .02, partialImages: true, extra: `"n":2`, pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`, estimateAboveReserve: true},
 		{name: "null cost", reserve: .02, cost: "null"},
 		{name: "negative cost", reserve: .02, cost: "-1"},
 		{name: "string cost", reserve: .02, cost: `"0.01"`},
@@ -1536,6 +1545,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 					capabilities := `{"resolution":{"type":"enum","values":["1K","2K"]},"aspect_ratio":{"type":"enum","values":["1:1"]},"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
 					if tc.noCapability {
 						capabilities = `{"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
+					}
+					if tc.partialImages {
+						capabilities = `{"n":{"type":"range","min":1,"max":4},"resolution":{"type":"enum","values":["1K","2K"]},"aspect_ratio":{"type":"enum","values":["1:1"]},"input_references":{"type":"range","min":1,"max":8}}`
 					}
 					endpoints := fmt.Sprintf(`[{"provider_tag":%q,"supported_parameters":%s,"pricing":%s}]`, provider, capabilities, pricing)
 					if tc.noEndpoint {
@@ -1671,8 +1683,12 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 						if tc.noReserve && apiErr == nil {
 							service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 						}
-						if tc.cost == "" || tc.cost == "null" || tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.badImage || tc.expired || tc.lateHeaders {
+						// A delivered image without its cost succeeds; its reserve is the estimate.
+						if tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.badImage || tc.expired || tc.lateHeaders || tc.partialImages {
 							require.NotNil(t, apiErr)
+							if tc.partialImages {
+								assert.Contains(t, apiErr.Error(), "result is partial")
+							}
 						} else {
 							require.Nil(t, apiErr)
 						}
@@ -1707,8 +1723,17 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				assert.False(t, relaycommon.HasOpenRouterSyncTask(info))
 				var user model.User
 				require.NoError(t, db.First(&user, id).Error)
-				cost, costErr := common.ValidateOpenRouterCost([]byte(tc.cost))
-				require.NoError(t, costErr)
+				cost := info.NativeImage.EstimatedCostUSD
+				var consume model.Log
+				require.NoError(t, logDB.Where("user_id = ?", id).Order("id desc").First(&consume).Error)
+				if tc.cost == "" {
+					assert.Contains(t, consume.Other, `"openrouter_cost_source":"estimate"`)
+				} else {
+					var costErr error
+					cost, costErr = common.ValidateOpenRouterCost([]byte(tc.cost))
+					require.NoError(t, costErr)
+					assert.NotContains(t, consume.Other, "openrouter_cost_source")
+				}
 				assert.Equal(t, quota-common.QuotaRound(cost*common.QuotaPerUnit*1.5), user.Quota)
 				assert.Equal(t, 1, posts)
 				return
@@ -1780,7 +1805,8 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			if known && !tc.partial {
 				require.Error(t, taskrecord.FailOpenRouterSyncTask(info, "duplicate_cost"))
 			}
-			if tc.crash == "" && !tc.transportError && !tc.httpError && known && !tc.badImage && !tc.expired && !tc.lateHeaders {
+			costMissing := (tc.cost == "" || tc.cost == "null") && !tc.partialImages
+			if tc.crash == "" && !tc.transportError && !tc.httpError && (known || costMissing) && !tc.badImage && !tc.expired && !tc.lateHeaders {
 				assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
 				assert.Empty(t, task.PrivateData.OpenRouterSyncState().ResultSHA256)
 				assert.Equal(t, "application/json", task.PrivateData.OpenRouterSyncState().ResultMimeType)

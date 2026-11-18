@@ -740,8 +740,10 @@ const (
 
 // Async-task alerts to the operators use the root user's language.
 const (
-	MsgTasksSyncManualHoldsSubject = "tasks.sync_manual_holds_subject"
-	MsgTasksSyncManualHolds        = "tasks.sync_manual_holds"
+	MsgTasksSyncManualHoldsSubject         = "tasks.sync_manual_holds_subject"
+	MsgTasksSyncManualHolds                = "tasks.sync_manual_holds"
+	MsgTasksSyncEstimateSettlementsSubject = "tasks.sync_estimate_settlements_subject"
+	MsgTasksSyncEstimateSettlements        = "tasks.sync_estimate_settlements"
 )
 
 // Usage alerts to the operators use the root user's language.

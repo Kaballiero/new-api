@@ -35,6 +35,11 @@ type FX struct {
 	EffectiveAt        int64
 	FetchedAt          int64
 }
+
+// OpenRouterCostSourceEstimate is the cost source of a CostUSD estimated in
+// place of a missing upstream cost.
+const OpenRouterCostSourceEstimate = "estimate"
+
 type OpenRouterCostState struct {
 	Basis       billingdomain.ProviderBasis
 	CostUSD     float64
