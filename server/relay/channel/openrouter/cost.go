@@ -58,12 +58,26 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	info.ForcePreConsume = true
 	info.TieredBillingSnapshot = nil
 	info.PriceData.FreeModel = false
+	var reserveErr error
 	if info.Billing == nil {
 		if apiErr := billinggateway.PreConsumeBilling(c, quota, info); apiErr != nil {
-			return apiErr
+			reserveErr = apiErr
 		}
-	} else if err := info.Billing.Reserve(quota); err != nil {
-		return err
+	} else {
+		reserveErr = info.Billing.Reserve(quota)
+	}
+	if reserveErr != nil {
+		// A refused reservation moved no quota, so the intent closes now
+		// instead of awaiting manual reconciliation; an unknown outcome keeps it.
+		// Without a Task the caller refunds any hold the session already had.
+		if durable && billinggateway.IsReservationRefused(reserveErr) {
+			if refuseErr := taskrecord.RefuseOpenRouterSyncReservation(info); refuseErr != nil {
+				logger.LogError(c, fmt.Sprintf("OpenRouter refused reservation task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, refuseErr))
+			} else {
+				info.OpenRouterCost.TaskID = ""
+			}
+		}
+		return reserveErr
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
 	if durable {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -251,6 +252,19 @@ func openRouterTextReserve(info *relaycommon.RelayInfo) (*relaycommon.OpenRouter
 		return nil, relaycommon.OpenRouterCostBasis{}
 	}
 	return info.OpenRouterCost.OutputReserve, info.OpenRouterCost.Basis
+}
+
+// reservationRefusals are the reservation error codes of a refusal: an
+// admission, wallet or subscription shortfall, or a refused token leg. Each
+// leaves no hold; a failed rollback of an earlier leg is only logged by the
+// reservation usecases and is not distinguished here.
+var reservationRefusals = []types.ErrorCode{types.ErrorCodeInsufficientUserQuota, types.ErrorCodePreConsumeTokenQuotaFailed}
+
+// IsReservationRefused reports a PreConsume or Reserve refusal, as opposed to
+// a funding update failure whose outcome is unknown.
+func IsReservationRefused(err error) bool {
+	var apiErr *types.NewAPIError
+	return errors.As(err, &apiErr) && slices.Contains(reservationRefusals, apiErr.GetErrorCode())
 }
 
 // reserve is the OpenRouter text reserve, nil for other requests. held is the
