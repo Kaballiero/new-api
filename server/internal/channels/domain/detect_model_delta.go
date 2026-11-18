@@ -1,12 +1,16 @@
 package domain
 
+import "slices"
+
 // DetectModelDelta recomputes the pending upstream model changes of a channel.
 // A scheduled run (allowAutoApply) of a channel with auto sync applies the
 // pending additions, unless its upstream models are AutoApplyBlocked, and the
 // auto removals (autoRemovals). An addition that replaces a pending removal
 // under its name stays pending for a manual apply together with that removal.
-// Every check marks a channel over the auto removal limit, so a manual check
-// reports it as a scheduled run does.
+// An addition whose reserve is refused stays pending until it is priced or a
+// manual reserve covers it (ReserveRefusedModels). Every check marks a channel
+// over the auto removal limit and the refused additions, so a manual check
+// reports them as a scheduled run does.
 func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels UpstreamModels, allowAutoApply bool) (result AppliedModelUpdates, err error) {
 	modelMapping, err := rules.NormalizeChannelModelMapping(channel)
 	if err != nil {
@@ -32,8 +36,9 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 	}
 
 	result.RemovalLimitCandidates = limitCandidates
+	result.ReserveRefusedModels = ReserveRefusedModels(pendingAddModels, state.ManualReserveModels, upstreamModels.ReserveRefused)
 	if allowAutoApply && state.AutoSyncEnabled && !upstreamModels.AutoApplyBlocked {
-		result.AddedModels = SubtractModelNames(pendingAddModels, replacements)
+		result.AddedModels = SubtractModelNames(SubtractModelNames(pendingAddModels, replacements), result.ReserveRefusedModels)
 		result.RemovedModels = removals
 	}
 
@@ -45,6 +50,19 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 	state.LastRemovedModels = SubtractModelNames(pendingRemoveModels, result.RemovedModels)
 	state.LastConflictModels = conflictModels
 	return result, nil
+}
+
+// ReserveRefusedModels are the pending additions of a channel whose reserve is
+// refused (UpstreamModels.ReserveRefused) and not covered by a manual reserve
+// of the channel.
+func ReserveRefusedModels(pendingAddModels, manualReserveModels []string, reserveRefused map[string]string) []string {
+	var refused []string
+	for _, model := range pendingAddModels {
+		if _, ok := reserveRefused[model]; ok && !slices.Contains(manualReserveModels, model) {
+			refused = append(refused, model)
+		}
+	}
+	return refused
 }
 
 // RemovalLimitCandidates are the auto removals over the limit of the pending

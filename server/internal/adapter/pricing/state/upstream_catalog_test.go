@@ -401,6 +401,14 @@ func TestUpstreamCatalogStorage(t *testing.T) {
 // lossGuardClient serves one manifest and its index; the payload of a model
 // document is its id, the manifest references each model by the hash of that
 // payload, and aliases maps an alias model to its target.
+// acceptingReserves is a ReserveChecker that refuses no reserve: the loss
+// guard does not depend on the reserve verdicts.
+type acceptingReserves struct{}
+
+func (acceptingReserves) Check(map[string]pricingdomain.NativeEndpointResponse, string, string) error {
+	return nil
+}
+
 type lossGuardClient struct {
 	manifest pricingdomain.SourceManifest
 	aliases  map[string]string
@@ -551,7 +559,7 @@ func TestUpstreamCatalogLossAgreesForPricesAndChannels(t *testing.T) {
 					require.NoError(t, db.Model(&pricingrecord.CatalogRevision{}).Where("hash = ?", before.Revision).Update("manifest", "{}").Error)
 				}
 
-				models, listErr := list_upstream_catalog_models.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, &pricingadapter.UpstreamCatalogModelsCache{}, channels, func() (pricingdomain.CatalogSource, bool, error) {
+				models, listErr := list_upstream_catalog_models.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, &pricingadapter.UpstreamCatalogModelsCache{}, channels, acceptingReserves{}, func() (pricingdomain.CatalogSource, bool, error) {
 					return source, true, nil
 				}, func(pricingdomain.CatalogSource) (list_upstream_catalog_models.Client, error) { return client, nil }).Execute(ctx)
 				_, syncErr := sync_upstream_catalog.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, source, requested, client)

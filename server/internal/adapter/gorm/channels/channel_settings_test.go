@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
@@ -156,6 +157,38 @@ func TestUpstreamModelAutoRemovalRequiresAutoSyncAndCatalogSync(t *testing.T) {
 				return
 			}
 			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
+
+// The manual reserves of an OpenRouter channel cover the models of its exact
+// reserves and, without an exact one, the Sonar research model of its legacy
+// reserve, each above zero; another channel type has none. An unreadable
+// setting covers none and does not fail the state.
+func TestModelUpdateStateReadsManualReserveModels(t *testing.T) {
+	tests := []struct {
+		name        string
+		channelType int
+		setting     string
+		want        []string
+	}{
+		{name: "exact reserves above zero", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_model_reserve_usd":{"b/model":2,"a/model":1,"c/zero":0}}`, want: []string{"a/model", "b/model"}},
+		{name: "legacy Sonar research reserve", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_sonar_research_reserve_usd":2}`, want: []string{"perplexity/sonar-deep-research"}},
+		{name: "zero legacy Sonar research reserve", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_sonar_research_reserve_usd":0}`},
+		{name: "exact Sonar reserve takes precedence", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_model_reserve_usd":{"perplexity/sonar-deep-research":0},"openrouter_sonar_research_reserve_usd":2}`},
+		{name: "without settings", channelType: constant.ChannelTypeOpenRouter},
+		{name: "invalid setting", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_model_reserve_usd":`},
+		{name: "other channel type", channelType: constant.ChannelTypeOpenAI, setting: `{"openrouter_model_reserve_usd":{"a/model":1}}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &domain.Channel{Type: tt.channelType, Setting: &tt.setting}
+
+			state, err := Store{}.ModelUpdateState(channel)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, state.ManualReserveModels)
 		})
 	}
 }

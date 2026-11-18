@@ -73,6 +73,10 @@ func (s *ChannelSettings) ValidateHTTPTransport() error {
 	return nil
 }
 
+// OpenRouterSonarResearchModel is the model the legacy Sonar research reserve
+// (OpenRouterSonarResearchReserveUSD) applies to.
+const OpenRouterSonarResearchModel = "perplexity/sonar-deep-research"
+
 // OpenRouterReserveUSD resolves the model policy, with exact entries taking
 // precedence over the legacy Sonar setting. The returned value is a snapshot.
 func (s *ChannelSettings) OpenRouterReserveUSD(model string) *float64 {
@@ -82,7 +86,7 @@ func (s *ChannelSettings) OpenRouterReserveUSD(model string) *float64 {
 	if reserve, ok := s.OpenRouterModelReserveUSD[model]; ok {
 		return &reserve
 	}
-	if model == "perplexity/sonar-deep-research" && s.OpenRouterSonarResearchReserveUSD != nil {
+	if model == OpenRouterSonarResearchModel && s.OpenRouterSonarResearchReserveUSD != nil {
 		reserve := *s.OpenRouterSonarResearchReserveUSD
 		return &reserve
 	}

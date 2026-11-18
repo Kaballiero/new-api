@@ -155,7 +155,7 @@ func buildChannelUpstreamModelFetchFingerprint(channel *model.Channel) (channelU
 func checkAndPersistChannelUpstreamModelUpdates(channel *model.Channel, settings *dto.ChannelOtherSettings, force, auto, enabled bool) (bool, int, error) {
 	value := repository.ToDomain(channel)
 	state := modelUpdateState(*settings)
-	changed, added, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(context.Background(), value, &state, force, auto, enabled)
+	applied, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(context.Background(), value, &state, force, auto, enabled)
 	*channel = *repository.FromDomain(value)
 	settings.UpstreamModelUpdateCheckEnabled = state.CheckEnabled
 	settings.UpstreamModelUpdateAutoSyncEnabled = state.AutoSyncEnabled
@@ -163,7 +163,7 @@ func checkAndPersistChannelUpstreamModelUpdates(channel *model.Channel, settings
 	settings.UpstreamModelUpdateLastDetectedModels = state.LastDetectedModels
 	settings.UpstreamModelUpdateLastRemovedModels = state.LastRemovedModels
 	settings.UpstreamModelUpdateIgnoredModels = state.IgnoredModels
-	return changed, added, err
+	return applied.ModelsChanged || applied.MappingChanged, len(applied.AddedModels), err
 }
 
 func modelUpdateState(settings dto.ChannelOtherSettings) domain.ModelUpdateState {

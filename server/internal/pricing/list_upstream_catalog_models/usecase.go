@@ -32,12 +32,27 @@ type Cache interface {
 	Store(revision string, models channeldomain.UpstreamModels)
 }
 
+// ReserveChecker checks that the gateway admission prices the reserve of a
+// reference request of model for operation from the given endpoint tariffs
+// alone.
+type ReserveChecker interface {
+	Check(tariffs map[string]domain.NativeEndpointResponse, model, operation string) error
+}
+
+// addableRoute is the request path the catalog declares for a consumer
+// operation and the gateway operation its reserve is checked for; an empty
+// reserveOperation is not checked.
+type addableRoute struct {
+	path, reserveOperation string
+}
+
 // addableRoutes are the consumer operations a model added from the catalog
-// may serve now, with the request path the catalog declares for each.
-var addableRoutes = map[string]string{
-	"text":             "/api/v1/chat/completions",
-	"embeddings":       "/api/v1/embeddings",
-	"image_generation": "/api/v1/images",
+// may serve now. The image reserve stays live: an image model is added by its
+// confirmed price alone.
+var addableRoutes = map[string]addableRoute{
+	"text":             {path: "/api/v1/chat/completions", reserveOperation: "chat/completions"},
+	"embeddings":       {path: "/api/v1/embeddings", reserveOperation: "embeddings"},
+	"image_generation": {path: "/api/v1/images"},
 }
 
 // unaddableSuffixes mark catalog models that are not added to a channel: free
@@ -51,18 +66,22 @@ type Usecase struct {
 	documents  domain.CatalogDocumentCache
 	cache      Cache
 	channels   domain.CatalogChannels
+	reserves   ReserveChecker
 	source     func() (domain.CatalogSource, bool, error)
 	connect    func(domain.CatalogSource) (Client, error)
 }
 
-func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, cache Cache, channels domain.CatalogChannels, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
-	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, channels: channels, source: source, connect: connect}
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, cache Cache, channels domain.CatalogChannels, reserves ReserveChecker, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
+	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, channels: channels, reserves: reserves, source: source, connect: connect}
 }
 
 // Execute lists the models of the published upstream catalog as the upstream
 // models of an OpenRouter channel. A model is addable when it is not an alias,
 // free or batch model, serves an operation the gateway supports by its type
 // and declared request path, and has a confirmed price of a synchronous offer.
+// An addable text or embeddings model whose reserve the endpoint tariffs of
+// the candidate documents cannot price is ReserveRefused with the admission
+// error; the gateway refuses such a request without a manual reserve.
 // The models are AutoApplyBlocked when the manifest lost more than
 // domain.MaxCatalogModelLossPercent of the published models
 // (domain.CatalogModelLoss), the same comparison that keeps the head, and
@@ -130,8 +149,9 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	for _, model := range index.Models {
 		indexModels[model.ID] = model
 	}
-	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked, UnresolvedMappingChannels: unresolvedMappingChannels}
+	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, ReserveRefused: map[string]string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked, UnresolvedMappingChannels: unresolvedMappingChannels}
 	candidates := []domain.SourceReference{}
+	reserveOperations := make(map[string]string)
 	for _, ref := range manifest.Models {
 		result.Listed = append(result.Listed, ref.ID)
 		model, exists := indexModels[ref.ID]
@@ -144,25 +164,35 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 		// The consumer profile reads only the type and the output modalities,
 		// which the index carries unchanged.
 		profile, _ := domain.CatalogConsumerProfile(&domain.SourceDocument{Type: model.Type, Modalities: model.Modalities})
-		path, supported := addableRoutes[profile.Operation]
-		if !supported || !slices.Contains(model.Endpoints, path) {
+		route, supported := addableRoutes[profile.Operation]
+		if !supported || !slices.Contains(model.Endpoints, route.path) {
 			continue
 		}
 		candidates = append(candidates, ref)
+		reserveOperations[ref.ID] = route.reserveOperation
 	}
 
 	documents, _, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, u.documents, client, source.ID, candidates)
 	if err != nil {
 		return channeldomain.UpstreamModels{}, err
 	}
+	tariffs := domain.CatalogEndpointTariffs(u.deps, documents)
 	for _, ref := range candidates {
 		// A price is confirmed independently of the tariff, so any valid
 		// group ratio confirms the same offers.
 		minima := u.projection.CatalogModelMinimumPrices(ref, documents[ref.ID], 1, true)
-		if slices.ContainsFunc(minima, func(operation domain.ConsumerPricingOperation) bool {
+		if !slices.ContainsFunc(minima, func(operation domain.ConsumerPricingOperation) bool {
 			return domain.ConfirmedConsumerPrices(operation.Prices, operation.Tiers)
 		}) {
-			result.Addable = append(result.Addable, ref.ID)
+			continue
+		}
+		result.Addable = append(result.Addable, ref.ID)
+		operation := reserveOperations[ref.ID]
+		if operation == "" {
+			continue
+		}
+		if err := u.reserves.Check(tariffs, ref.ID, operation); err != nil {
+			result.ReserveRefused[ref.ID] = err.Error()
 		}
 	}
 	u.cache.Store(manifest.Revision, result)

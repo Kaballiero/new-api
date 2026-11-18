@@ -45,14 +45,35 @@ var (
 )
 
 // Preview prices the reference request as a client request routed to the
-// channel: Chat Completions or Embeddings with the measured prompt tokens and
-// no output limit, OpenAI audio speech of the reference input, or Rerank of
-// the reference query and documents.
+// channel.
 func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_channel_reserves.ReferenceRequest) (preview_channel_reserves.ReservePreview, error) {
 	settings, err := r.channelSettings(channel)
 	if err != nil {
 		return preview_channel_reserves.ReservePreview{}, err
 	}
+	info, body, err := referenceRelayRequest(request)
+	if err != nil {
+		return preview_channel_reserves.ReservePreview{}, err
+	}
+	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: channel.Type, ChannelId: channel.Id, ChannelBaseUrl: channel.GetBaseURL(),
+		ChannelSetting: settings, UpstreamModelName: request.UpstreamModel}
+	estimator := openrouter.NewRequestEstimator()
+	usd, configured, err := openrouter.EstimateRequestReserve(estimator, info, body, string(request.Operation), nil)
+	if err != nil {
+		return preview_channel_reserves.ReservePreview{}, err
+	}
+	preview := preview_channel_reserves.ReservePreview{USD: usd, Source: estimator.ReserveSource, AdmissionPolicy: estimator.AdmissionPolicy(&settings)}
+	if configured != nil {
+		preview.ConfiguredUSD = &configured.USD
+	}
+	return preview, nil
+}
+
+// referenceRelayRequest is the gateway request of a reference request: Chat
+// Completions or Embeddings with the measured prompt tokens and no output
+// limit, OpenAI audio speech of the reference input, or Rerank of the
+// reference query and documents. It has no channel.
+func referenceRelayRequest(request preview_channel_reserves.ReferenceRequest) (*relaycommon.RelayInfo, []byte, error) {
 	reference := map[string]any{"model": request.UpstreamModel}
 	format := types.RelayFormatOpenAI
 	switch request.Operation {
@@ -73,22 +94,11 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 	}
 	body, err := common.Marshal(reference)
 	if err != nil {
-		return preview_channel_reserves.ReservePreview{}, err
+		return nil, nil, err
 	}
 	info := &relaycommon.RelayInfo{OriginModelName: request.Model, RelayFormat: format}
-	info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: channel.Type, ChannelId: channel.Id, ChannelBaseUrl: channel.GetBaseURL(),
-		ChannelSetting: settings, UpstreamModelName: request.UpstreamModel}
 	info.SetEstimatePromptTokens(request.PromptTokens)
-	estimator := openrouter.NewRequestEstimator()
-	usd, configured, err := openrouter.EstimateRequestReserve(estimator, info, body, string(request.Operation), nil)
-	if err != nil {
-		return preview_channel_reserves.ReservePreview{}, err
-	}
-	preview := preview_channel_reserves.ReservePreview{USD: usd, Source: estimator.ReserveSource, AdmissionPolicy: estimator.AdmissionPolicy(&settings)}
-	if configured != nil {
-		preview.ConfiguredUSD = &configured.USD
-	}
-	return preview, nil
+	return info, body, nil
 }
 
 // channelSettings decodes the settings of the channel the gateway routes with.

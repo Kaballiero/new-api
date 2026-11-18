@@ -73,7 +73,7 @@ const (
 
 // SonarResearchModel is the model the legacy Sonar research reserve
 // (openrouter_sonar_research_reserve_usd) applies to.
-const SonarResearchModel = "perplexity/sonar-deep-research"
+const SonarResearchModel = dto.OpenRouterSonarResearchModel
 
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle. Models and
@@ -103,6 +103,16 @@ func NewRequestEstimator() *RequestEstimator {
 		Models:           make(map[string][]PricedEndpoint),
 		OutputModalities: make(map[string][]string),
 		reserve:          pricingruntime.EstimateUpstreamReserve(),
+	}
+}
+
+// NewCatalogEstimator is an estimator that prices the reserve with reserve.
+// It is never bound to a request, so it never discovers live endpoints.
+func NewCatalogEstimator(reserve estimate_upstream_reserve.Usecase) *RequestEstimator {
+	return &RequestEstimator{
+		Models:           make(map[string][]PricedEndpoint),
+		OutputModalities: make(map[string][]string),
+		reserve:          reserve,
 	}
 }
 

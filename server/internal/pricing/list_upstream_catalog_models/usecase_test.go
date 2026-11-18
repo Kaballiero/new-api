@@ -157,6 +157,23 @@ func newClient(revision string, models ...catalogModel) *fakeClient {
 	return client
 }
 
+// fakeReserves refuses the reserve of its refused models with their reason
+// and records every checked model with its operation.
+type fakeReserves struct {
+	refused map[string]string
+	checked *[]string
+}
+
+func (reserves fakeReserves) Check(_ map[string]domain.NativeEndpointResponse, model, operation string) error {
+	if reserves.checked != nil {
+		*reserves.checked = append(*reserves.checked, model+" "+operation)
+	}
+	if reason, refused := reserves.refused[model]; refused {
+		return errors.New(reason)
+	}
+	return nil
+}
+
 func newUsecase(store testStore, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
 	deps := pricingadapter.Capabilities()
 	catalog := fakeCatalog{CatalogReader: deps.Catalog, documents: map[string]*domain.SourceDocument{}}
@@ -164,7 +181,7 @@ func newUsecase(store testStore, documents domain.CatalogDocumentCache, cache Ca
 		catalog.documents[model.index.ID] = model.document
 	}
 	deps.Catalog = catalog
-	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, documents, cache, store, func() (domain.CatalogSource, bool, error) {
+	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, documents, cache, store, fakeReserves{}, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: strings.Repeat("a", 64)}, true, nil
 	}, func(domain.CatalogSource) (Client, error) { return client, nil })
 }
@@ -242,7 +259,7 @@ func TestExecuteFailsWithoutCatalog(t *testing.T) {
 	projection := domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps})
 	connect := func(domain.CatalogSource) (Client, error) { return nil, errors.New("unexpected connection") }
 
-	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, fakeStore{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
+	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, fakeStore{}, fakeReserves{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
 	require.EqualError(t, err, "upstream catalog source is not configured")
 
 	client := newClient(strings.Repeat("1", 64), textModel("acme/chat", []string{chatPath}, nil))
@@ -262,13 +279,50 @@ func TestExecuteReusesModelsOfSameRevision(t *testing.T) {
 	secondModels, err := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, second).Execute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, firstModels, secondModels)
-	assert.Equal(t, channeldomain.UpstreamModels{Listed: []string{"acme/chat"}, Addable: []string{"acme/chat"}, Shortcuts: []string{":nitro", ":floor"}}, secondModels)
+	assert.Equal(t, channeldomain.UpstreamModels{Listed: []string{"acme/chat"}, Addable: []string{"acme/chat"}, ReserveRefused: map[string]string{}, Shortcuts: []string{":nitro", ":floor"}}, secondModels)
 	assert.Empty(t, second.downloaded)
 
 	republished := newClient(strings.Repeat("2", 64), model)
 	_, err = newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, republished).Execute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"acme/chat"}, republished.downloaded)
+}
+
+// An addable text or embeddings model whose reserve the catalog tariffs do not
+// price stays addable and is ReserveRefused with the reason; an image model and
+// a model without a confirmed price are never checked. A cached revision keeps
+// the verdicts without checking again.
+func TestExecuteRefusesUnreservableModels(t *testing.T) {
+	eligible := &domain.SourceEligibility{Eligible: true}
+	priced := textModel("acme/chat", []string{chatPath}, eligible)
+	refused := textModel("acme/unreservable", []string{chatPath}, eligible)
+	unpriced := textModel("acme/request-dependent", []string{chatPath}, nil)
+	embedding := textModel("acme/embed", []string{"/api/v1/embeddings"}, eligible)
+	embedding.index.Type, embedding.document.Type = "embedding", "embedding"
+	embedding.index.Modalities.Output, embedding.document.Modalities.Output = []string{"embeddings"}, []string{"embeddings"}
+	embeddingsOperation := "embeddings"
+	embedding.document.Offers[0].Operation = &embeddingsOperation
+	image := textModel("acme/image", []string{"/api/v1/images"}, eligible)
+	image.index.Type, image.document.Type = "image", "image"
+	image.index.Modalities.Output, image.document.Modalities.Output = []string{"image"}, []string{"image"}
+	imageOperation, imageAmount := "image_generation", "0.04"
+	image.document.Offers[0].Operation = &imageOperation
+	imagePrice := &image.document.Offers[0].Components[0]
+	imagePrice.Parameter, imagePrice.ComponentID, imagePrice.Unit, imagePrice.AmountUSD = "completion", "image_output", "image", &imageAmount
+	reasons := map[string]string{"acme/unreservable": "endpoint pricing missing", "acme/embed": "unknown pricing item", "acme/image": "image reserve", "acme/request-dependent": "unpriced"}
+	cache := &pricingadapter.UpstreamCatalogModelsCache{}
+	var checked []string
+
+	for range 2 {
+		usecase := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, newClient(strings.Repeat("1", 64), priced, refused, unpriced, embedding, image))
+		usecase.reserves = fakeReserves{refused: reasons, checked: &checked}
+
+		models, err := usecase.Execute(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"acme/chat", "acme/unreservable", "acme/embed", "acme/image"}, models.Addable)
+		assert.Equal(t, map[string]string{"acme/unreservable": "endpoint pricing missing", "acme/embed": "unknown pricing item"}, models.ReserveRefused)
+		assert.Equal(t, []string{"acme/chat chat/completions", "acme/unreservable chat/completions", "acme/embed embeddings"}, checked)
+	}
 }
 
 func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {

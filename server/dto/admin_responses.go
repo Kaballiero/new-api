@@ -196,13 +196,16 @@ type ApplyAllChannelUpstreamModelUpdatesResponse struct {
 
 // DetectChannelUpstreamModelUpdatesResponse — POST /api/channel/upstream_updates/detect.
 type DetectChannelUpstreamModelUpdatesResponse struct {
-	ChannelId       int      `json:"channel_id"`
-	ChannelName     string   `json:"channel_name"`
-	AddModels       []string `json:"add_models"`
-	RemoveModels    []string `json:"remove_models"`
-	ConflictModels  []string `json:"conflict_models"`
-	LastCheckTime   int64    `json:"last_check_time"`
-	AutoAddedModels int      `json:"auto_added_models"`
+	ChannelId      int      `json:"channel_id"`
+	ChannelName    string   `json:"channel_name"`
+	AddModels      []string `json:"add_models"`
+	RemoveModels   []string `json:"remove_models"`
+	ConflictModels []string `json:"conflict_models"`
+	// ReserveRefusedModels are the add models whose reserve cannot be
+	// computed from the upstream catalog prices and no manual reserve covers.
+	ReserveRefusedModels []string `json:"reserve_refused_models"`
+	LastCheckTime        int64    `json:"last_check_time"`
+	AutoAddedModels      int      `json:"auto_added_models"`
 }
 
 // SystemTaskRefResponse — POST /api/channel/upstream_updates/detect_all
