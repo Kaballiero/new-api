@@ -2966,6 +2966,32 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 	}
 }
 
+// The API key of a speech request may be deleted before the poller confirms
+// its cost (dev tasks 552 and 556); the settlement still applies.
+func TestOpenRouterAudioSettlesAfterTokenDeleted(t *testing.T) {
+	c, info := newOpenRouterAudioReservation(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":{"id":"gen-audio-fixture","model":"vendor/audio","api_type":"tts","cancelled":false,"generation_time":null,"total_cost":0.04}}`)
+	}))
+	defer server.Close()
+	require.NoError(t, taskrecord.ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", http.Header{"Authorization": []string{"Bearer account-fixture"}}))
+	require.NoError(t, taskrecord.RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-audio-fixture"}}}, nil))
+	require.NoError(t, taskrecord.CompleteOpenRouterSyncTask(c, info, []byte("durable audio"), "audio/mpeg"))
+	require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+
+	RunTaskPollingOnce(t.Context(), nil)
+
+	task, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), task.Status)
+	assert.True(t, task.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, 40, task.Quota)
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+	var token model.Token
+	require.NoError(t, model.DB.Unscoped().First(&token, info.TokenId).Error)
+	assert.Equal(t, 9960, token.RemainQuota)
+}
+
 func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 	for _, hasGeneration := range []bool{false, true} {
 		t.Run(fmt.Sprint("generation_", hasGeneration), func(t *testing.T) {
@@ -3295,10 +3321,10 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	})
 	t.Run("infeasible settlement is refused without recording a decision", func(t *testing.T) {
 		info := parkUnknown(t)
-		require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+		require.NoError(t, model.DB.Delete(&model.Channel{}, info.ChannelId).Error)
 		_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)
 		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
-		assert.ErrorContains(t, err, "task token missing")
+		assert.ErrorContains(t, err, "task channel missing")
 		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		assert.Nil(t, task.PrivateData.OpenRouterAudio.OperatorDecision)
@@ -3455,7 +3481,7 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 		name             string
 		age              time.Duration
 		generationID     string
-		tokenDeleted     bool
+		channelDeleted   bool
 		operatorReleased bool
 		due              bool
 		autoReleased     bool
@@ -3463,7 +3489,7 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 		{name: "hold younger than the delay is kept", age: taskdomain.OpenRouterSyncAutoReleaseDelay - time.Minute},
 		{name: "hold reaching the delay is released", age: taskdomain.OpenRouterSyncAutoReleaseDelay, due: true, autoReleased: true},
 		{name: "hold with a generation id is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, generationID: "gen-known", due: true},
-		{name: "infeasible hold is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, tokenDeleted: true, due: true},
+		{name: "infeasible hold is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, channelDeleted: true, due: true},
 		{name: "operator release is not repeated", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, operatorReleased: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3477,8 +3503,8 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 			require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
 				"submit_time": time.Now().Add(-tc.age).Unix(), "finish_time": time.Now().Add(-tc.age).Unix(), "private_data": task.PrivateData,
 			}).Error)
-			if tc.tokenDeleted {
-				require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+			if tc.channelDeleted {
+				require.NoError(t, model.DB.Delete(&model.Channel{}, info.ChannelId).Error)
 			}
 			if tc.operatorReleased {
 				_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)

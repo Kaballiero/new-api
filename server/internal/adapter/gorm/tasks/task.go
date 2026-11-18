@@ -86,7 +86,9 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 		// No other writer may add, replace or drop a recorded decision.
 		decisionChanged := state != nil && (state.OperatorDecision == nil) != (decision == nil) ||
 			state != nil && state.OperatorDecision != nil && decision != nil && *state.OperatorDecision != *decision
-		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID || decisionChanged && !operatorDecision ||
+		// Applied balances are never reverted by a writer whose snapshot predates them.
+		settlementReverted := prior != nil && next != nil && (prior.MainApplied && !next.MainApplied || prior.Finalized && !next.Finalized)
+		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID || decisionChanged && !operatorDecision || settlementReverted ||
 			saved.Status == record.TaskStatusSuccess || saved.Status == record.TaskStatusFailure && !lateImageCost && !lateImageReceipt && !operatorDecision ||
 			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
 			return fmt.Errorf("OpenRouter synchronous task claim changed")
@@ -604,12 +606,14 @@ func (s Store) ApplyTaskCostSettlement(t *record.Task) (string, error) {
 			return fmt.Errorf("task channel missing")
 		}
 		if saved.PrivateData.TokenId > 0 {
+			// A token deleted after the reservation still carries its leg, so
+			// the settlement never waits on the API key outliving the request.
 			var token model.Token
-			if err := tx.Where("id = ? AND user_id = ?", saved.PrivateData.TokenId, saved.UserId).First(&token).Error; err != nil {
+			if err := tx.Unscoped().Where("id = ? AND user_id = ?", saved.PrivateData.TokenId, saved.UserId).First(&token).Error; err != nil {
 				return err
 			}
 			tokenKey = token.Key
-			result = tx.Model(&token).Updates(map[string]any{"remain_quota": gorm.Expr("remain_quota - ?", delta), "used_quota": gorm.Expr("used_quota + ?", delta)})
+			result = tx.Unscoped().Model(&token).Updates(map[string]any{"remain_quota": gorm.Expr("remain_quota - ?", delta), "used_quota": gorm.Expr("used_quota + ?", delta)})
 			if result.Error != nil {
 				return result.Error
 			}
@@ -737,7 +741,7 @@ func (s Store) CheckTaskCostSettlementFeasible(t *record.Task) error {
 	}
 	if t.PrivateData.TokenId > 0 {
 		var token model.Token
-		if err := s.db().Where("id = ? AND user_id = ?", t.PrivateData.TokenId, t.UserId).First(&token).Error; err != nil {
+		if err := s.db().Unscoped().Where("id = ? AND user_id = ?", t.PrivateData.TokenId, t.UserId).First(&token).Error; err != nil {
 			return fmt.Errorf("task token missing")
 		}
 	}
