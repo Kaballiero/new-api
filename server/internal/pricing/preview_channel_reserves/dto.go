@@ -17,8 +17,8 @@ type Output struct {
 
 // Reference is the request the Chat Completions and Embeddings examples
 // price: a nonstream request without an output limit, so the gateway reserves
-// OutputTokens capped by the endpoint. Speech and rerank examples price their
-// own reference request (Item.ReferenceOperation).
+// OutputTokens capped by the endpoint. Speech, transcription and rerank
+// examples price their own reference request (Item.ReferenceOperation).
 type Reference struct {
 	Operation    ReferenceOperation `json:"operation"`
 	PromptTokens int                `json:"prompt_tokens"`
@@ -58,10 +58,11 @@ type Provider struct {
 type ReferenceOperation string
 
 const (
-	ReferenceOperationChatCompletions ReferenceOperation = "chat/completions"
-	ReferenceOperationEmbeddings      ReferenceOperation = "embeddings"
-	ReferenceOperationAudioSpeech     ReferenceOperation = "audio/speech"
-	ReferenceOperationRerank          ReferenceOperation = "rerank"
+	ReferenceOperationChatCompletions     ReferenceOperation = "chat/completions"
+	ReferenceOperationEmbeddings          ReferenceOperation = "embeddings"
+	ReferenceOperationAudioSpeech         ReferenceOperation = "audio/speech"
+	ReferenceOperationAudioTranscriptions ReferenceOperation = "audio/transcriptions"
+	ReferenceOperationRerank              ReferenceOperation = "rerank"
 )
 
 // ExampleStatus tells whether the example of an item is priced.
@@ -72,8 +73,8 @@ const (
 	// ExampleStatusLiveOnly is a model the upstream catalog does not price
 	// for the channel: no published or a stale catalog, a channel off the
 	// official OpenRouter API, a model outside the catalog or without text,
-	// embeddings, speech or rerank output. The gateway prices it from live
-	// endpoints.
+	// embeddings, speech, transcription or rerank output. The gateway prices
+	// it from live endpoints.
 	ExampleStatusLiveOnly ExampleStatus = "live_only"
 	// ExampleStatusNeedsLiveCheck is a catalog model the gateway checks
 	// against live endpoints, for example for a missing price.

@@ -83,7 +83,7 @@ var channelReservesResponse = func() map[string]any {
 		"configured_usd":      nullableNumber,
 		"effective_source":    map[string]any{"type": "string", "nullable": true, "enum": []any{"catalog", "catalog_stale", "live", "configured_price", "manual", nil}},
 		"admission_policy":    map[string]any{"type": "string", "nullable": true, "enum": []any{"model_approximate_reserve", "model_reserve_add_on", "model_reserve_floor", "sonar_research_approximate_reserve", nil}},
-		"reference_operation": map[string]any{"type": "string", "nullable": true, "enum": []any{"chat/completions", "embeddings", "audio/speech", "rerank", nil}},
+		"reference_operation": map[string]any{"type": "string", "nullable": true, "enum": []any{"chat/completions", "embeddings", "audio/speech", "audio/transcriptions", "rerank", nil}},
 		"example_usd":         nullableNumber,
 		"example_status":      map[string]any{"type": "string", "enum": []string{"ok", "live_only", "needs_live_check", "refused"}},
 		"example_error":       nullableString,

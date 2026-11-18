@@ -36,6 +36,10 @@ func (r ChannelReserves) Settings(channel *domain.BuildChannel) (preview_channel
 	return reserves, nil
 }
 
+// referenceTranscriptionSeconds are the seconds of the reference
+// transcription file.
+const referenceTranscriptionSeconds = 60
+
 // Reference speech and rerank requests: a short speech input and a short
 // query over three short documents.
 var (
@@ -71,8 +75,10 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 
 // referenceRelayRequest is the gateway request of a reference request: Chat
 // Completions or Embeddings with the measured prompt tokens and no output
-// limit, OpenAI audio speech of the reference input, or Rerank of the
-// reference query and documents. It has no channel.
+// limit, OpenAI audio speech of the reference input, OpenAI audio
+// transcription of a file of referenceTranscriptionSeconds as the gateway
+// describes a transcription file to the reserve (its file.seconds), or Rerank
+// of the reference query and documents. It has no channel.
 func referenceRelayRequest(request preview_channel_reserves.ReferenceRequest) (*relaycommon.RelayInfo, []byte, error) {
 	reference := map[string]any{"model": request.UpstreamModel}
 	format := types.RelayFormatOpenAI
@@ -82,6 +88,9 @@ func referenceRelayRequest(request preview_channel_reserves.ReferenceRequest) (*
 		format = types.RelayFormatEmbedding
 	case preview_channel_reserves.ReferenceOperationAudioSpeech:
 		reference["input"] = referenceSpeechInput
+		format = types.RelayFormatOpenAIAudio
+	case preview_channel_reserves.ReferenceOperationAudioTranscriptions:
+		reference["file"] = map[string]int{"seconds": referenceTranscriptionSeconds}
 		format = types.RelayFormatOpenAIAudio
 	case preview_channel_reserves.ReferenceOperationRerank:
 		reference["query"], reference["documents"] = referenceRerankQuery, referenceRerankDocuments
