@@ -47,6 +47,19 @@ func (s SyncStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
 	return s.Store.MarkManualHoldAlerted(task.ID, alertedAt)
 }
 
+func (s SyncStore) FinishedEstimateTasks(since, afterID int64, limit int) ([]*domain.Task, error) {
+	rows, err := s.Store.GetFinishedEstimateTasks(since, afterID, limit)
+	tasks := make([]*domain.Task, len(rows))
+	for i := range rows {
+		tasks[i] = record.ToDomain(rows[i])
+	}
+	return tasks, err
+}
+
+func (s SyncStore) MarkEstimateAlerted(task *domain.Task, alertedAt int64) error {
+	return s.Store.MarkEstimateAlerted(task.ID, alertedAt)
+}
+
 type SyncProjection struct{}
 
 func (SyncProjection) Project(task *domain.Task) {

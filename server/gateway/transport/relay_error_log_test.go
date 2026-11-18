@@ -321,6 +321,8 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		name, cost, expression, model, metadata string
 		status, quota, reserved                 int
 		unknown, transport, stream, legacy      bool
+		// estimated is a delivered image charged its reserve without a cost.
+		estimated bool
 	}{
 		{name: "Muse documented price with empty discovery", model: "meta/muse-image", metadata: `{"id":"meta/muse-image","endpoints":[]}`, cost: "0.01", status: 200, quota: 10000, reserved: 10000},
 		{name: "Krea Turbo documented price with empty pricing", model: "krea/krea-2-medium-turbo", metadata: `{"id":"krea/krea-2-medium-turbo","endpoints":[{"provider_tag":"krea","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[]}]}`, cost: "0.015", status: 200, quota: 15000, reserved: 15000},
@@ -331,7 +333,7 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		{name: "administrator fixed image price", cost: "0.02", legacy: true, status: 200, quota: 20000, reserved: 40000},
 		{name: "stream completed image", cost: "0.02", stream: true, status: 200, quota: 20000, reserved: 40000},
 		{name: "upstream rejection", status: 429, reserved: 40000},
-		{name: "missing actual cost", status: 502, reserved: 40000, unknown: true},
+		{name: "missing actual cost charges the reserve as an estimate", status: 200, quota: 40000, reserved: 40000, estimated: true},
 		{name: "interrupted paid request", status: 502, reserved: 40000, unknown: true, transport: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -499,6 +501,10 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 				assert.Equal(t, "unknown", admin["image_financial_outcome"])
 				assert.Equal(t, "refund_without_retry", admin["image_error_policy"])
 				assert.Equal(t, usagerecord.LogTypeError, logs[0].Type)
+			} else if tc.estimated {
+				assert.Equal(t, "estimate", admin["openrouter_cost_source"])
+				assert.NotContains(t, admin, "image_actual_cost_usd")
+				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 			} else if tc.status == http.StatusOK {
 				assert.Contains(t, admin, "image_actual_cost_usd")
 				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)

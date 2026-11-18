@@ -624,6 +624,11 @@ func (u *Usecase) updateVideoSingleTask(ctx context.Context, adaptor Adaptor, ch
 				reconciliation.UpstreamIsBYOK = evidence.Usage.IsBYOK
 				reconciliation.UpstreamCostDetails = string(evidence.Usage.CostDetails)
 			}
+			// A delivered video without its cost settles at the reserve.
+			if parsedStatus == domain.TaskStatusSuccess && !reconciliation.HasUpstreamCost && task.PrivateData.BillingContext.OpenRouterCost != nil {
+				domain.RecordOpenRouterCostEstimate(task, domain.OpenRouterReserveEstimateUSD(task))
+				u.diagnostics.Warn(ctx, fmt.Sprintf("Task %s OpenRouter video cost is missing; the reserve is charged as an estimate", task.TaskID))
+			}
 		}
 		if parsedStatus == domain.TaskStatusSuccess {
 			reconciliation.Finalized = reconciliation.HasUpstreamCost && reconciliation.UpstreamCostConfirmed &&

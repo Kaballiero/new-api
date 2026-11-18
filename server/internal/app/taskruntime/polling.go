@@ -72,6 +72,9 @@ func (p *Polling) RunTasks(ctx context.Context, report func(processed, total int
 	if err := p.reconciler.ReleaseUnidentified(ctx); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("OpenRouter sync automatic release pass failed: %v", err))
 	}
+	if err := p.reconciler.SettleEstimates(ctx); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("OpenRouter estimate settlement pass failed: %v", err))
+	}
 	if err := p.reconciler.AlertManualHolds(ctx); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("OpenRouter sync manual hold alert failed: %v", err))
 	}

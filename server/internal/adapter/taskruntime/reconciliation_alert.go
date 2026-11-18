@@ -30,3 +30,24 @@ func ManualHoldsNotification(lang string, holds []*domain.Task) (subject, conten
 	}
 	return i18n.Translate(lang, i18n.MsgTasksSyncManualHoldsSubject), builder.String()
 }
+
+// EstimateSettlementsNotification phrases the OpenRouter results charged an
+// estimate of their missing upstream cost in lang, with the charged amounts in
+// USD. At most 12 charges are listed with their task id, action and amount.
+func EstimateSettlementsNotification(lang string, tasks []*domain.Task) (subject, content string) {
+	var chargedQuota int
+	for _, task := range tasks {
+		chargedQuota += task.PrivateData.Reconciliation.TargetQuota
+	}
+	shown := min(len(tasks), 12)
+	var builder strings.Builder
+	builder.WriteString(i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlements, map[string]any{
+		"Count":   len(tasks),
+		"Charged": fmt.Sprintf("$%.6f", float64(chargedQuota)/common.QuotaPerUnit),
+		"Shown":   shown,
+	}))
+	for _, task := range tasks[:shown] {
+		builder.WriteString(fmt.Sprintf("\n- %s (%s): $%.6f", task.TaskID, task.Action, float64(task.PrivateData.Reconciliation.TargetQuota)/common.QuotaPerUnit))
+	}
+	return i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlementsSubject), builder.String()
+}

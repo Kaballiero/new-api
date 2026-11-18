@@ -235,6 +235,10 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 		other.SetAdmin("operator_reconciliation", map[string]any{"action": decision.Action, "operator_id": decision.OperatorID, "cost_usd": decision.CostUSD})
 		content = "OpenRouter operator cost settlement"
 	}
+	if r.UpstreamCostEstimated {
+		other.SetAdmin("upstream_cost_estimated", true)
+		content = "OpenRouter estimated cost settlement"
+	}
 	logType, quota := usagerecord.LogTypeConsume, delta
 	if delta < 0 {
 		logType, quota = usagerecord.LogTypeRefund, -delta

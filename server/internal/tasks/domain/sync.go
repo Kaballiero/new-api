@@ -21,6 +21,7 @@ type SyncCost struct {
 	CostUSD                        float64
 	IsBYOK                         *bool
 	CostDetails                    []byte
+	UsageEstimateUSD               float64
 }
 
 type SyncNativeImage struct {

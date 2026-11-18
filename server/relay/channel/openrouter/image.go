@@ -874,12 +874,20 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		info.NativeImage.OutcomeUnknown = !info.OpenRouterCost.Final
 		return nil, imageResponseError(err.Error())
 	}
-	cost := *result.Usage.Cost
-	info.NativeImage.ActualCostUSD = &cost
 	info.OpenRouterCost.Observe(responseBody, true)
-	info.OpenRouterCost.CostUSD = cost
-	info.OpenRouterCost.Valid = true
-	info.OpenRouterCost.Final = true
+	if result.Usage != nil && result.Usage.Cost != nil {
+		cost := *result.Usage.Cost
+		info.NativeImage.ActualCostUSD = &cost
+		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = cost, true, true
+	} else if !relaycommon.HasOpenRouterSyncTask(info) {
+		// The image is delivered and its price is the reserve; a Task settles
+		// the same estimate after Complete.
+		estimate := info.NativeImage.EstimatedCostUSD
+		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = estimate, true, true
+		info.OpenRouterCost.CostSource = relaycommon.OpenRouterCostSourceEstimate
+		usage.Cost = estimate
+		logger.LogWarn(c, fmt.Sprintf("OpenRouter image cost is missing; the reserve is charged as an estimate: estimate_usd=%v", estimate))
+	}
 	encoded, err := common.Marshal(result)
 	if err != nil {
 		return nil, imageResponseError("OpenRouter image result encoding failed")
@@ -944,8 +952,9 @@ func imageResponseError(reason string) *types.NewAPIError {
 	return types.NewErrorWithStatusCode(errors.New(reason), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 }
 
-// ParseImageResponse distinguishes missing/null cost from an explicit zero.
-// No synthetic token or price fallback can turn missing usage into a free call.
+// ParseImageResponse distinguishes missing/null cost from an explicit zero: a
+// missing cost leaves result.Usage.Cost nil, and the caller charges the
+// reserve as its estimate. No synthetic token fallback prices an image.
 func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 	var result imageResponse
 	if err := common.Unmarshal(body, &result); err != nil {
@@ -980,18 +989,19 @@ func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 			data.MediaType = detected
 		}
 	}
-	if result.Usage == nil || result.Usage.Cost == nil {
-		return nil, nil, errors.New("OpenRouter image cost is missing; financial outcome requires reconciliation")
+	var usage dto.Usage
+	if result.Usage != nil {
+		usage = result.Usage.Usage
+		if cost := result.Usage.Cost; cost != nil {
+			if math.IsNaN(*cost) || math.IsInf(*cost, 0) || *cost < 0 {
+				return nil, nil, errors.New("invalid OpenRouter image cost")
+			}
+			usage.Cost = *cost
+		}
 	}
-	cost := *result.Usage.Cost
-	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
-		return nil, nil, errors.New("invalid OpenRouter image cost")
-	}
-	usage := result.Usage.Usage
 	if usage.PromptTokens < 0 || usage.CompletionTokens < 0 || usage.TotalTokens < 0 || usage.PromptTokens > math.MaxInt32 || usage.CompletionTokens > math.MaxInt32 || usage.TotalTokens > math.MaxInt32 {
 		return nil, nil, errors.New("invalid OpenRouter image token usage")
 	}
-	usage.Cost = cost
 	return &result, &usage, nil
 }
 

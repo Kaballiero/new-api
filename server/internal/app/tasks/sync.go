@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_receipt"
 	"github.com/QuantumNous/new-api/internal/tasks/refuse_sync_reservation"
 	"github.com/QuantumNous/new-api/internal/tasks/release_unidentified_sync_holds"
+	"github.com/QuantumNous/new-api/internal/tasks/settle_sync_estimates"
 )
 
 // Reconciler assembles durable synchronous-task actions without a gateway dependency.
@@ -39,6 +40,7 @@ type Reconciler struct {
 	fail       fail_sync_task.Usecase
 	poll       reconcile_sync_task.Usecase
 	release    release_unidentified_sync_holds.Usecase
+	estimates  settle_sync_estimates.Usecase
 	alert      alert_sync_reconciliation.Usecase
 }
 
@@ -60,6 +62,7 @@ func NewReconciler() *Reconciler {
 		fail:       fail_sync_task.NewUsecase(store, projection, billing, time.Now),
 		poll:       reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
 		release:    release_unidentified_sync_holds.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
+		estimates:  settle_sync_estimates.NewUsecase(store, billing, projection, reconciliationAlerts{}, runtime.Diagnostics{}, time.Now),
 		alert:      alert_sync_reconciliation.NewUsecase(store, reconciliationAlerts{}, time.Now),
 	}
 }
@@ -100,15 +103,24 @@ func (r *Reconciler) Operator(ctx context.Context, input apply_sync_operator_dec
 func (r *Reconciler) ReleaseUnidentified(ctx context.Context) error {
 	return r.release.Execute(ctx)
 }
+func (r *Reconciler) SettleEstimates(ctx context.Context) error {
+	return r.estimates.Execute(ctx)
+}
 func (r *Reconciler) AlertManualHolds(ctx context.Context) error {
 	return r.alert.Execute(ctx)
 }
 
-// reconciliationAlerts sends the manual hold summary to the Telegram chat in
-// the root user's language, like the upstream catalog alerts.
+// reconciliationAlerts sends the manual hold and estimate charge summaries to
+// the Telegram chat in the root user's language, like the upstream catalog
+// alerts.
 type reconciliationAlerts struct{}
 
 func (reconciliationAlerts) ManualHolds(holds []*domain.Task) error {
 	subject, content := runtime.ManualHoldsNotification(channelruntime.RootUserLanguage(), holds)
+	return notifications.TelegramChat(subject, content)
+}
+
+func (reconciliationAlerts) EstimateSettlements(tasks []*domain.Task) error {
+	subject, content := runtime.EstimateSettlementsNotification(channelruntime.RootUserLanguage(), tasks)
 	return notifications.TelegramChat(subject, content)
 }

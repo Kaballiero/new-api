@@ -125,6 +125,10 @@ type OpenRouterSyncTask struct {
 	// AlertedAt is when the manual hold was reported to the operators; zero
 	// until it is reported.
 	AlertedAt int64
+	// UsageEstimateUSD prices the usage of a delivered text at the largest
+	// endpoint tariffs of its reserve, capped by the reserve; zero without a
+	// tariff.
+	UsageEstimateUSD float64
 }
 
 // RecordResultReason keeps the first result-path reason; later failures of
@@ -174,6 +178,12 @@ type TaskReconciliation struct {
 	UpstreamIsBYOK        *bool
 	UpstreamCostDetails   string
 	QuotaSaturation       string
+	// UpstreamCostEstimated marks an UpstreamCostUSD estimated in place of a
+	// missing upstream cost.
+	UpstreamCostEstimated bool
+	// EstimateAlertedAt is when an estimate charge was reported to the
+	// operators; zero until it is reported.
+	EstimateAlertedAt int64
 }
 
 type TaskExecutionSnapshot struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -23,6 +24,10 @@ import (
 // openRouterSyncPlatforms are the platforms whose Tasks follow the OpenRouter
 // synchronous reservation lifecycle instead of provider polling.
 var openRouterSyncPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}
+
+// openRouterEstimatePlatforms are the platforms whose Tasks can be charged an
+// estimate of a missing upstream cost: the synchronous ones and video.
+var openRouterEstimatePlatforms = append(slices.Clone(openRouterSyncPlatforms), constant.TaskPlatformOpenRouterVideo)
 
 // Store executes task queries and mutations against the current primary database.
 type Store struct {
@@ -294,6 +299,31 @@ func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {
 			return err
 		}
 		saved.PrivateData.OpenRouterSyncState().AlertedAt = alertedAt
+		return tx.Model(&record.Task{}).Where("id = ?", id).Update("private_data", saved.PrivateData).Error
+	})
+}
+
+// GetFinishedEstimateTasks pages the OpenRouter tasks that can carry an
+// estimate charge and turned terminal at or after since, with only the
+// columns the estimate summary reads.
+func (s Store) GetFinishedEstimateTasks(since, afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.db().Select("id", "task_id", "action", "private_data").
+		Where("platform IN ?", openRouterEstimatePlatforms).
+		Where("status IN ?", []string{record.TaskStatusSuccess, record.TaskStatusFailure}).
+		Where("finish_time >= ?", since).Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// MarkEstimateAlerted records when an estimate charge was reported on the
+// locked row, keeping every other field another writer may have changed.
+func (s Store) MarkEstimateAlerted(id, alertedAt int64) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
+		var saved record.Task
+		if err := locking.LockForUpdate(tx).First(&saved, id).Error; err != nil {
+			return err
+		}
+		saved.PrivateData.Reconciliation.EstimateAlertedAt = alertedAt
 		return tx.Model(&record.Task{}).Where("id = ?", id).Update("private_data", saved.PrivateData).Error
 	})
 }
