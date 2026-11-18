@@ -10,12 +10,12 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Store pages manual holds and the holds already settled at an estimate,
-// claims an estimate settlement on the revision transaction an operator
+// Store pages manual holds and the estimate claims whose balances have not
+// moved, claims an estimate settlement on the revision transaction an operator
 // decision uses, and checks that it can apply.
 type Store interface {
 	ManualHolds(afterID int64, limit int) ([]*domain.Task, error)
-	EstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error)
+	PendingEstimateSettlements(afterID int64, limit int) ([]*domain.Task, error)
 	Feasible(*domain.Task) error
 	UpdateRevision(*domain.Task, int) error
 }
@@ -68,20 +68,17 @@ func (u Usecase) Execute(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// retry applies again every claimed estimate settlement whose balances did
-// not move, until it applies; one that moved them is never replayed.
+// retry applies again every estimate claim whose balances did not move, until
+// it applies; the apply switches its fail reason, so it is never replayed.
 func (u Usecase) retry(ctx context.Context) error {
-	var afterFinishTime, afterID int64
+	var afterID int64
 	for ctx.Err() == nil {
-		holds, err := u.store.EstimateSettledHolds(afterFinishTime, afterID, pageSize)
+		holds, err := u.store.PendingEstimateSettlements(afterID, pageSize)
 		if err != nil {
 			return err
 		}
 		for _, task := range holds {
-			afterFinishTime, afterID = task.FinishTime, task.ID
-			if r := task.PrivateData.Reconciliation; !r.SettlementPending || r.MainApplied {
-				continue
-			}
+			afterID = task.ID
 			if err := u.settlement.SettleDurable(task); err != nil {
 				u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s estimate settlement retry incomplete: %v", task.TaskID, err))
 				continue
@@ -125,9 +122,9 @@ func (u Usecase) settle(ctx context.Context, task *domain.Task, now time.Time) {
 	r.UpstreamCostEstimated = true
 	task.RecordOpenRouterSyncDecision(domain.OpenRouterSyncOperatorDecision{Action: domain.OpenRouterSyncOperatorSettle, CostUSD: costUSD,
 		Evidence: "automatic estimate: result delivered without an upstream cost", DecidedAt: now.Unix()},
-		domain.SyncReasonEstimateSettled, domain.SyncEstimateSettledFailReason)
-	// The estimate charge finishes the task, so the summary and the retry
-	// select it by its finish time.
+		domain.SyncReasonEstimateSettled, domain.SyncEstimatePendingFailReason)
+	// The estimate charge finishes the task, so the summary selects it by its
+	// finish time.
 	task.FinishTime = now.Unix()
 	u.projection.Project(task)
 	// A lost revision claim means another writer resolved the hold first.

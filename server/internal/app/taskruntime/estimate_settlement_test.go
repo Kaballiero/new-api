@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
 	service "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -142,6 +143,7 @@ func TestOpenRouterSyncEstimateSettlement(t *testing.T) {
 			}
 			assert.Equal(t, "settled", reconciliation["billing_state"])
 			assert.Equal(t, "estimate_settled", reconciliation["reason_code"])
+			assert.Equal(t, taskdomain.SyncEstimateSettledFailReason, task.FailReason, "the apply leaves the pending retry")
 			assert.Equal(t, false, reconciliation["cost_confirmed"], "an estimate is never a confirmed cost")
 			assert.Equal(t, true, OpenRouterSyncAdminView(task)["cost_estimated"])
 			assert.True(t, task.PrivateData.Reconciliation.UpstreamCostEstimated)

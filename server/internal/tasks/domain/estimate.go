@@ -10,9 +10,14 @@ import (
 // estimate of its missing upstream cost.
 const SyncReasonEstimateSettled = "estimate_settled"
 
-// SyncEstimateSettledFailReason is the stored failure text of a manual hold
-// settled at an estimate; the estimate summary selects these holds by it.
-const SyncEstimateSettledFailReason = "OpenRouter cost settled by estimate"
+// Stored failure texts of a manual hold settled at an estimate: the claim
+// records the pending text, which the settlement apply switches to the
+// settled one with the balances. The retry selects the pending holds, the
+// estimate summary the settled ones.
+const (
+	SyncEstimatePendingFailReason = "OpenRouter cost settlement by estimate pending"
+	SyncEstimateSettledFailReason = "OpenRouter cost settled by estimate"
+)
 
 // openRouterVideoTariffSources are the reserve sources of a video reserve
 // priced from the endpoint tariffs alone, the only reserve a delivered video

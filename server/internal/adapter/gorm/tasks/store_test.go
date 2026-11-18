@@ -529,6 +529,7 @@ func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
 	finished("task_audio", constant.TaskPlatformOpenRouterAudio, record.TaskStatusFailure, settled, 150)
 	finished("task_failed_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusFailure, "", 150)
 	finished("task_other_platform", "suno", record.TaskStatusSuccess, "", 150)
+	pending := finished("task_pending", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, domain.SyncEstimatePendingFailReason, 10)
 
 	charges, err := store.GetEstimateCharges(100, 0, 10)
 	require.NoError(t, err)
@@ -544,10 +545,10 @@ func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
 	require.Len(t, charges, 1)
 	assert.Equal(t, image.TaskID, charges[0].TaskID)
 
-	holds, err := store.GetEstimateSettledHolds(100, 0, 10)
+	holds, err := store.GetPendingEstimateSettlements(0, 10)
 	require.NoError(t, err)
-	require.Len(t, holds, 2)
-	assert.Equal(t, []string{text.TaskID, image.TaskID}, []string{holds[0].TaskID, holds[1].TaskID})
+	require.Len(t, holds, 1, "only the unapplied claim, however old")
+	assert.Equal(t, pending.TaskID, holds[0].TaskID)
 	assert.Equal(t, 7, holds[0].Quota, "a retried settlement reads the whole row")
 }
 

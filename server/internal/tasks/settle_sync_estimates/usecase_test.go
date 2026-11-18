@@ -32,11 +32,10 @@ func (s *fakeStore) ManualHolds(afterID int64, limit int) ([]*domain.Task, error
 	return page, nil
 }
 
-func (s *fakeStore) EstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error) {
+func (s *fakeStore) PendingEstimateSettlements(afterID int64, limit int) ([]*domain.Task, error) {
 	var page []*domain.Task
 	for _, task := range s.tasks {
-		after := task.FinishTime > afterFinishTime || task.FinishTime == afterFinishTime && task.ID > afterID
-		if after && task.FailReason == domain.SyncEstimateSettledFailReason && len(page) < limit {
+		if task.ID > afterID && task.FailReason == domain.SyncEstimatePendingFailReason && len(page) < limit {
 			page = append(page, task)
 		}
 	}
@@ -55,7 +54,8 @@ func (s *fakeStore) UpdateRevision(task *domain.Task, revision int) error {
 }
 
 // fakeSettlement prices a cost at 1000 quota per USD and applies a claimed
-// target unless it fails.
+// target unless it fails, switching an estimate claim to settled as the store
+// does.
 type fakeSettlement struct {
 	settleErr error
 	applied   int
@@ -72,6 +72,9 @@ func (s *fakeSettlement) SettleDurable(task *domain.Task) error {
 	}
 	r := task.PrivateData.Reconciliation
 	r.MainApplied, r.Finalized, r.SettlementPending = true, true, false
+	if task.FailReason == domain.SyncEstimatePendingFailReason {
+		task.FailReason = domain.SyncEstimateSettledFailReason
+	}
 	s.applied++
 	return nil
 }
@@ -173,6 +176,7 @@ func TestExecuteRetriesAClaimedEstimateSettlementOnce(t *testing.T) {
 	require.Len(t, diagnostics.warnings, 1)
 	assert.Contains(t, diagnostics.warnings[0], "estimate settlement of 0.05 USD incomplete")
 	assert.True(t, hold.PrivateData.Reconciliation.SettlementPending)
+	assert.Equal(t, domain.SyncEstimatePendingFailReason, hold.FailReason, "an unapplied claim stays pending for the retry")
 
 	settlement.settleErr = nil
 	require.NoError(t, usecase.Execute(context.Background()))
@@ -180,4 +184,5 @@ func TestExecuteRetriesAClaimedEstimateSettlementOnce(t *testing.T) {
 	assert.Equal(t, 1, store.claims, "the decision is claimed once")
 	assert.Equal(t, 1, settlement.applied, "the claimed settlement applies once")
 	assert.True(t, hold.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, domain.SyncEstimateSettledFailReason, hold.FailReason)
 }
