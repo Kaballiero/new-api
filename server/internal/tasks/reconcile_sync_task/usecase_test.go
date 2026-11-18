@@ -128,7 +128,7 @@ func TestReconciliationRetriesSettlementBeforeTerminalResult(t *testing.T) {
 		assert.Empty(t, fixture.events, "the retry waits for its due time")
 		current = now.Add(time.Minute)
 		require.NoError(t, usecase.Execute(t.Context(), task))
-		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, []string{"project", "revision", "settle", "project", "revision"}, fixture.events)
 		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status)
 		assert.Equal(t, "100%", task.Progress)
 		assert.Equal(t, 1, state.Attempts)
@@ -137,14 +137,14 @@ func TestReconciliationRetriesSettlementBeforeTerminalResult(t *testing.T) {
 		task, _ := newTask(&domain.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, HasUpstreamCost: true, UpstreamCostConfirmed: true, SettlementPending: true, MainApplied: true})
 		fixture := &syncFixture{settleError: errors.New("settlement log failed")}
 		require.ErrorIs(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task), fixture.settleError)
-		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, []string{"project", "revision", "settle", "project", "revision"}, fixture.events)
 		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status, "repair is left to an operator")
 	})
 	t.Run("finalized settlement only records the terminal result", func(t *testing.T) {
 		task, _ := newTask(&domain.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, HasUpstreamCost: true, UpstreamCostConfirmed: true, MainApplied: true, Finalized: true})
 		fixture := &syncFixture{}
 		require.NoError(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task))
-		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, []string{"project", "revision", "settle", "project", "revision"}, fixture.events)
 		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status)
 	})
 	t.Run("stale retry claim moves no money", func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestReconciliationRetriesSettlementBeforeTerminalResult(t *testing.T) {
 		stale := errors.New("stale revision")
 		fixture := &syncFixture{claimError: stale}
 		require.ErrorIs(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task), stale)
-		assert.Equal(t, []string{"revision"}, fixture.events)
+		assert.Equal(t, []string{"project", "revision"}, fixture.events)
 	})
 }
 

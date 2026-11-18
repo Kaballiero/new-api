@@ -84,6 +84,7 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 		}
 		// Claim the retry before money moves; a stale poller loses this claim.
 		a.NextPoll = now.Add(settlementRetryDelay).Unix()
+		u.codec.Project(task)
 		if err := u.store.UpdateRevision(task, a.Revision); err != nil {
 			return err
 		}
