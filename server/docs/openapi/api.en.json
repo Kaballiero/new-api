@@ -16646,6 +16646,7 @@
                                   "chat/completions",
                                   "embeddings",
                                   "audio/speech",
+                                  "audio/transcriptions",
                                   "rerank",
                                   null
                                 ],

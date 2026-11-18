@@ -15,6 +15,10 @@ import (
 // ReferencePromptTokens are the prompt tokens of the reference request.
 const ReferencePromptTokens = 1000
 
+// audioReferenceOperations are the reference operations of the OpenAI audio
+// endpoints.
+var audioReferenceOperations = []ReferenceOperation{ReferenceOperationAudioSpeech, ReferenceOperationAudioTranscriptions}
+
 // ChannelStore reads the channel whose reserves are previewed.
 type ChannelStore interface {
 	BuildChannel(int) (*domain.BuildChannel, error)
@@ -38,9 +42,9 @@ type ReserveSettings struct {
 }
 
 // ReferenceRequest is the reference request of an upstream model of the
-// channel: Chat Completions or Embeddings with PromptTokens, or the speech or
-// rerank reference of the gateway side. Only and Ignore are its provider.only
-// and provider.ignore.
+// channel: Chat Completions or Embeddings with PromptTokens, or the speech,
+// transcription or rerank reference of the gateway side. Only and Ignore are
+// its provider.only and provider.ignore.
 type ReferenceRequest struct {
 	// Model is the channel model: the billing model of a configured price.
 	Model         string
@@ -147,9 +151,10 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 	document, documented := catalog[domain.UpstreamTariffModel(upstream, false)]
 	request := ReferenceRequest{Model: model, UpstreamModel: upstream, Operation: ReferenceOperationChatCompletions, PromptTokens: ReferencePromptTokens}
 	// The output modalities choose the reference in this order: embeddings
-	// only, then speech, then rerank, then text; a model with none of them
-	// stays live only. Speech and rerank are priced from the measured
-	// quantities of their own reference request, not from prompt tokens.
+	// only, then speech, then transcription, then rerank, then text; a model
+	// with none of them stays live only. Speech, transcription and rerank are
+	// priced from the measured quantities of their own reference request, not
+	// from prompt tokens.
 	switch {
 	case !documented:
 		return item
@@ -157,6 +162,8 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 		request.Operation = ReferenceOperationEmbeddings
 	case slices.Contains(document.OutputModalities, "speech"):
 		request.Operation, request.PromptTokens = ReferenceOperationAudioSpeech, 0
+	case slices.Contains(document.OutputModalities, "transcription"):
+		request.Operation, request.PromptTokens = ReferenceOperationAudioTranscriptions, 0
 	case slices.Contains(document.OutputModalities, "rerank"):
 		request.Operation, request.PromptTokens = ReferenceOperationRerank, 0
 	case !slices.Contains(document.OutputModalities, "text"):
@@ -178,9 +185,9 @@ func (u Usecase) preview(channel *domain.BuildChannel, settings ReserveSettings,
 			item.AdmissionPolicy = &reserve.AdmissionPolicy
 		}
 	}
-	if request.Operation == ReferenceOperationAudioSpeech {
-		// The gateway refuses provider routing filters on speech, so speech
-		// has no provider breakdown.
+	if slices.Contains(audioReferenceOperations, request.Operation) {
+		// The gateway refuses provider routing filters on speech and
+		// transcription, so they have no provider breakdown.
 		return item
 	}
 	var tags []string

@@ -6394,6 +6394,10 @@
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "请求已到达 OpenRouter，但其成本未确认。处理前请在 OpenRouter 中核对扣费。",
     "Reserved web searches": "预留网络搜索次数",
     "Reserved prompt tokens": "预留提示词 token 数",
-    "Reserved transcription seconds": "预留转录秒数"
+    "Reserved transcription seconds": "预留转录秒数",
+    "Reserved speech characters": "预留语音字符数",
+    "Reserved speech UTF-8 bytes": "预留语音 UTF-8 字节数",
+    "Reserved speech seconds": "预留语音秒数",
+    "Reserved search units": "预留搜索单元数"
   }
 }

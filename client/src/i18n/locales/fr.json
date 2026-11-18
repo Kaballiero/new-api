@@ -6394,6 +6394,10 @@
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "La requête a atteint OpenRouter mais son coût n'a pas été confirmé. Vérifiez la facturation dans OpenRouter avant de la résoudre.",
     "Reserved web searches": "Recherches web réservées",
     "Reserved prompt tokens": "Jetons de prompt réservés",
-    "Reserved transcription seconds": "Secondes de transcription réservées"
+    "Reserved transcription seconds": "Secondes de transcription réservées",
+    "Reserved speech characters": "Caractères de synthèse vocale réservés",
+    "Reserved speech UTF-8 bytes": "Octets UTF-8 de synthèse vocale réservés",
+    "Reserved speech seconds": "Secondes de synthèse vocale réservées",
+    "Reserved search units": "Unités de recherche réservées"
   }
 }

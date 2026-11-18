@@ -71,6 +71,17 @@ const (
 	ReserveFloor
 )
 
+// unitReserveQuantities name the units measured for a speech, transcription or
+// rerank request as the reserve quantities the admin log records.
+var unitReserveQuantities = map[pricingdomain.PriceDimension]pricingdomain.ReserveQuantity{
+	{Billable: pricingdomain.PriceBillableInputAudio, Unit: pricingdomain.PriceUnitSecond}:       pricingdomain.ReserveQuantityAudioSeconds,
+	{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitCharacter}:  pricingdomain.ReserveQuantityCharacters,
+	{Billable: pricingdomain.PriceBillableOutputSpeech, Unit: pricingdomain.PriceUnitUTF8Byte}:   pricingdomain.ReserveQuantityUTF8Bytes,
+	{Billable: pricingdomain.PriceBillableOutputAudio, Unit: pricingdomain.PriceUnitSecond}:      pricingdomain.ReserveQuantitySpeechSeconds,
+	{Billable: pricingdomain.PriceBillableInputText, Unit: pricingdomain.PriceUnitMillionTokens}: pricingdomain.ReserveQuantityPromptTokens,
+	{Billable: pricingdomain.PriceBillableSearch, Unit: pricingdomain.PriceUnitSearch}:           pricingdomain.ReserveQuantitySearchUnits,
+}
+
 // SonarResearchModel is the model the legacy Sonar research reserve
 // (openrouter_sonar_research_reserve_usd) applies to.
 const SonarResearchModel = dto.OpenRouterSonarResearchModel
@@ -502,9 +513,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches, pricingdomain.ReserveQuantityPromptTokens: prompt}
 	case searches > 0:
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
-	case operation == "audio/transcriptions" && request.File.Seconds != nil:
-		// The seconds saturate to transcriptionMaxSeconds, so they fit int.
-		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantityAudioSeconds: int(*request.File.Seconds)}
+	case len(units) > 0:
+		// The units of a speech, transcription or rerank request fit int: the
+		// seconds saturate to transcriptionMaxSeconds, and the other units are
+		// measured on a body within the pricing inspection limit.
+		e.ReserveQuantities = make(map[pricingdomain.ReserveQuantity]int, len(units))
+		for dimension, value := range units {
+			e.ReserveQuantities[unitReserveQuantities[dimension]] = int(value)
+		}
 	}
 	e.OutputReserve = outputReserve
 	switch {

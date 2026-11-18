@@ -643,9 +643,11 @@ func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
 }
 
 // Speech and rerank on the official API are priced from the catalog unit
-// prices without a channel reserve, and a rerank model without catalog unit
-// prices is refused without a reserve.
+// prices without a channel reserve, with their measured units as the reserve
+// quantities, and a rerank model without catalog unit prices is refused
+// without a reserve.
 func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
+	tokenusage.InitTokenEncoders()
 	previous := pricingruntime.UpstreamCatalogTariffs.Load()
 	t.Cleanup(func() { pricingruntime.UpstreamCatalogTariffs.Store(previous) })
 	perCharacter := decimal.RequireFromString("0.00003")
@@ -671,6 +673,7 @@ func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
 	assert.InDelta(t, .004, cost, 1e-12)
 	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
 	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+	assert.Equal(t, map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearchUnits: 2, pricingdomain.ReserveQuantityPromptTokens: 707}, e.ReserveQuantities)
 
 	e = NewRequestEstimator()
 	e.Models["other/rerank"] = []PricedEndpoint{{Tag: "cohere", ModelID: "other/rerank", Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0"`), "completion": json.RawMessage(`"0"`)}}}
@@ -686,6 +689,12 @@ func TestEndpointReserveFromCatalogUnitPrices(t *testing.T) {
 	assert.InDelta(t, .00033, cost, 1e-12)
 	assert.Equal(t, pricingdomain.ReserveSourceCatalog, e.ReserveSource)
 	assert.Equal(t, ReserveNotApplied, e.ReserveUse)
+	assert.Equal(t, map[pricingdomain.ReserveQuantity]int{
+		pricingdomain.ReserveQuantityCharacters:    11,
+		pricingdomain.ReserveQuantityUTF8Bytes:     11,
+		pricingdomain.ReserveQuantitySpeechSeconds: 3,
+		pricingdomain.ReserveQuantityPromptTokens:  3,
+	}, e.ReserveQuantities)
 }
 
 // Transcription on the official API is priced from the catalog unit prices

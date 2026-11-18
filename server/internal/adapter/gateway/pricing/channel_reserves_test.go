@@ -34,7 +34,8 @@ func TestChannelReservesPreview(t *testing.T) {
 		require.NoError(t, common.UnmarshalJsonStr(pricing, &prices))
 		return domain.NativeEndpointResponse{Endpoints: []domain.NativePricedEndpoint{{Tag: tag, MaxCompletionTokens: 100, Pricing: prices}}, OutputModalities: output}
 	}
-	// unitTariff prices one unit of a speech or rerank endpoint at usd.
+	// unitTariff prices one unit of a speech, transcription or rerank
+	// endpoint at usd.
 	unitTariff := func(billable domain.PriceBillable, unit domain.PriceUnit, usd string, output string) domain.NativeEndpointResponse {
 		response := tariff("provider", `{"prompt":"0","completion":"0"}`, output)
 		amount := decimal.RequireFromString(usd)
@@ -43,6 +44,7 @@ func TestChannelReservesPreview(t *testing.T) {
 	}
 	pricingruntime.UpstreamCatalogTariffs.Store(&domain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: map[string]domain.NativeEndpointResponse{
 		"test/speech":                    unitTariff(domain.PriceBillableOutputSpeech, domain.PriceUnitCharacter, "0.00003", "speech"),
+		"test/transcription":             unitTariff(domain.PriceBillableInputAudio, domain.PriceUnitSecond, "0.0001", "transcription"),
 		"test/rerank":                    unitTariff(domain.PriceBillableSearch, domain.PriceUnitSearch, "0.002", "rerank"),
 		"test/model":                     tariff("provider", `{"prompt":"0.001","completion":"0.002"}`, "text"),
 		"test/search":                    tariff("provider", `{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`, "text"),
@@ -77,6 +79,10 @@ func TestChannelReservesPreview(t *testing.T) {
 		{name: "speech of the reference input", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech,
 			want: preview_channel_reserves.ReservePreview{USD: .003, Source: domain.ReserveSourceCatalog}},
 		{name: "speech reserve above the estimate is the manual reserve", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech, setting: `{"openrouter_model_reserve_usd":{"test/speech":0.1}}`,
+			want: preview_channel_reserves.ReservePreview{USD: .1, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
+		{name: "transcription of the reference seconds", model: "test/transcription", operation: preview_channel_reserves.ReferenceOperationAudioTranscriptions,
+			want: preview_channel_reserves.ReservePreview{USD: .006, Source: domain.ReserveSourceCatalog}},
+		{name: "transcription reserve above the estimate is the manual reserve", model: "test/transcription", operation: preview_channel_reserves.ReferenceOperationAudioTranscriptions, setting: `{"openrouter_model_reserve_usd":{"test/transcription":0.1}}`,
 			want: preview_channel_reserves.ReservePreview{USD: .1, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
 		{name: "rerank of the reference documents", model: "test/rerank", operation: preview_channel_reserves.ReferenceOperationRerank,
 			want: preview_channel_reserves.ReservePreview{USD: .002, Source: domain.ReserveSourceCatalog}},

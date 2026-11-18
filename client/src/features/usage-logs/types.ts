@@ -116,6 +116,10 @@ export const OPENROUTER_RESERVATION_QUANTITY = {
   SEARCHES: 'searches',
   PROMPT_TOKENS: 'prompt_tokens',
   AUDIO_SECONDS: 'audio_seconds',
+  CHARACTERS: 'characters',
+  UTF8_BYTES: 'utf8_bytes',
+  SPEECH_SECONDS: 'speech_seconds',
+  SEARCH_UNITS: 'search_units',
 } as const
 
 /** What the reserve of an OpenRouter request is priced from (openrouter_reservation_source). */

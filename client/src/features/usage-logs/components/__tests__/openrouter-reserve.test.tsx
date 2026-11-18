@@ -171,6 +171,35 @@ describe('OpenRouter reserve in log details', () => {
     expect(label.nextElementSibling?.textContent).toBe('60')
   })
 
+  test('shows the reserved speech and rerank quantities', () => {
+    renderUsageLog(
+      {
+        admin_info: {
+          openrouter_reservation_source: 'manual',
+          openrouter_reservation_quantities: {
+            characters: 11,
+            utf8_bytes: 12,
+            speech_seconds: 3,
+            search_units: 2,
+          },
+        },
+      },
+      true
+    )
+
+    const section = within(reserveSection())
+    for (const [label, value] of [
+      ['Reserved speech characters', '11'],
+      ['Reserved speech UTF-8 bytes', '12'],
+      ['Reserved speech seconds', '3'],
+      ['Reserved search units', '2'],
+    ]) {
+      expect(section.getByText(label).nextElementSibling?.textContent).toBe(
+        value
+      )
+    }
+  })
+
   test('shows a configured price reserve without a warning', () => {
     renderUsageLog(
       {
