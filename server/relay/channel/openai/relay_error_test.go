@@ -2788,6 +2788,15 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			require.True(t, exists)
 			assert.Equal(t, "rerank", task.Action)
 			assert.Equal(t, constant.TaskPlatformOpenRouterRerank, task.Platform)
+			// The task facts carry the reserve source to the reservation log.
+			wantSource := "manual"
+			if tc.configured {
+				wantSource = "configured_price"
+			}
+			assert.Equal(t, wantSource, task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+			var reservation Log
+			require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
+			assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"`+wantSource+`"`)
 			assert.Nil(t, task.PrivateData.OpenRouterAudio)
 			require.NotNil(t, task.PrivateData.OpenRouterSync)
 			if task.PrivateData.OpenRouterSync.ResultReady {
