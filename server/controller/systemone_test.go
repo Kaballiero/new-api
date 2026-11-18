@@ -84,21 +84,29 @@ func TestSystemOneRelay(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}))
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.Task{}, &model.ModelCostFXRow{}))
 	model.DB, model.LOG_DB = database, database
 	const upstreamModel = "vendor/decision-fixture"
 	const requestBody = `{"model":"alias","state":{"z":1,"a":{"y":2,"b":3}},"questions":{"z":{"type":"choice","instructions":"route","criteria":{"z":"Z","a":"A"}},"a":{"type":"noul","instructions":"yes?"},"s":{"type":"score","instructions":"rank","criteria":[{"level":"low"},{"level":"high"}]}},"provider":{"only":["fixture"]}}`
+	// generationID has the format of a decisions response id.
+	const generationID = "gen-dec-1789738314-X5e5eKGQdvR9rblyX250"
 	const answers = `"answers":{"z":{"type":"choice","choice":"z","probabilities":{"z":0.8,"a":0.2},"confidence":0.8},"a":{"type":"noul","noul":0.9},"s":{"type":"score","score":0.8,"legend":{"0":{"level":"low"},"1":{"level":"high"}}}}`
 	for _, tc := range []struct {
 		name, cost, capability, provider                                                                                string
 		upstreamStatus, status, quota                                                                                   int
 		missing, malformed, disconnect, timeout, noReserve, empty, unsupported, duplicate, override, frozen, configured bool
 		nullProbability, oversizedUsage, missingID, mismatchID, metadata, unpriced                                      bool
+		// generation adds the response id; deferred means a Task holds the
+		// reserve until the generation lookup settles it.
+		generation, deferred, undelivered bool
 	}{
 		{name: "typed result and raw order", cost: "0.02", status: 200, quota: 20000},
 		{name: "OR metadata with required parameters", metadata: true, cost: "0.02", status: 200, quota: 20000},
 		{name: "explicit zero", cost: "0", status: 200},
 		{name: "missing cost", missing: true, status: 502},
+		{name: "missing cost with generation id defers", missing: true, generation: true, deferred: true, status: 200},
+		{name: "missing cost broken answers with generation id awaits lookup", missing: true, malformed: true, generation: true, deferred: true, undelivered: true, status: 502},
+		{name: "known cost with generation id settles", cost: "0.02", generation: true, status: 200, quota: 20000},
 		{name: "null cost", cost: "null", status: 502},
 		{name: "negative cost", cost: "-1", status: 502},
 		{name: "known cost broken answers", cost: "0.02", malformed: true, status: 502, quota: 20000},
@@ -124,7 +132,7 @@ func TestSystemOneRelay(t *testing.T) {
 		{name: "configured fixed floor", configured: true, cost: "0.02", status: 200, quota: 20000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, table := range []any{&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}} {
+			for _, table := range []any{&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.Task{}} {
 				require.NoError(t, database.Unscoped().Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(table).Error)
 			}
 			operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
@@ -233,7 +241,11 @@ func TestSystemOneRelay(t *testing.T) {
 				if tc.oversizedUsage {
 					input = 2147483647
 				}
-				fmt.Fprintf(w, `{"model":%q,%s,"usage":{"input_tokens":%d,"output_tokens":3%s}}`, upstreamModel, result, input, cost)
+				id := ""
+				if tc.generation {
+					id = `"id":"` + generationID + `",`
+				}
+				fmt.Fprintf(w, `{%s"model":%q,%s,"usage":{"input_tokens":%d,"output_tokens":3%s}}`, id, upstreamModel, result, input, cost)
 			}))
 			defer upstream.Close()
 			setting := `{"openrouter_model_reserve_usd":{"vendor/decision-fixture":0.04}}`
@@ -296,28 +308,46 @@ func TestSystemOneRelay(t *testing.T) {
 			if tc.status == 200 {
 				assert.Contains(t, recorder.Body.String(), answers)
 			}
+			// A deferred Task books the reserve at submission until the
+			// generation lookup settles it.
+			charged := tc.quota
+			if tc.deferred {
+				charged = expectedReserve
+			}
 			require.Eventually(t, func() bool {
 				var u model.User
 				var token model.Token
 				if database.First(&u, 7).Error != nil || database.First(&token, 11).Error != nil {
 					return false
 				}
-				return u.Quota == initial-tc.quota && token.RemainQuota == initial-tc.quota
+				return u.Quota == initial-charged && token.RemainQuota == initial-charged
 			}, time.Second*3, time.Millisecond*10)
+			var tasks []model.Task
+			require.NoError(t, database.Find(&tasks).Error)
+			if tc.deferred {
+				require.Len(t, tasks, 1)
+				assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, tasks[0].Platform)
+				assert.Equal(t, constant.TaskActionDecisions, tasks[0].Action)
+				assert.Equal(t, expectedReserve, tasks[0].Quota)
+				assert.Equal(t, generationID, tasks[0].PrivateData.UpstreamTaskID)
+				assert.Equal(t, tc.undelivered, tasks[0].PrivateData.OpenRouterSync.ResultReason == "undelivered_chat_result")
+			} else {
+				assert.Empty(t, tasks)
+			}
 			var u model.User
 			var token model.Token
 			var ch model.Channel
 			require.NoError(t, database.First(&u, 7).Error)
 			require.NoError(t, database.First(&token, 11).Error)
 			require.NoError(t, database.First(&ch, 21).Error)
-			assert.Equal(t, tc.quota, u.UsedQuota)
-			assert.Equal(t, tc.quota, token.UsedQuota)
-			assert.Equal(t, int64(tc.quota), ch.UsedQuota)
+			assert.Equal(t, charged, u.UsedQuota)
+			assert.Equal(t, charged, token.UsedQuota)
+			assert.Equal(t, int64(charged), ch.UsedQuota)
 			var logs []model.Log
 			require.NoError(t, database.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
-			if tc.quota > 0 || tc.status == 200 {
+			if charged > 0 || tc.status == 200 {
 				require.Len(t, logs, 1)
-				assert.Equal(t, tc.quota, logs[0].Quota)
+				assert.Equal(t, charged, logs[0].Quota)
 				assert.Contains(t, logs[0].Other, "openrouter_cost_basis")
 			} else {
 				assert.Empty(t, logs)

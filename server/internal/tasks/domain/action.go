@@ -23,4 +23,5 @@ const (
 	TaskActionChat                  = constant.TaskActionChat
 	TaskActionCompletions           = constant.TaskActionCompletions
 	TaskActionEmbeddings            = constant.TaskActionEmbeddings
+	TaskActionDecisions             = constant.TaskActionDecisions
 )

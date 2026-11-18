@@ -908,29 +908,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}()
 		if !info.IsStream {
 			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
-				if info.IsChannelTest || !info.OpenRouterCost.ChatText {
-					return nil, costErr
-				}
-				if info.OpenRouterCost.UnknownReason == "upstream_error" {
-					// With a generation identity the Task keeps the hold and the
-					// lookup charges what OpenRouter billed; the client still gets
-					// the upstream error.
-					if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
-						logger.LogError(c, fmt.Sprintf("OpenRouter upstream error cost deferral incomplete; task %s retains the hold: %v", info.OpenRouterCost.TaskID, deferErr))
-					}
-					return nil, openrouter.RejectUpstreamError(c, info, costErr)
-				}
 				// Deferral needs an inspected body, so delivery below always reads
 				// the buffered response restored by ValidateResponse.
-				if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil {
-					if !relaycommon.HasOpenRouterSyncTask(info) {
-						logger.LogWarn(c, "OpenRouter cost deferral unavailable: unknown_reason=%s channel=%d reserve=%d: %v",
-							info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr)
-						return nil, costErr
-					}
-					// Once a Task owns the hold the buffered response is always delivered.
-					logger.LogError(c, fmt.Sprintf("OpenRouter cost deferral incomplete; task %s retains the hold for reconciliation: unknown_reason=%s channel=%d reserve=%d: %v",
-						info.OpenRouterCost.TaskID, info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr))
+				if apiErr := openrouter.DeferNonstreamCostToGeneration(c, info, a, costErr); apiErr != nil {
+					return nil, apiErr
 				}
 			}
 		}
@@ -1044,9 +1025,14 @@ func (a *Adaptor) SupportsSystemOne(info *relaycommon.RelayInfo) bool {
 	return info.ChannelType == constant.ChannelTypeOpenRouter
 }
 
-func (a *Adaptor) ReadSystemOneResponse(resp *http.Response, info *relaycommon.RelayInfo) ([]byte, *types.NewAPIError) {
-	if apiErr := openrouter.ValidateResponse(resp, info); apiErr != nil {
-		return nil, apiErr
+// ReadSystemOneResponse returns the buffered decisions response. A response
+// without a usable usage.cost defers its hold to the generation lookup as a
+// nonstream chat text response does.
+func (a *Adaptor) ReadSystemOneResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) ([]byte, *types.NewAPIError) {
+	if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
+		if apiErr := openrouter.DeferNonstreamCostToGeneration(c, info, a, costErr); apiErr != nil {
+			return nil, apiErr
+		}
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
