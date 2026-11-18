@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
+	httpadapter "github.com/QuantumNous/new-api/internal/adapter/http/tasksync"
 	"github.com/QuantumNous/new-api/internal/tasks/clear_sync_task_credentials"
 	"github.com/QuantumNous/new-api/logger"
 
@@ -23,7 +24,7 @@ func StartSyncTaskCredentialCleanup() {
 				logger.LogError(context.Background(), fmt.Sprintf("synchronous task credential cleanup panicked: %v", recovered))
 			}
 		}()
-		cleared, err := clear_sync_task_credentials.NewUsecase(NewStore()).Execute(context.Background())
+		cleared, err := clear_sync_task_credentials.NewUsecase(NewStore(), httpadapter.Accounts{}).Execute(context.Background())
 		if err != nil {
 			logger.LogError(context.Background(), fmt.Sprintf("synchronous task credential cleanup stopped after %d tasks: %v", cleared, err))
 			return

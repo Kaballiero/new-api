@@ -319,19 +319,13 @@ type storedSyncLookup struct {
 	Transport json.RawMessage `json:"transport"`
 }
 
-func (c storedSyncCredentials) present() bool {
-	return c.Key != "" || c.OpenRouterAudio.present() || c.OpenRouterSync.present()
-}
-
-func (l *storedSyncLookup) present() bool {
-	return l != nil && (l.Headers != nil || l.Transport != nil)
-}
-
 // ClearOpenRouterSyncCredentials pages synchronous Tasks after afterID and
-// rewrites the private data of those that still hold stored credentials. Each
-// rewrite locks the row and advances the revision, so a writer holding an
-// older snapshot fails its claim instead of writing the credentials back.
-func (s Store) ClearOpenRouterSyncCredentials(afterID int64, limit int) (int64, int, error) {
+// rewrites the private data of those that still hold stored credentials. An
+// unfinished Task stored before account binding is first bound to the account
+// of its stored key, so its cost lookup keeps working. Each rewrite locks the
+// row and advances the revision, so a writer holding an older snapshot fails
+// its claim instead of writing the credentials back.
+func (s Store) ClearOpenRouterSyncCredentials(afterID int64, limit int, bind func(task *domain.Task, key string) error) (int64, int, error) {
 	var page []struct {
 		ID          int64
 		PrivateData string
@@ -342,29 +336,46 @@ func (s Store) ClearOpenRouterSyncCredentials(afterID int64, limit int) (int64, 
 	}
 	cleared := 0
 	for _, row := range page {
+		afterID = row.ID
+		if row.PrivateData == "" {
+			continue
+		}
 		var stored storedSyncCredentials
 		if err := common.UnmarshalJsonStr(row.PrivateData, &stored); err != nil {
 			return afterID, cleared, fmt.Errorf("decode private data of task %d: %w", row.ID, err)
 		}
-		if stored.present() {
-			if err := s.clearSyncCredentials(row.ID); err != nil {
-				return afterID, cleared, fmt.Errorf("clear credentials of task %d: %w", row.ID, err)
-			}
-			cleared++
+		audio, sync := stored.OpenRouterAudio, stored.OpenRouterSync
+		lookupStored := audio != nil && (audio.Headers != nil || audio.Transport != nil) || sync != nil && (sync.Headers != nil || sync.Transport != nil)
+		if stored.Key == "" && !lookupStored {
+			continue
 		}
-		afterID = row.ID
+		if err := s.clearSyncCredentials(row.ID, bind); err != nil {
+			return afterID, cleared, fmt.Errorf("clear credentials of task %d: %w", row.ID, err)
+		}
+		cleared++
 	}
 	return afterID, cleared, nil
 }
 
-func (s Store) clearSyncCredentials(id int64) error {
+func (s Store) clearSyncCredentials(id int64, bind func(task *domain.Task, key string) error) error {
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var saved record.Task
 		if err := locking.LockForUpdate(tx).First(&saved, id).Error; err != nil {
 			return err
 		}
+		state := saved.PrivateData.OpenRouterSyncState()
+		finished := saved.Status == record.TaskStatusSuccess || saved.Status == record.TaskStatusFailure
+		if state != nil && state.CredentialHash == "" && saved.PrivateData.Key != "" && !finished {
+			task := record.ToDomain(&saved)
+			// An account that no longer matches leaves the Task unbound; its
+			// lookup then parks it for the operators, as any binding change does.
+			if bind(task, saved.PrivateData.Key) == nil {
+				bound := task.PrivateData.OpenRouterSyncState()
+				state.CredentialHash, state.CredentialIndex, state.ConfigHash = bound.CredentialHash, bound.CredentialIndex, bound.ConfigHash
+			}
+		}
 		saved.PrivateData.Key = ""
-		if state := saved.PrivateData.OpenRouterSyncState(); state != nil {
+		if state != nil {
 			state.Revision++
 		}
 		return tx.Model(&record.Task{}).Where("id = ?", id).Update("private_data", saved.PrivateData).Error

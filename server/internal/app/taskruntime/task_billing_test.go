@@ -19,11 +19,13 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	"github.com/QuantumNous/new-api/internal/adapter/http/tasksync"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/tasks/clear_sync_task_credentials"
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	usagedto "github.com/QuantumNous/new-api/internal/usage/dto"
@@ -2971,6 +2973,40 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 			assert.Equal(t, 1, calls)
 		})
 	}
+}
+
+// An audio Task stored by an earlier release kept the account key instead of
+// an account binding; the credential cleanup binds it to that account before
+// dropping the key, so its pending cost lookup still settles.
+func TestOpenRouterAudioStoredKeyCleanupKeepsCostLookup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer account-fixture", r.Header.Get("Authorization"))
+		fmt.Fprint(w, `{"data":{"id":"gen-audio-fixture","model":"vendor/audio","api_type":"tts","cancelled":false,"generation_time":null,"total_cost":0.04}}`)
+	}))
+	defer server.Close()
+	c, info := newOpenRouterAudioReservation(t, server.URL)
+	require.NoError(t, taskrecord.ConfigureOpenRouterSyncSubmission(info, server.URL+"/v1/generation", http.Header{"Authorization": []string{"Bearer account-fixture"}}))
+	require.NoError(t, taskrecord.RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-audio-fixture"}}}, nil))
+	require.NoError(t, taskrecord.CompleteOpenRouterSyncTask(c, info, []byte("durable audio"), "audio/mpeg"))
+	legacy, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	legacy.PrivateData.Key = "account-fixture"
+	legacy.PrivateData.OpenRouterAudio.CredentialHash, legacy.PrivateData.OpenRouterAudio.ConfigHash = "", ""
+	require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", legacy.ID).Update("private_data", legacy.PrivateData).Error)
+
+	cleared, err := clear_sync_task_credentials.NewUsecase(fixtureStore, tasksync.Accounts{}).Execute(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, cleared)
+	var privateData string
+	require.NoError(t, model.DB.Model(&model.Task{}).Select("private_data").Where("id = ?", legacy.ID).Scan(&privateData).Error)
+	assert.NotContains(t, privateData, "account-fixture")
+
+	RunTaskPollingOnce(t.Context(), nil)
+
+	task, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), task.Status)
+	assert.Equal(t, 40, task.Quota)
 }
 
 // The API key of a speech request may be deleted before the poller confirms

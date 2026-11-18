@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -33,6 +34,33 @@ func (Accounts) Prepare(task *domain.Task, input domain.SyncSubmissionAccount) e
 	state.CredentialHash = fmt.Sprintf("%x", sha256.Sum256([]byte(input.APIKey)))
 	state.CredentialIndex = input.CredentialIndex
 	state.RoutingHash = input.RoutingHash
+	state.ConfigHash, err = batchaccount.BatchChannelConfigHash(channel)
+	if err != nil {
+		return err
+	}
+	_, _, err = boundAccount(task)
+	return err
+}
+
+// Bind records the account binding of a Task stored before binding existed,
+// from the account key the Task still holds. The key must still belong to the
+// Task's channel.
+func (Accounts) Bind(task *domain.Task, key string) error {
+	channel, err := channelstore.GetChannelById(task.ChannelId, true)
+	if err != nil {
+		return err
+	}
+	keys := []string{channel.Key}
+	if channel.ChannelInfo.IsMultiKey {
+		keys = channel.GetKeys()
+	}
+	index := slices.Index(keys, key)
+	if index < 0 {
+		return errors.New("OpenRouter synchronous task key no longer belongs to its channel")
+	}
+	state := task.PrivateData.OpenRouterSyncState()
+	state.CredentialHash = fmt.Sprintf("%x", sha256.Sum256([]byte(key)))
+	state.CredentialIndex = index
 	state.ConfigHash, err = batchaccount.BatchChannelConfigHash(channel)
 	if err != nil {
 		return err
