@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 
 	"github.com/shopspring/decimal"
 )
@@ -15,7 +16,7 @@ type OpenRouterCostBasis = common.OpenRouterCostBasis
 
 // OpenRouterCostSourceEstimate marks a CostUSD estimated in place of a missing
 // upstream cost.
-const OpenRouterCostSourceEstimate = "estimate"
+const OpenRouterCostSourceEstimate = usagedomain.OpenRouterCostSourceEstimate
 
 // OpenRouterCostState is independent of token projections and estimates.
 type OpenRouterCostState struct {

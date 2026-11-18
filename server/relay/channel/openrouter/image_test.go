@@ -1449,6 +1449,8 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		// estimateAboveReserve is a tariff estimate above the channel reserve,
 		// which names the reserve live.
 		estimateAboveReserve bool
+		// partialImages requests two images while the upstream returns one.
+		partialImages bool
 	}{
 		{name: "empty reservation source", reserve: .02, sourceSet: true, wantError: "unsupported OpenRouter image reservation source"},
 		{name: "unknown reservation source", reserve: .02, sourceSet: true, source: "invalid", wantError: "unsupported OpenRouter image reservation source"},
@@ -1495,6 +1497,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "multiple references", reserve: .02, extra: `"image":["https://example.com/a","https://example.com/b"]`, wantError: "unpriced OpenRouter image requires"},
 		{name: "client reserve closed", reserve: .02, extra: `"openrouter_model_reserve_usd":100`, wantError: "is unsupported"},
 		{name: "missing cost", reserve: .02},
+		{name: "partial images without cost stay with root", reserve: .02, partialImages: true, extra: `"n":2`, pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`, estimateAboveReserve: true},
 		{name: "null cost", reserve: .02, cost: "null"},
 		{name: "negative cost", reserve: .02, cost: "-1"},
 		{name: "string cost", reserve: .02, cost: `"0.01"`},
@@ -1542,6 +1545,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 					capabilities := `{"resolution":{"type":"enum","values":["1K","2K"]},"aspect_ratio":{"type":"enum","values":["1:1"]},"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
 					if tc.noCapability {
 						capabilities = `{"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
+					}
+					if tc.partialImages {
+						capabilities = `{"n":{"type":"range","min":1,"max":4},"resolution":{"type":"enum","values":["1K","2K"]},"aspect_ratio":{"type":"enum","values":["1:1"]},"input_references":{"type":"range","min":1,"max":8}}`
 					}
 					endpoints := fmt.Sprintf(`[{"provider_tag":%q,"supported_parameters":%s,"pricing":%s}]`, provider, capabilities, pricing)
 					if tc.noEndpoint {
@@ -1678,8 +1684,11 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 							service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 						}
 						// A delivered image without its cost succeeds; its reserve is the estimate.
-						if tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.badImage || tc.expired || tc.lateHeaders {
+						if tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.badImage || tc.expired || tc.lateHeaders || tc.partialImages {
 							require.NotNil(t, apiErr)
+							if tc.partialImages {
+								assert.Contains(t, apiErr.Error(), "result is partial")
+							}
 						} else {
 							require.Nil(t, apiErr)
 						}
@@ -1796,7 +1805,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			if known && !tc.partial {
 				require.Error(t, taskrecord.FailOpenRouterSyncTask(info, "duplicate_cost"))
 			}
-			costMissing := tc.cost == "" || tc.cost == "null"
+			costMissing := (tc.cost == "" || tc.cost == "null") && !tc.partialImages
 			if tc.crash == "" && !tc.transportError && !tc.httpError && (known || costMissing) && !tc.badImage && !tc.expired && !tc.lateHeaders {
 				assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
 				assert.Empty(t, task.PrivateData.OpenRouterSyncState().ResultSHA256)

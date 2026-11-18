@@ -323,6 +323,8 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		unknown, transport, stream, legacy      bool
 		// estimated is a delivered image charged its reserve without a cost.
 		estimated bool
+		// images is the requested image count; the upstream returns one.
+		images int
 	}{
 		{name: "Muse documented price with empty discovery", model: "meta/muse-image", metadata: `{"id":"meta/muse-image","endpoints":[]}`, cost: "0.01", status: 200, quota: 10000, reserved: 10000},
 		{name: "Krea Turbo documented price with empty pricing", model: "krea/krea-2-medium-turbo", metadata: `{"id":"krea/krea-2-medium-turbo","endpoints":[{"provider_tag":"krea","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[]}]}`, cost: "0.015", status: 200, quota: 15000, reserved: 15000},
@@ -334,6 +336,7 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		{name: "stream completed image", cost: "0.02", stream: true, status: 200, quota: 20000, reserved: 40000},
 		{name: "upstream rejection", status: 429, reserved: 40000},
 		{name: "missing actual cost charges the reserve as an estimate", status: 200, quota: 40000, reserved: 40000, estimated: true},
+		{name: "partial images without actual cost charge their share of the reserve", images: 2, status: 200, quota: 40000, reserved: 80000, estimated: true},
 		{name: "interrupted paid request", status: 502, reserved: 40000, unknown: true, transport: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -431,7 +434,11 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 			require.NoError(t, database.Create(&selected).Error)
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(fmt.Sprintf(`{"model":%q,"prompt":"a red square","response_format":"url","stream":%t}`, imageModel, tc.stream)))
+			count := ""
+			if tc.images > 0 {
+				count = fmt.Sprintf(`,"n":%d`, tc.images)
+			}
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(fmt.Sprintf(`{"model":%q,"prompt":"a red square","response_format":"url","stream":%t%s}`, imageModel, tc.stream, count)))
 			c.Request.Header.Set("Content-Type", "application/json")
 			common.SetContextKey(c, common.RequestIdKey, "image-relay-"+strings.ReplaceAll(tc.name, " ", "-"))
 			common.SetContextKey(c, constant.ContextKeyUserId, 7)
@@ -503,6 +510,9 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 				assert.Equal(t, usagerecord.LogTypeError, logs[0].Type)
 			} else if tc.estimated {
 				assert.Equal(t, "estimate", admin["openrouter_cost_source"])
+				assert.Equal(t, true, admin["upstream_cost_estimated"])
+				assert.Equal(t, "openrouter_estimated_cost", other["settlement_mode"])
+				assert.NotContains(t, admin, "openrouter_unknown_reason")
 				assert.NotContains(t, admin, "image_actual_cost_usd")
 				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 			} else if tc.status == http.StatusOK {

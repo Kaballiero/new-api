@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	_ "golang.org/x/image/webp"
 )
 
@@ -499,6 +500,10 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 			return err
 		}
 	}
+	selected.RequestedImages = 1
+	if request.N != nil {
+		selected.RequestedImages = int(*request.N)
+	}
 	info.NativeImage = selected
 	return nil
 }
@@ -879,14 +884,20 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		cost := *result.Usage.Cost
 		info.NativeImage.ActualCostUSD = &cost
 		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = cost, true, true
+	} else if delivered, requested := len(result.Data), info.NativeImage.RequestedImages; relaycommon.HasOpenRouterSyncTask(info) && delivered < requested {
+		// The reserve prices every requested image, so a partial result
+		// without its cost stays with root.
+		info.NativeImage.OutcomeUnknown = true
+		return nil, imageResponseError("OpenRouter image result is partial and its cost is missing; financial outcome requires reconciliation")
 	} else if !relaycommon.HasOpenRouterSyncTask(info) {
-		// The image is delivered and its price is the reserve; a Task settles
-		// the same estimate after Complete.
-		estimate := info.NativeImage.EstimatedCostUSD
+		// The delivered images are charged their share of the reserve; a Task
+		// settles the whole reserve after Complete.
+		estimate := decimal.NewFromFloat(info.NativeImage.EstimatedCostUSD).Mul(decimal.NewFromInt(int64(min(delivered, requested)))).
+			Div(decimal.NewFromInt(int64(requested))).InexactFloat64()
 		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = estimate, true, true
-		info.OpenRouterCost.CostSource = relaycommon.OpenRouterCostSourceEstimate
+		info.OpenRouterCost.CostSource, info.OpenRouterCost.UnknownReason = relaycommon.OpenRouterCostSourceEstimate, ""
 		usage.Cost = estimate
-		logger.LogWarn(c, fmt.Sprintf("OpenRouter image cost is missing; the reserve is charged as an estimate: estimate_usd=%v", estimate))
+		logger.LogWarn(c, fmt.Sprintf("OpenRouter image cost is missing; the reserve share of %d/%d images is charged as an estimate: estimate_usd=%v", delivered, requested, estimate))
 	}
 	encoded, err := common.Marshal(result)
 	if err != nil {
