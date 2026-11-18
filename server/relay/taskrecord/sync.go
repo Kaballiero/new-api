@@ -74,7 +74,7 @@ func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	input := begin_sync_task.Input{Task: record.ToDomain(InitTaskSubmission(c, platform, info)), Quota: quota,
 		RequestID: info.RequestId, Preference: common.NormalizeBillingPreference(info.UserSetting.BillingPreference),
 	}
-	if platform == constant.TaskPlatformOpenRouterChatImage {
+	if platform != constant.TaskPlatformOpenRouterImage {
 		input.Account = domain.SyncSubmissionAccount{ChannelType: info.ChannelType, Transport: record.ToDomainTransport(info.ChannelSetting), Headers: info.HeadersOverride,
 			APIKey: info.ApiKey, CredentialIndex: info.ChannelMultiKeyIndex, RoutingHash: info.OpenRouterCost.RoutingHash}
 	}
@@ -142,7 +142,7 @@ func ConfigureOpenRouterSyncSubmission(info *relaycommon.RelayInfo, metadataURL 
 	if err != nil {
 		return err
 	}
-	return syncTasks().Configure(context.Background(), configure_sync_submission.Input{Task: task, MetadataURL: metadataURL, Headers: headers.Clone(), Transport: record.ToDomainTransport(info.ChannelSetting)})
+	return syncTasks().Configure(context.Background(), configure_sync_submission.Input{Task: task, MetadataURL: metadataURL, Headers: headers.Clone()})
 }
 func RecordOpenRouterSyncGeneration(info *relaycommon.RelayInfo, id string) error {
 	identity := &relaycommon.OpenRouterCostState{}

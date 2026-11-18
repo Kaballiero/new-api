@@ -27,7 +27,7 @@ func (Accounts) Prepare(task *domain.Task, input domain.SyncSubmissionAccount) e
 	}
 	if channel.Type != input.ChannelType || !reflect.DeepEqual(channelstore.NewChannelPersistence().GetSetting(channel), record.FromDomainTransport(input.Transport)) ||
 		(len(input.Headers) > 0 || len(channel.GetHeaderOverride()) > 0) && !reflect.DeepEqual(input.Headers, channel.GetHeaderOverride()) {
-		return errors.New("OpenRouter chat-image channel configuration changed")
+		return errors.New("OpenRouter synchronous task channel configuration changed")
 	}
 	state := task.PrivateData.OpenRouterSyncState()
 	state.CredentialHash = fmt.Sprintf("%x", sha256.Sum256([]byte(input.APIKey)))
@@ -37,13 +37,13 @@ func (Accounts) Prepare(task *domain.Task, input domain.SyncSubmissionAccount) e
 	if err != nil {
 		return err
 	}
-	_, _, err = chatAccount(task)
+	_, _, err = boundAccount(task)
 	return err
 }
 
 // ValidateMetadata retains the originally selected account and exact static headers.
 func (Accounts) ValidateMetadata(task *domain.Task, metadataURL string, headers map[string][]string) error {
-	channel, key, err := chatAccount(task)
+	channel, key, err := boundAccount(task)
 	if err != nil {
 		return err
 	}
@@ -52,13 +52,13 @@ func (Accounts) ValidateMetadata(task *domain.Task, metadataURL string, headers 
 		base = constant.GetChannelBaseURL(channel.Type)
 	}
 	if metadataURL != relaycommon.GetFullRequestURL(base, "/v1/generation", channel.Type) {
-		return errors.New("OpenRouter chat-image metadata origin changed")
+		return errors.New("OpenRouter synchronous task metadata origin changed")
 	}
 	requestHeaders := http.Header(headers)
 	auth, host := "Bearer "+key, ""
 	for name, value := range channel.GetHeaderOverride() {
 		if requestHeaders.Get(name) != strings.ReplaceAll(value.(string), "{api_key}", key) {
-			return errors.New("OpenRouter chat-image request headers changed")
+			return errors.New("OpenRouter synchronous task request headers changed")
 		}
 		if strings.EqualFold(name, "Authorization") {
 			auth = strings.ReplaceAll(value.(string), "{api_key}", key)
@@ -68,43 +68,43 @@ func (Accounts) ValidateMetadata(task *domain.Task, metadataURL string, headers 
 		}
 	}
 	if requestHeaders.Get("Authorization") != auth || requestHeaders.Get("Host") != host {
-		return errors.New("OpenRouter chat-image request account changed")
+		return errors.New("OpenRouter synchronous task request account changed")
 	}
 	return nil
 }
 
-// openRouterChatAccount resolves only the originally selected account and
-// transport. Rotation/config drift blocks lookup instead of switching accounts.
-func chatAccount(task *domain.Task) (*model.Channel, string, error) {
+// boundAccount resolves only the originally selected account and transport.
+// Rotation/config drift blocks lookup instead of switching accounts.
+func boundAccount(task *domain.Task) (*model.Channel, string, error) {
 	a := task.PrivateData.OpenRouterSyncState()
 	channel, err := channelstore.GetChannelById(task.ChannelId, true)
 	if err != nil {
-		return nil, "", errors.New("chat-image account unavailable")
+		return nil, "", errors.New("synchronous task account unavailable")
 	}
 	hash, err := batchaccount.BatchChannelConfigHash(channel)
 	if err != nil || channel.Type != constant.ChannelTypeOpenRouter || hash != a.ConfigHash {
-		return nil, "", errors.New("chat-image account configuration changed")
+		return nil, "", errors.New("synchronous task account configuration changed")
 	}
 	if err := batchaccount.ValidateBatchChannelHeaders(channel); err != nil {
-		return nil, "", errors.New("chat-image recovery requires static account headers")
+		return nil, "", errors.New("synchronous task recovery requires static account headers")
 	}
 	key := channel.Key
 	if channel.ChannelInfo.IsMultiKey {
 		keys := channel.GetKeys()
 		if a.CredentialIndex < 0 || a.CredentialIndex >= len(keys) {
-			return nil, "", errors.New("chat-image credential unavailable")
+			return nil, "", errors.New("synchronous task credential unavailable")
 		}
 		key = keys[a.CredentialIndex]
 	}
 	if a.CredentialHash == "" || fmt.Sprintf("%x", sha256.Sum256([]byte(key))) != a.CredentialHash {
-		return nil, "", errors.New("chat-image credential changed")
+		return nil, "", errors.New("synchronous task credential changed")
 	}
 	base := channel.GetBaseURL()
 	if base == "" {
 		base = constant.GetChannelBaseURL(channel.Type)
 	}
 	if a.MetadataURL != "" && a.MetadataURL != relaycommon.GetFullRequestURL(base, "/v1/generation", channel.Type) {
-		return nil, "", errors.New("chat-image metadata origin changed")
+		return nil, "", errors.New("synchronous task metadata origin changed")
 	}
 	return channel, key, nil
 }

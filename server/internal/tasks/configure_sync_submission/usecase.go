@@ -21,7 +21,6 @@ type Input struct {
 	Task        *domain.Task
 	MetadataURL string
 	Headers     map[string][]string
-	Transport   domain.TransportSettings
 }
 type Usecase struct {
 	store    Store
@@ -53,15 +52,13 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 		(endpoint.Scheme != "http" && endpoint.Scheme != "https") {
 		return errors.New("invalid OpenRouter synchronous metadata endpoint")
 	}
-	if task.Platform == string(domain.TaskPlatformOpenRouterChatImage) {
-		if err := u.accounts.ValidateMetadata(task, input.MetadataURL, input.Headers); err != nil {
-			return err
-		}
-		a.MetadataURL, a.DispatchPrepared = input.MetadataURL, true
-		a.LeaseUntil = u.now().Add(5 * time.Minute).Unix()
-		return u.store.UpdateRevision(task, a.Revision)
+	if err := u.accounts.ValidateMetadata(task, input.MetadataURL, input.Headers); err != nil {
+		return err
 	}
-	a.MetadataURL, a.Headers, a.Transport = input.MetadataURL, input.Headers, input.Transport
+	a.MetadataURL = input.MetadataURL
+	if task.Platform == string(domain.TaskPlatformOpenRouterChatImage) {
+		a.DispatchPrepared = true
+	}
 	a.LeaseUntil = u.now().Add(5 * time.Minute).Unix()
 	return u.store.UpdateRevision(task, a.Revision)
 }

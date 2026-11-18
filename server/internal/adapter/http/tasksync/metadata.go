@@ -12,7 +12,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
@@ -67,18 +66,14 @@ func (Metadata) Model(ctx context.Context, task *domain.Task, endpoint string) (
 }
 
 func fetchMetadata(ctx context.Context, task *domain.Task, endpoint string) ([]byte, int, time.Duration, string) {
-	a := task.PrivateData.OpenRouterSyncState()
-	settings, headers := record.FromDomainTransport(a.Transport), http.Header(a.Headers).Clone()
-	if task.Platform == string(domain.TaskPlatformOpenRouterChatImage) {
-		channel, key, err := chatAccount(task)
-		if err != nil {
-			return nil, 0, 0, "account_binding_changed"
-		}
-		settings = channelstore.NewChannelPersistence().GetSetting(channel)
-		headers = http.Header{"Authorization": []string{"Bearer " + key}}
-		for name, value := range channel.GetHeaderOverride() {
-			headers.Set(name, strings.ReplaceAll(value.(string), "{api_key}", key))
-		}
+	channel, key, err := boundAccount(task)
+	if err != nil {
+		return nil, 0, 0, "account_binding_changed"
+	}
+	settings := channelstore.NewChannelPersistence().GetSetting(channel)
+	headers := http.Header{"Authorization": []string{"Bearer " + key}}
+	for name, value := range channel.GetHeaderOverride() {
+		headers.Set(name, strings.ReplaceAll(value.(string), "{api_key}", key))
 	}
 	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {

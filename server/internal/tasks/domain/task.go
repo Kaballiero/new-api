@@ -81,8 +81,9 @@ type TaskPrivateData struct {
 	OpenRouterSync  *OpenRouterSyncTask
 }
 
-// OpenRouterSyncTask separates delivery from financial reconciliation. Headers
-// and transport settings are private account provenance, never public Task.Data.
+// OpenRouterSyncTask separates delivery from financial reconciliation. It keeps
+// only hashes of the selected account; the cost lookup authenticates with the
+// bound channel account at use time, so no credential is stored.
 type OpenRouterSyncTask struct {
 	CredentialHash    string
 	ConfigHash        string
@@ -102,8 +103,6 @@ type OpenRouterSyncTask struct {
 	LeaseUntil        int64
 	Deadline          int64
 	MetadataURL       string
-	Headers           map[string][]string
-	Transport         TransportSettings
 	Attempts          int
 	NextPoll          int64
 	LastHTTPStatus    int
