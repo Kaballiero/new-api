@@ -1153,7 +1153,9 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 				require.Len(t, errorLogs, 1, "a refund of an unknown charge leaves exactly one record")
 				assert.Contains(t, errorLogs[0], `"openrouter_financial_outcome":"unknown"`)
 				assert.Contains(t, errorLogs[0], `"openrouter_error_policy":"refund_without_retry"`)
-			case !tc.channelError:
+			case tc.channelError:
+				assert.Len(t, errorLogs, 1, "a channel failure records one error log")
+			default:
 				assert.Empty(t, errorLogs, "only a channel failure records an error log")
 			}
 			if tc.autoDisabled {

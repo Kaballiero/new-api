@@ -27,8 +27,8 @@ const (
 	AdmitUpstream Step = iota
 	Persist
 	// AdmitUnknownOutcomeRefund admits the record of a refunded hold whose
-	// upstream charge is unknown. Every paid request leaves a record, so it does
-	// not depend on the error log setting.
+	// upstream charge is unknown. Such a refund always leaves a record, so it
+	// does not depend on the error log setting.
 	AdmitUnknownOutcomeRefund
 )
 
