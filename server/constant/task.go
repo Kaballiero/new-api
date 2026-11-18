@@ -9,6 +9,7 @@ const (
 	TaskPlatformOpenRouterImage     TaskPlatform = "openrouter-image"
 	TaskPlatformOpenRouterChatImage TaskPlatform = "openrouter-chat-image"
 	TaskPlatformOpenRouterRerank    TaskPlatform = "openrouter-rerank"
+	TaskPlatformOpenRouterVideo     TaskPlatform = "openrouter-video"
 )
 
 const (

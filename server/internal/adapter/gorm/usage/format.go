@@ -352,6 +352,10 @@ func appendTextConsumption(other *usagerecord.LogOther, request domain.RequestFa
 func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.RequestFacts, outcome *billingdomain.Outcome) {
 	if state := request.OpenRouterCost; state != nil {
 		other.SetPublic("settlement_mode", "openrouter_actual_cost")
+		if state.CostSource == domain.OpenRouterCostSourceEstimate {
+			other.SetPublic("settlement_mode", "openrouter_estimated_cost")
+			other.SetAdmin("upstream_cost_estimated", true)
+		}
 		other.SetAdmin("openrouter_cost_basis", storedCostBasis(state.Basis))
 		other.SetAdmin("upstream_cost_usd", state.CostUSD)
 		if state.CostSource != "" {

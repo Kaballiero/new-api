@@ -182,7 +182,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 }
 func syncCost(info *relaycommon.RelayInfo) domain.SyncCost {
 	state := info.OpenRouterCost
-	return domain.SyncCost{GenerationID: state.GenerationID, Final: state.Final, Valid: state.Valid, IdentityConflict: state.IdentityConflict, CostUSD: state.CostUSD, IsBYOK: state.IsBYOK, CostDetails: state.CostDetails}
+	return domain.SyncCost{GenerationID: state.GenerationID, Final: state.Final, Valid: state.Valid, IdentityConflict: state.IdentityConflict, CostUSD: state.CostUSD, IsBYOK: state.IsBYOK, CostDetails: state.CostDetails, UsageEstimateUSD: state.UsageEstimateUSD}
 }
 func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, body []byte, mimeType string) error {
 	task, err := openRouterSyncTask(info)

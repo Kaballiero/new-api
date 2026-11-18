@@ -98,6 +98,8 @@ type NativeImageInfo struct {
 	Sent           bool
 	OutcomeUnknown bool
 	ProviderTag    string
+	// RequestedImages is the image count the reserve prices.
+	RequestedImages int
 }
 
 type RelayInfo struct {

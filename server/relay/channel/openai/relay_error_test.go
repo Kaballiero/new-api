@@ -43,6 +43,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -403,6 +404,10 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 		billingState string
 		// commitFailure fails the hold transfer after Begin persisted the Task.
 		commitFailure bool
+		// tariff prices the reserve from endpoint tariffs; the Task stores the
+		// usage estimate at them.
+		tariff           bool
+		usageEstimateUSD float64
 	}{
 		{name: "cost only positive", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, valid: true, cost: .03},
 		{name: "cost explicit zero", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0}}`, valid: true, cost: 0},
@@ -410,6 +415,8 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 		{name: "null cost", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`},
 		{name: "string cost", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":"0"}}`},
 		{name: "chat text missing cost defers to generation", body: `{"id":"gen-text-missing","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true},
+		{name: "chat text missing cost stores the usage estimate", body: `{"id":"gen-text-estimate","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1000,"completion_tokens":2000}}`, chatText: true, valid: true, deferred: true, tariff: true, usageEstimateUSD: .021},
+		{name: "chat text usage estimate is capped by the reserve", body: `{"id":"gen-text-capped","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1000,"completion_tokens":10000}}`, chatText: true, valid: true, deferred: true, tariff: true, usageEstimateUSD: .05},
 		{name: "chat text null cost defers to generation", body: `{"id":"gen-text-null","choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, chatText: true, valid: true, deferred: true},
 		{name: "chat text lookup drift after Begin still delivers", body: `{"id":"gen-text-drift","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, lookupDrift: true, billingState: "manual_reconciliation"},
 		{name: "chat text failed hold transfer after Begin still delivers", body: `{"id":"gen-text-commit","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, commitFailure: true, billingState: "reservation_unknown"},
@@ -429,6 +436,9 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 			billing := &sonarAdmissionBilling{}
 			if tc.chatText {
 				c, recorder, resp, info, billing = newOpenRouterChatTextRequest(t, tc.body)
+			}
+			if tc.tariff {
+				info.OpenRouterCost.OutputReserve = &relaycommon.OpenRouterOutputReserve{PromptPriceUSD: decimal.RequireFromString("0.000001"), OutputPriceUSD: decimal.RequireFromString("0.00001")}
 			}
 			if tc.lookupDrift {
 				info.ChannelBaseUrl = "https://openrouter-drift.test/api"
@@ -491,6 +501,7 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 				return
 			}
 			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
+			assert.InDelta(t, tc.usageEstimateUSD, task.PrivateData.OpenRouterSync.UsageEstimateUSD, 1e-12)
 		})
 	}
 }

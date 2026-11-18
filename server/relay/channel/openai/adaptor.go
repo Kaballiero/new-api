@@ -901,6 +901,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			}
 			// The Task retains the hold, so the delivered text stays a success; an
 			// unfinished reservation is parked in manual reconciliation by the poller.
+			// The usage estimate settles it once the cost lookup runs out.
+			if result, ok := usage.(*dto.Usage); ok && result != nil {
+				info.OpenRouterCost.UsageEstimateUSD = openrouter.TextCostEstimateUSD(info, result)
+			}
 			if completeErr := taskrecord.CompleteOpenRouterSyncTask(c, info, nil, "application/json"); completeErr != nil {
 				failErr := taskrecord.FailOpenRouterSyncTask(info, "chat_completion_unavailable")
 				logger.LogError(c, fmt.Sprintf("OpenRouter chat text delivered; task %s requires reconciliation: complete=%v fail=%v", info.OpenRouterCost.TaskID, completeErr, failErr))

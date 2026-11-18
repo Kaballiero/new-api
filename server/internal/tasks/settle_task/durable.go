@@ -72,7 +72,8 @@ func (u Usecase) SettleDurable(task *domain.Task) error {
 		return err
 	}
 	delta := r.TargetQuota - r.ReservedQuota
-	if delta != 0 {
+	// Every estimate charge leaves a ledger row, even one equal to the reserve.
+	if delta != 0 || r.UpstreamCostEstimated {
 		if err := u.usage.Durable(task, delta); err != nil {
 			return err
 		}

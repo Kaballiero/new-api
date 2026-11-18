@@ -72,3 +72,21 @@ func TestManualHoldsNotificationSummarizesHoldsForRoot(t *testing.T) {
 	assert.Equal(t, "OpenRouter: резервы ждут ручной сверки", subject)
 	assert.True(t, strings.HasPrefix(content, "Новых резервов OpenRouter в ручной сверке: 1, всего удержано $0.010000."), content)
 }
+
+func TestEstimateSettlementsNotificationSummarizesChargesForRoot(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	var charges []*domain.Task
+	for i := range 13 {
+		charges = append(charges, &domain.Task{TaskID: fmt.Sprintf("task_%d", i), Action: "image",
+			PrivateData: domain.TaskPrivateData{Reconciliation: &domain.TaskReconciliation{ReservedQuota: 5000, TargetQuota: 2500}}})
+	}
+	subject, content := EstimateSettlementsNotification("en", charges)
+	assert.Equal(t, "OpenRouter: costs charged by estimate", subject)
+	assert.True(t, strings.HasPrefix(content, "OpenRouter results delivered without an upstream cost were charged an estimate: 13, $0.065000 charged in total."), content)
+	assert.Contains(t, content, "Charges (showing 12/13):\n- task_0 (image): $0.005000")
+	assert.NotContains(t, content, "task_12")
+
+	subject, content = EstimateSettlementsNotification("ru", charges[:1])
+	assert.Equal(t, "OpenRouter: стоимость списана по оценке", subject)
+	assert.True(t, strings.HasPrefix(content, "Результатов OpenRouter, доставленных без стоимости провайдера и списанных по оценке: 1, всего списано $0.005000."), content)
+}

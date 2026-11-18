@@ -160,6 +160,10 @@ type OpenRouterSyncTask struct {
 	// SettlementPendingSince is when the settlement of the confirmed cost of
 	// a Task in progress became pending.
 	SettlementPendingSince int64 `json:"settlement_pending_since,omitempty"`
+	// UsageEstimateUSD prices the usage of a delivered text at the largest
+	// endpoint tariffs of its reserve, capped by the reserve; zero without a
+	// tariff.
+	UsageEstimateUSD float64 `json:"usage_estimate_usd,omitempty"`
 }
 
 // RecordResultReason keeps the first result-path reason; later failures of
@@ -214,6 +218,12 @@ type TaskReconciliation struct {
 	UpstreamIsBYOK        *bool   `json:"upstream_is_byok,omitempty"`
 	UpstreamCostDetails   string  `json:"upstream_cost_details,omitempty"`
 	QuotaSaturation       string  `json:"quota_saturation,omitempty"`
+	// UpstreamCostEstimated marks an UpstreamCostUSD estimated in place of a
+	// missing upstream cost.
+	UpstreamCostEstimated bool `json:"upstream_cost_estimated,omitempty"`
+	// EstimateAlertedAt is when an estimate charge was reported to the
+	// operators; zero until it is reported.
+	EstimateAlertedAt int64 `json:"estimate_alerted_at,omitempty"`
 }
 
 type TaskExecutionSnapshot struct {

@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	_ "golang.org/x/image/webp"
 )
 
@@ -499,6 +500,10 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 			return err
 		}
 	}
+	selected.RequestedImages = 1
+	if request.N != nil {
+		selected.RequestedImages = int(*request.N)
+	}
 	info.NativeImage = selected
 	return nil
 }
@@ -874,12 +879,26 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		info.NativeImage.OutcomeUnknown = !info.OpenRouterCost.Final
 		return nil, imageResponseError(err.Error())
 	}
-	cost := *result.Usage.Cost
-	info.NativeImage.ActualCostUSD = &cost
 	info.OpenRouterCost.Observe(responseBody, true)
-	info.OpenRouterCost.CostUSD = cost
-	info.OpenRouterCost.Valid = true
-	info.OpenRouterCost.Final = true
+	if result.Usage != nil && result.Usage.Cost != nil {
+		cost := *result.Usage.Cost
+		info.NativeImage.ActualCostUSD = &cost
+		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = cost, true, true
+	} else if delivered, requested := len(result.Data), info.NativeImage.RequestedImages; relaycommon.HasOpenRouterSyncTask(info) && delivered < requested {
+		// The reserve prices every requested image, so a partial result
+		// without its cost stays with root.
+		info.NativeImage.OutcomeUnknown = true
+		return nil, imageResponseError("OpenRouter image result is partial and its cost is missing; financial outcome requires reconciliation")
+	} else if !relaycommon.HasOpenRouterSyncTask(info) {
+		// The delivered images are charged their share of the reserve; a Task
+		// settles the whole reserve after Complete.
+		estimate := decimal.NewFromFloat(info.NativeImage.EstimatedCostUSD).Mul(decimal.NewFromInt(int64(min(delivered, requested)))).
+			Div(decimal.NewFromInt(int64(requested))).InexactFloat64()
+		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = estimate, true, true
+		info.OpenRouterCost.CostSource, info.OpenRouterCost.UnknownReason = relaycommon.OpenRouterCostSourceEstimate, ""
+		usage.Cost = estimate
+		logger.LogWarn(c, fmt.Sprintf("OpenRouter image cost is missing; the reserve share of %d/%d images is charged as an estimate: estimate_usd=%v", delivered, requested, estimate))
+	}
 	encoded, err := common.Marshal(result)
 	if err != nil {
 		return nil, imageResponseError("OpenRouter image result encoding failed")
@@ -944,8 +963,9 @@ func imageResponseError(reason string) *types.NewAPIError {
 	return types.NewErrorWithStatusCode(errors.New(reason), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 }
 
-// ParseImageResponse distinguishes missing/null cost from an explicit zero.
-// No synthetic token or price fallback can turn missing usage into a free call.
+// ParseImageResponse distinguishes missing/null cost from an explicit zero: a
+// missing cost leaves result.Usage.Cost nil, and the caller charges the
+// reserve as its estimate. No synthetic token fallback prices an image.
 func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 	var result imageResponse
 	if err := common.Unmarshal(body, &result); err != nil {
@@ -980,18 +1000,19 @@ func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 			data.MediaType = detected
 		}
 	}
-	if result.Usage == nil || result.Usage.Cost == nil {
-		return nil, nil, errors.New("OpenRouter image cost is missing; financial outcome requires reconciliation")
+	var usage dto.Usage
+	if result.Usage != nil {
+		usage = result.Usage.Usage
+		if cost := result.Usage.Cost; cost != nil {
+			if math.IsNaN(*cost) || math.IsInf(*cost, 0) || *cost < 0 {
+				return nil, nil, errors.New("invalid OpenRouter image cost")
+			}
+			usage.Cost = *cost
+		}
 	}
-	cost := *result.Usage.Cost
-	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
-		return nil, nil, errors.New("invalid OpenRouter image cost")
-	}
-	usage := result.Usage.Usage
 	if usage.PromptTokens < 0 || usage.CompletionTokens < 0 || usage.TotalTokens < 0 || usage.PromptTokens > math.MaxInt32 || usage.CompletionTokens > math.MaxInt32 || usage.TotalTokens > math.MaxInt32 {
 		return nil, nil, errors.New("invalid OpenRouter image token usage")
 	}
-	usage.Cost = cost
 	return &result, &usage, nil
 }
 

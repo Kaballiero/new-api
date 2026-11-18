@@ -456,10 +456,10 @@ func TestTaskDomainRoundTrip(t *testing.T) {
  "billing_context":{"settlement_mode":"openrouter_cost_v2", "openrouter_cost":{"version":"v2","effective_group_ratio":1.25,"quota_per_unit":500000,"estimated_usd":0.125}, "openrouter_order_facts":{"zero":0,"flag":false,"empty":{}}, "model_price":1.5,"group_ratio":2,"model_ratio":3,"other_ratios":{"duration":4},"origin_model_name":"original","per_call_billing":true,
  "tiered_snapshot":{"billing_mode":"expression","model_name":"model","expr_string":"1","expr_hash":"hash","group_ratio":1,"estimated_prompt_tokens":2,"estimated_completion_tokens":3,"estimated_quota_before_group":4,"estimated_quota_after_group":5,"estimated_tier":"tier","estimated_billing_unit":"call","estimated_fixed_price":1,"quota_per_unit":2,"expr_version":1,"task_usage_billing":true,"usage_facts":{"zero":0}},
  "billing_fx":{"schema_version":1,"source":"publication","rate":100,"publication_version":2,"effective_at":3,"fetched_at":4},"submit_group":{"pure_ratio":1,"has_special_ratio":true,"special_ratio":0}},
- "reconciliation":{"reserved_quota":1,"reservation_pending":true,"submission_pending":true,"refund_pending":true,"required":true,"settlement_pending":true,"main_applied":true,"target_quota":2,"finalized":true,"has_upstream_cost":true,"upstream_cost_confirmed":true,"upstream_cost_usd":0.1,"upstream_is_byok":false,"upstream_cost_details":"{}","quota_saturation":"marker"},
+ "reconciliation":{"reserved_quota":1,"reservation_pending":true,"submission_pending":true,"refund_pending":true,"required":true,"settlement_pending":true,"main_applied":true,"target_quota":2,"finalized":true,"has_upstream_cost":true,"upstream_cost_confirmed":true,"upstream_cost_usd":0.1,"upstream_is_byok":false,"upstream_cost_details":"{}","quota_saturation":"marker","upstream_cost_estimated":true,"estimate_alerted_at":10},
  "openrouter_sync":{"credential_hash":"credential","config_hash":"config","routing_hash":"routing","credential_index":1,"identity_conflict":true,"upstream_request_id":"upstream","dispatch_prepared":true,"provider_tag":"tag","reservation_source":"upstream","reserve_usd":0.2,"pricing_unknown":true,"revision":2,"request_id":"request","billing_preference":"wallet","planned_quota":3,"lease_until":4,"deadline":5,"metadata_url":"https://example.com/meta","headers":{"Header":["value"]},
  "transport":{"task_plugin_key":"plugin","force_format":true,"thinking_to_content":true,"proxy":"https://example.com","pass_through_body_enabled":true,"system_prompt":"prompt","system_prompt_override":true,"openrouter_model_reserve_usd":{"model":0},"openrouter_reservation_source":{"model":"upstream"},"openrouter_sonar_research_reserve_usd":0,"http_protocol":"http1","http2_connection_shards":1},
- "attempts":6,"next_poll":7,"last_http_status":502,"last_error":"retry","result_ready":true,"result_failed":true,"result_mime_type":"audio/wav","result_size":8,"result_sha256":"sha","alerted_at":9}
+ "attempts":6,"next_poll":7,"last_http_status":502,"last_error":"retry","result_ready":true,"result_failed":true,"result_mime_type":"audio/wav","result_size":8,"result_sha256":"sha","alerted_at":9,"usage_estimate_usd":0.3}
  }`), &private))
 	private.OpenRouterAudio = private.OpenRouterSync
 	full := record.Task{ID: 1, CreatedAt: 2, UpdatedAt: 3, TaskID: "task_public", Platform: "plugin", UserId: 4, Group: "group", ChannelId: 5, Quota: 6, Action: "action", Status: record.TaskStatusInProgress, FailReason: "reason", SubmitTime: 7, StartTime: 8, FinishTime: 9, Progress: "50%", Properties: record.Properties{Input: "input", UpstreamModelName: "upstream", OriginModelName: "original"}, Username: "user", PrivateData: private, Data: json.RawMessage(`{"zero":0,"false":false,"empty":{}}`)}
@@ -518,6 +518,47 @@ func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, unfinished, 1, "terminal holds and other platforms are not paged")
 	assert.Equal(t, retrying.TaskID, unfinished[0].TaskID)
+}
+
+func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
+	store, db := newTaskTestStore(t)
+	finished := func(taskID string, platform constant.TaskPlatform, status record.TaskStatus, failReason string, finishTime int64) *record.Task {
+		task := &record.Task{TaskID: taskID, Platform: platform, Action: "action", Status: status, FailReason: failReason, FinishTime: finishTime, Quota: 7,
+			PrivateData: record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{TargetQuota: 50, UpstreamCostEstimated: true, MainApplied: true}}}
+		insertTask(t, db, task)
+		return task
+	}
+	settled := domain.SyncEstimateSettledFailReason
+	// Inserted out of finish order: the cursor follows (finish_time, id).
+	video := finished("task_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess, "", 200)
+	text := finished("task_text", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, settled, 100)
+	image := finished("task_image", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, settled, 100)
+	finished("task_older", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, settled, 99)
+	finished("task_manual_hold", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, domain.SyncManualFailReason("missing_generation_identity"), 150)
+	finished("task_audio", constant.TaskPlatformOpenRouterAudio, record.TaskStatusFailure, settled, 150)
+	finished("task_failed_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusFailure, "", 150)
+	finished("task_other_platform", "suno", record.TaskStatusSuccess, "", 150)
+	pending := finished("task_pending", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, domain.SyncEstimatePendingFailReason, 10)
+
+	charges, err := store.GetEstimateCharges(100, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, charges, 3)
+	assert.Equal(t, []string{text.TaskID, image.TaskID, video.TaskID}, []string{charges[0].TaskID, charges[1].TaskID, charges[2].TaskID})
+	assert.Equal(t, video.ID, charges[2].ID)
+	assert.Equal(t, int64(200), charges[2].FinishTime)
+	assert.True(t, charges[2].PrivateData.Reconciliation.UpstreamCostEstimated)
+	assert.Empty(t, charges[2].FailReason, "only the columns the summary reads")
+
+	charges, err = store.GetEstimateCharges(100, text.ID, 1)
+	require.NoError(t, err)
+	require.Len(t, charges, 1)
+	assert.Equal(t, image.TaskID, charges[0].TaskID)
+
+	holds, err := store.GetPendingEstimateSettlements(0, 10)
+	require.NoError(t, err)
+	require.Len(t, holds, 1, "only the unapplied claim, however old")
+	assert.Equal(t, pending.TaskID, holds[0].TaskID)
+	assert.Equal(t, 7, holds[0].Quota, "a retried settlement reads the whole row")
 }
 
 func TestOpenRouterSyncClaimNeverRevertsAppliedSettlement(t *testing.T) {
