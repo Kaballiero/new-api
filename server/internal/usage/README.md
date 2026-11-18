@@ -11,6 +11,7 @@
 | `count_consumption` | Увеличить user used quota/request count, затем channel used quota через capabilities adapter/gorm/counters; ordinary billable до settlement, OpenRouter applied quota после settlement, включая zero |
 | `record_consumption` | Записать consume row через прежний writer; text, audio, realtime и channel test. Disabled consume не отключает counters/settlement |
 | `record_failure` | Записать upstream-attempt или delivery-failure row; сценарий владеет early upstream admission и late delivery gate |
+| `report_unknown_outcome_refunds` | Фоновая задача master (проверка раз в 5 минут, `app/usage`): с 10:00 по Москве один раз отправить в Telegram root-сводку за прошлые московские сутки — число и сумму возвратов резерва OpenRouter с неизвестным списанием, текст и нативные картинки отдельными строками, по error rows с `refund_without_retry`. Без таких возвратов сообщения нет; отправленный день хранится в option `openrouter_unknown_refunds_reported_day` |
 
 Запись вызывают relay endpoints, playground и channel-test handler; общий upstream writer используется также task-submission error path. HTTP read handlers находятся рядом со сценариями. Пути, middleware и полномочия не меняются; controller сохраняет однострочные bindings; once-сборка находится в app/httpapi. Фоновые циклы собирает internal/app/usage, а запускает main в прежних точках.
 

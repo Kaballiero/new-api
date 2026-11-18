@@ -412,3 +412,31 @@ func recordingFixtureStore(consume, export func() bool) Store {
 		UserConsumption:    accounts.UpdateUserUsedQuotaAndRequestCount,
 		ChannelConsumption: func(id, quota int) { counters.UpdateChannelUsedQuota(model.DB, id, quota) }}
 }
+
+func TestUnknownOutcomeRefundLogsTallyTextAndNativeImageRefunds(t *testing.T) {
+	runOnGetAPIUsageDialects(t, func(t *testing.T) {
+		const from, to = int64(1_800_000_000), int64(1_800_086_400)
+		record := func(logType int, createdAt int64, quota int, cost domain.OpenRouterCostState, image *domain.NativeImage, hasTask bool) {
+			other := new(usagerecord.LogOther)
+			appendRelayAdmin(other, &domain.RequestFacts{ContextPresent: true, OpenRouterCost: &cost, NativeImage: image, HasSyncTask: hasTask, FinalPreConsumedQuota: quota}, logMetadata{})
+			require.NoError(t, model.LOG_DB.Create(&usagerecord.Log{Type: logType, CreatedAt: createdAt, Other: other.JSONString()}).Error)
+		}
+		sent := domain.OpenRouterCostState{Sent: true}
+		record(usagerecord.LogTypeError, from, 100, sent, nil, false)
+		record(usagerecord.LogTypeError, to-1, 200, sent, nil, false)
+		record(usagerecord.LogTypeError, from, 400, sent, nil, true)
+		record(usagerecord.LogTypeError, from, 800, domain.OpenRouterCostState{Sent: true, Final: true}, nil, false)
+		record(usagerecord.LogTypeError, from, 50, sent, &domain.NativeImage{EstimatedCostUSD: .04, OutcomeUnknown: true}, false)
+		record(usagerecord.LogTypeError, from, 70, sent, &domain.NativeImage{EstimatedCostUSD: .04}, false)
+		record(usagerecord.LogTypeError, to, 1600, sent, nil, false)
+		record(usagerecord.LogTypeError, from-1, 3200, sent, nil, false)
+		record(usagerecord.LogTypeConsume, from, 6400, sent, nil, false)
+
+		refunds, err := UnknownOutcomeRefundLogs{LogDB: func() *gorm.DB { return model.LOG_DB }}.UnknownOutcomeRefunds(context.Background(), from, to)
+		require.NoError(t, err)
+		assert.Equal(t, domain.UnknownOutcomeRefunds{
+			Text:  domain.RefundTally{Count: 2, Quota: 300},
+			Image: domain.RefundTally{Count: 1, Quota: 50},
+		}, refunds, "only refunded error logs of the day count; held, settled and known image failures do not")
+	})
+}

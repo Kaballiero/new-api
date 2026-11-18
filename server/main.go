@@ -137,6 +137,9 @@ func main() {
 	// Dashboard data.
 	usageapp.StartQuotaData()
 
+	// Daily summary of OpenRouter refunds whose upstream charge is unknown.
+	usageapp.StartUnknownOutcomeRefundReport()
+
 	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
 		frequency, err := strconv.Atoi(os.Getenv("CHANNEL_UPDATE_FREQUENCY"))
 		if err != nil {
