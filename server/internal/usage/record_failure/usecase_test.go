@@ -87,3 +87,17 @@ func TestUpstreamZeroAdmissionCannotAuthorizePersistence(t *testing.T) {
 	assert.Empty(t, store.failures)
 	assert.Zero(t, reads)
 }
+
+func TestUnknownOutcomeRefundIsRecordedWithoutErrorLogSetting(t *testing.T) {
+	store := &writer{}
+	reads := 0
+	usecase := record_failure.NewUsecase(store, renderer{}, func() bool { reads++; return false })
+	admission, err := usecase.Execute(context.Background(), record_failure.Input{Step: record_failure.AdmitUnknownOutcomeRefund})
+	require.NoError(t, err)
+	assert.True(t, admission.Allowed())
+	_, err = usecase.Execute(context.Background(), record_failure.Input{Step: record_failure.Persist, Admission: admission, Failure: domain.Failure{Content: "unknown outcome"}})
+	require.NoError(t, err)
+	require.Len(t, store.failures, 1)
+	assert.Equal(t, "unknown outcome", store.failures[0].Content)
+	assert.Zero(t, reads, "the error log setting does not gate this record")
+}

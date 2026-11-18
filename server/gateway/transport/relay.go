@@ -36,6 +36,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskview"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -231,8 +232,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = mapping.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final && !relaycommon.HasOpenRouterSyncTask(relayInfo) {
+			if relaycommon.IsOpenRouterUnknownOutcomeRefund(relayInfo) {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter financial outcome unknown; returning reservation without retry: channel=%d reserve=%d reason=%s", relayInfo.ChannelId, relayInfo.FinalPreConsumedQuota, relayInfo.OpenRouterCost.UnknownReason))
+				// The error log of this attempt is written here, also for a client
+				// that left or a local error, so the refund always has a record.
+				usagegateway.RecordUnknownOutcomeRefund(c, relayInfo.ChannelId, newAPIError, relayInfo)
 			}
 			if relayInfo.NativeImage != nil && relayInfo.NativeImage.OutcomeUnknown {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; paid retry prohibited: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))

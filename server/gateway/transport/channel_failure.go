@@ -49,6 +49,10 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	usagegateway.RecordUpstreamFailure(c, channelError.ChannelId, err, relayInfo)
+	// The refund defer of Relay records the error of an unknown OpenRouter
+	// outcome itself; a caller without that defer must not mark the request Sent.
+	if !relaycommon.IsOpenRouterUnknownOutcomeRefund(relayInfo) {
+		usagegateway.RecordUpstreamFailure(c, channelError.ChannelId, err, relayInfo)
+	}
 
 }
