@@ -322,9 +322,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	var prompt int
 	switch {
 	case decisions:
-		if prompt, searches, err = decisionQuantities(fields, request.Model); err != nil {
-			return 0, err
-		}
+		prompt, searches = decisionQuantities(fields)
 	case !dedicatedAudio && !rerank:
 		prompt = max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(promptText), request.Model))
 	}

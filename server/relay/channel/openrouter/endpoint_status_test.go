@@ -577,12 +577,10 @@ func TestRerankUnits(t *testing.T) {
 }
 
 // A decisions request reserves the prompt tokens of its state and questions at
-// the prompt price and one search per question, at most
-// decisionSearchQuestionLimit, at the web_search price. An OpenAI text model
-// counts the tokens with its tokenizer, any other model a token per UTF-8
-// byte. The admin log records both quantities.
+// the prompt price, a token per UTF-8 byte for every model, and one search per
+// question, at most decisionSearchQuestionLimit, at the web_search price. The
+// admin log records both quantities.
 func TestEndpointDecisionReserve(t *testing.T) {
-	tokenusage.InitTokenEncoders()
 	questionsOf := func(count int) string {
 		questions := make(map[string]any, count)
 		for i := range count {
@@ -596,13 +594,10 @@ func TestEndpointDecisionReserve(t *testing.T) {
 	for _, tc := range []struct {
 		name, model, questions string
 		wantSearches           int
-		// tokenizer counts the prompt tokens with the tokenizer of the model
-		// instead of the UTF-8 bytes.
-		tokenizer bool
 	}{
 		{name: "a token per byte", model: "google/gemini-decision-1", questions: questionsOf(3), wantSearches: 3},
 		{name: "searches capped at 100 questions", model: "google/gemini-decision-1", questions: questionsOf(101), wantSearches: decisionSearchQuestionLimit},
-		{name: "openai tokenizer", model: "openai/gpt-6-luna-decisions", questions: questionsOf(3), wantSearches: 3, tokenizer: true},
+		{name: "an OpenAI model counts bytes too", model: "openai/gpt-6-luna-decisions", questions: questionsOf(3), wantSearches: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var endpoint PricedEndpoint
@@ -615,10 +610,6 @@ func TestEndpointDecisionReserve(t *testing.T) {
 			cost, err := e.Estimate(info, []byte(`{"model":"`+tc.model+`","state":`+state+`,"questions":`+tc.questions+`}`), "decisions")
 			require.NoError(t, err)
 			wantPrompt := len(state) + len(tc.questions)
-			if tc.tokenizer {
-				wantPrompt = tokenusage.CountTextToken(state+tc.questions, tc.model)
-				assert.Less(t, wantPrompt, len(state)+len(tc.questions))
-			}
 			assert.Equal(t, map[pricingdomain.ReserveQuantity]int{
 				pricingdomain.ReserveQuantitySearches:     tc.wantSearches,
 				pricingdomain.ReserveQuantityPromptTokens: wantPrompt,

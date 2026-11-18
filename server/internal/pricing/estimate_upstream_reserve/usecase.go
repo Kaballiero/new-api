@@ -264,7 +264,11 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
 				return Estimate{}, "", errors.New("invalid OpenRouter endpoint token limits")
 			}
-			if endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens {
+			// The prompt tokens of decisions are a byte bound that may exceed
+			// the context of an endpoint OpenRouter still routes to, so the
+			// context limits never drop a decisions endpoint from the reserve.
+			exceedsContext := endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens
+			if exceedsContext && !in.Decisions {
 				continue
 			}
 			output := 0
@@ -415,7 +419,12 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {
-				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
+				if in.Decisions {
+					estimateErr = u.assertDecisionOutputUnpriced(tariff)
+				}
+				if estimateErr == nil {
+					cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
+				}
 				if estimateErr == nil {
 					var search decimal.Decimal
 					search, includesReserve, estimateErr = u.searchCost(in, tariff, modelTariff)

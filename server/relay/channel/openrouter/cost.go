@@ -105,7 +105,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	case "rerank":
 		// The estimate measures rerank in its own units (rerankUnits), not prompt tokens.
 	case "decisions":
-		// Native decisions have no measured input/output token quantities at admission.
+		// The estimate measures decisions itself (decisionQuantities); a
+		// configured price expression gets no token quantities for them.
 	case "audio/transcriptions":
 		// File bytes are not text tokens or measured seconds.
 	case "audio/speech":

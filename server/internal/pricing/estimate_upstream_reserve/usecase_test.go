@@ -411,6 +411,7 @@ func TestExecutePricesSearches(t *testing.T) {
 		manualSearch        bool
 		searchReserve       bool
 		addOnReserve        bool
+		configuredPrice     bool
 		wantUSD             float64
 		wantErr             string
 		wantSource          domain.ReserveSource
@@ -426,6 +427,7 @@ func TestExecutePricesSearches(t *testing.T) {
 		{name: "a missing search price without a search reserve is refused", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "")}, wantErr: domain.ErrHostedSearchUnpriced.Error(), wantLiveAsked: []string{"acme/a"}},
 		{name: "a null search price is missing", searches: 1, catalog: response("0.001", "0.002", "null"), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.05, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
 		{name: "an invalid search price is refused", searches: 1, catalog: response("0.001", "0.002", `"-1"`), searchReserve: true, wantErr: "invalid OpenRouter endpoint price"},
+		{name: "a missing search price is refused under a configured price", searches: 3, catalog: response("0.001", "0.002", ""), configuredPrice: true, wantErr: domain.ErrHostedSearchUnpriced.Error(), wantLiveAsked: []string{"acme/a"}},
 		{name: "a search on an engine without an endpoint price takes the search reserve", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
 		{name: "native searches and a search on another engine add both", searches: 3, manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.55, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
 		{name: "a search on another engine without a search reserve is refused", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), wantErr: domain.ErrHostedSearchUnpriced.Error()},
@@ -442,6 +444,9 @@ func TestExecutePricesSearches(t *testing.T) {
 			}
 			if tc.addOnReserve {
 				in.AddOnReserveUSD = &reserve
+			}
+			if tc.configuredPrice {
+				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &reserve
 			}
 			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
 			assert.Equal(t, tc.wantLiveAsked, live.asked)
@@ -462,7 +467,9 @@ func TestExecutePricesSearches(t *testing.T) {
 // searches at the web_search price each, nothing for searches on an endpoint
 // without one. A stale document is priced from live; a missing price is
 // checked against live, then only the manual reserve covers it, otherwise the
-// request is refused; a manual reserve below the priced cost is raised to it.
+// request is refused; a non-zero output rate is unmeasured, covered only by
+// the manual reserve; a manual reserve below the priced cost is raised to it.
+// An endpoint whose context the byte-bound prompt exceeds stays in the reserve.
 func TestExecutePricesDecisions(t *testing.T) {
 	deps := pricingadapter.Capabilities()
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -471,8 +478,13 @@ func TestExecutePricesDecisions(t *testing.T) {
 			{Tag: "provider", ModelID: "acme/decide", Pricing: endpointPricing(t, deps, pricing)},
 		}}
 	}
-	// gemini-decision-1: 1000 prompt tokens and 3 searches cost 0.0423.
+	// Prices of gemini-decision-1: 1000 prompt tokens and 3 searches cost 0.0423.
 	searching := response(`{"prompt":"0.0000003","completion":"0","web_search":"0.014"}`)
+	// The expensive endpoint has a context below the 1000 prompt tokens.
+	contextBound := domain.NativeEndpointResponse{OutputModalities: []string{"decisions"}, Endpoints: []domain.NativePricedEndpoint{
+		{Tag: "small", ModelID: "acme/decide", ContextLength: 500, Pricing: endpointPricing(t, deps, `{"prompt":"0.00001","completion":"0"}`)},
+		{Tag: "large", ModelID: "acme/decide", ContextLength: 100000, Pricing: endpointPricing(t, deps, `{"prompt":"0.000001","completion":"0"}`)},
+	}}
 	livePriced := response(`{"prompt":"0.0000006","completion":"0","web_search":"0.014"}`)
 	manual, lowManual := .5, .01
 	for _, tc := range []struct {
@@ -495,6 +507,10 @@ func TestExecutePricesDecisions(t *testing.T) {
 		{name: "search price missing from live takes the manual reserve", catalog: response(`{"prompt":"0","completion":"0","web_search":null}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"prompt":"0","completion":"0","web_search":null}`)}, manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual, liveAsked: []string{"acme/decide"}},
 		{name: "price missing from live without a manual reserve is refused", catalog: response(`{"completion":"0"}`), live: map[string]domain.NativeEndpointResponse{"acme/decide": response(`{"completion":"0"}`)}, wantErr: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price", liveAsked: []string{"acme/decide"}},
 		{name: "manual reserve below the cost is raised to it", catalog: searching, manual: &lowManual, wantUSD: .0423, wantSource: domain.ReserveSourceManual},
+		{name: "non-zero completion rate is refused", catalog: response(`{"prompt":"0.0000003","completion":"0.00001"}`), wantErr: "OpenRouter estimate unavailable: OpenRouter decisions output quantity is unmeasured: completion"},
+		{name: "non-zero reasoning rate is refused", catalog: response(`{"prompt":"0.0000003","completion":"0","internal_reasoning":"0.00001"}`), wantErr: "OpenRouter estimate unavailable: OpenRouter decisions output quantity is unmeasured: internal_reasoning"},
+		{name: "non-zero completion rate takes the manual reserve", catalog: response(`{"prompt":"0.0000003","completion":"0.00001"}`), manual: &manual, wantUSD: .5, wantSource: domain.ReserveSourceManual},
+		{name: "endpoint beyond its context keeps the maximum", catalog: contextBound, wantUSD: .01, wantSource: domain.ReserveSourceCatalog},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
