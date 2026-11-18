@@ -13,16 +13,19 @@ import (
 	"github.com/go-audio/wav"
 )
 
+// transcriptionMaxSeconds bounds the seconds of a transcription file; client
+// headers claiming more saturate to it.
+const transcriptionMaxSeconds = 24 * 60 * 60
+
 // transcriptionSeconds is the duration of a transcription file in whole
 // seconds, rounded up, read from its audio headers (owner rule of 14.11). The
 // client names the file and writes its headers, so neither may lower the
 // reserve: the duration is the longest any reader yields, the reader of the
 // file extension (.mpga and .mpeg are MPEG audio) and the reader of the
 // format its magic bytes name, and for WAV also the duration of the bytes
-// after the data chunk header, whatever length that header claims. It is
-// capped by what the file size holds at 8 kbit/s, 1000 bytes a second,
-// before it is converted; the file is at most 25 MiB, so the seconds fit
-// int64. readable is false when no reader yields a positive finite duration.
+// after the data chunk header, whatever length that header claims. It
+// saturates to transcriptionMaxSeconds before it is converted. readable is
+// false when no reader yields a positive finite duration.
 func transcriptionSeconds(ctx context.Context, filename string, audio []byte) (seconds int64, readable bool) {
 	extension := strings.ToLower(filepath.Ext(filename))
 	switch extension {
@@ -70,5 +73,5 @@ func transcriptionSeconds(ctx context.Context, filename string, audio []byte) (s
 	if duration <= 0 {
 		return 0, false
 	}
-	return int64(math.Ceil(min(duration, float64(len(audio))/1000))), true
+	return int64(math.Ceil(min(duration, transcriptionMaxSeconds))), true
 }

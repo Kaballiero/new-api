@@ -781,9 +781,8 @@ func TestEndpointTranscriptionReserveFromCatalogUnitPrices(t *testing.T) {
 }
 
 // The reservation payload of a transcription carries the seconds of its file
-// from the audio headers, rounded up and capped by what the file size holds at
-// 8 kbit/s, so headers claiming a longer duration reserve no more, and never
-// below the longest duration any reader yields: the reader of the extension
+// from the audio headers, rounded up and saturated to transcriptionMaxSeconds,
+// so headers claiming a longer duration reserve no more, and never below the longest duration any reader yields: the reader of the extension
 // (.mpga is MP3), the reader its magic bytes name, and for WAV the bytes after
 // the data chunk header. A duration that cannot be read leaves the seconds
 // out.
@@ -811,8 +810,8 @@ func TestTranscriptionReservationPayloadSeconds(t *testing.T) {
 	}{
 		{name: "duration from the headers, rounded up", filename: "speech.wav", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
 		{name: "upper-case extension", filename: "SPEECH.WAV", audio: wav(8000, 8000, 8000), seconds: common.GetPointer[int64](1)},
-		{name: "a huge claimed duration is capped by the file size", filename: "speech.wav", audio: wav(8000, 0x7ffffff0, 16000), seconds: common.GetPointer[int64](17)},
-		{name: "a low sample rate is capped by the file size", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: common.GetPointer[int64](3)},
+		{name: "a huge claimed duration saturates", filename: "speech.wav", audio: wav(8000, 0x7ffffff0, 16000), seconds: common.GetPointer[int64](transcriptionMaxSeconds)},
+		{name: "a low sample rate is measured as claimed", filename: "speech.wav", audio: wav(1, 2000, 2000), seconds: common.GetPointer[int64](2000)},
 		{name: "mpga is read as MP3", filename: "speech.mpga", audio: mp3(40), seconds: common.GetPointer[int64](2)},
 		{name: "a file without an extension is sniffed", filename: "speech", audio: wav(8000, 12000, 12000), seconds: common.GetPointer[int64](2)},
 		{name: "a header claiming a shorter duration is reserved by its data", filename: "speech.wav", audio: wav(8000, 4000, 16000), seconds: common.GetPointer[int64](2)},
