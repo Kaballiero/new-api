@@ -3481,7 +3481,7 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 		name             string
 		age              time.Duration
 		generationID     string
-		tokenDeleted     bool
+		channelDeleted   bool
 		operatorReleased bool
 		due              bool
 		autoReleased     bool
@@ -3489,7 +3489,7 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 		{name: "hold younger than the delay is kept", age: taskdomain.OpenRouterSyncAutoReleaseDelay - time.Minute},
 		{name: "hold reaching the delay is released", age: taskdomain.OpenRouterSyncAutoReleaseDelay, due: true, autoReleased: true},
 		{name: "hold with a generation id is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, generationID: "gen-known", due: true},
-		{name: "infeasible hold is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, tokenDeleted: true, due: true},
+		{name: "infeasible hold is left to root once", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, channelDeleted: true, due: true},
 		{name: "operator release is not repeated", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, operatorReleased: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3503,8 +3503,8 @@ func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
 			require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
 				"submit_time": time.Now().Add(-tc.age).Unix(), "finish_time": time.Now().Add(-tc.age).Unix(), "private_data": task.PrivateData,
 			}).Error)
-			if tc.tokenDeleted {
-				require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+			if tc.channelDeleted {
+				require.NoError(t, model.DB.Delete(&model.Channel{}, info.ChannelId).Error)
 			}
 			if tc.operatorReleased {
 				_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)
