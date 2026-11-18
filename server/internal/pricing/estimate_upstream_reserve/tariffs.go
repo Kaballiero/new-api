@@ -77,8 +77,8 @@ var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogS
 
 // loadTariffs takes the tariffs of every routable model once per tariff model.
 // The catalog prices text generation, embeddings, speech, rerank and
-// decisions, Batch included, on a channel on the official OpenRouter API; Chat
-// audio output, transcription and image output stay live. Such a model takes the
+// decisions and transcription, Batch included, on a channel on the official
+// OpenRouter API; Chat audio output and image output stay live. Such a model takes the
 // catalog document of its tariff model while the catalog data is at most
 // maxAge old: its fetchedAt is the time the data last changed, so a catalog
 // nobody refreshed goes stale and the reserve falls back to live. Otherwise the model is discovered live; when

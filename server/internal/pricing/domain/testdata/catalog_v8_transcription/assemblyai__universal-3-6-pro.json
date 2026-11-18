@@ -1,0 +1,153 @@
+{
+ "alias": null,
+ "id": "assemblyai/universal-3-6-pro",
+ "modalities": {
+  "input": [
+   "audio"
+  ],
+  "output": [
+   "transcription"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000833333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "net",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000833333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "assemblyai_stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000972222",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "net",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:1:0:Audio Seconds (Prompted)",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {
+      "prompted": true
+     }
+    },
+    {
+     "amountUSD": "0.0000972222",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "assemblyai_stt:audio_seconds_prompted",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {
+      "prompted": true
+     }
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000833333"
+    }
+   },
+   "provider": {
+    "id": "assemblyai",
+    "name": "AssemblyAI",
+    "tag": "assemblyai"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "assemblyai/universal-3-6-pro-20261014",
+    "model_variant_slug": "assemblyai/universal-3-6-pro",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {
+    "observations": [
+     {
+      "pricing": {
+       "completion": "0",
+       "prompt": "0.0000833333"
+      },
+      "scope": "model",
+      "source": "generic",
+      "sourceEndpointId": null,
+      "url": "https://openrouter.ai/api/v1/models",
+      "version": null
+     }
+    ]
+   },
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

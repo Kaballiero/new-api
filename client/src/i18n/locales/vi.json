@@ -6393,6 +6393,7 @@
     "OpenRouter charge unknown": "Chưa rõ khoản phí OpenRouter",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Yêu cầu đã đến OpenRouter nhưng chi phí chưa được xác nhận. Hãy kiểm tra khoản phí trên OpenRouter trước khi xử lý.",
     "Reserved web searches": "Số lượt tìm kiếm web đã giữ",
-    "Reserved prompt tokens": "Số token prompt đã giữ"
+    "Reserved prompt tokens": "Số token prompt đã giữ",
+    "Reserved transcription seconds": "Số giây phiên âm đã giữ"
   }
 }

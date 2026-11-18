@@ -6393,6 +6393,7 @@
     "OpenRouter charge unknown": "Списание OpenRouter неизвестно",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Запрос дошёл до OpenRouter, но его стоимость не подтверждена. Проверьте списание в OpenRouter, прежде чем разрешать его.",
     "Reserved web searches": "Поисков в резерве",
-    "Reserved prompt tokens": "Токенов промпта в резерве"
+    "Reserved prompt tokens": "Токенов промпта в резерве",
+    "Reserved transcription seconds": "Секунд транскрибации в резерве"
   }
 }

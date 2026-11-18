@@ -28,9 +28,11 @@ var unitPriceMirrorKeys = []string{"prompt", "completion"}
 // live one), an unknown price or a non-zero price of an unmeasured dimension
 // is an unavailable estimate; live is not checked again, as it publishes no
 // unit prices. So is a non-zero endpoint pricing rate the unit prices do not
-// cover: the catalog mirrors a unit price into prompt or completion, per
-// token for million_tokens and after the endpoint discount (heygen); any
-// other non-zero rate, or an unreadable one, would bill beyond the units.
+// cover: the catalog mirrors a unit price, or an amount any variant of its
+// dimension publishes (PublishedUSD), into prompt or completion, per token
+// for million_tokens and after the endpoint discount (heygen); any other
+// non-zero rate, or an unreadable one, would bill beyond the units. The
+// reserve stays at the maximum unit price.
 func (u Usecase) unitCost(endpoint domain.NativePricedEndpoint, units map[domain.PriceDimension]int64, outputTokens int) (decimal.Decimal, error) {
 	if len(endpoint.UnitPrices) == 0 {
 		return decimal.Zero, &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint unit prices are unknown")}
@@ -75,11 +77,12 @@ func (u Usecase) unitCost(endpoint domain.NativePricedEndpoint, units map[domain
 			continue
 		}
 		mirrorsUnitPrice := slices.ContainsFunc(endpoint.UnitPrices, func(price domain.EndpointUnitPrice) bool {
-			perUnit := *price.USD
-			if price.Dimension.Unit == domain.PriceUnitMillionTokens {
-				perUnit = perUnit.Div(tokensPerMillion)
-			}
-			return rate.Equal(perUnit) || rate.Equal(perUnit.Mul(decimal.NewFromInt(1).Sub(discount)))
+			return slices.ContainsFunc(append([]decimal.Decimal{*price.USD}, price.PublishedUSD...), func(published decimal.Decimal) bool {
+				if price.Dimension.Unit == domain.PriceUnitMillionTokens {
+					published = published.Div(tokensPerMillion)
+				}
+				return rate.Equal(published) || rate.Equal(published.Mul(decimal.NewFromInt(1).Sub(discount)))
+			})
 		})
 		if !slices.Contains(unitPriceMirrorKeys, key) || !mirrorsUnitPrice {
 			return decimal.Zero, &domain.EstimateUnavailableError{Cause: fmt.Errorf("OpenRouter endpoint price %s is not covered by its unit prices", key)}
