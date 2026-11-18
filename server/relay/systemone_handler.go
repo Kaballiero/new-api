@@ -3,14 +3,17 @@ package relay
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	"github.com/QuantumNous/new-api/logger"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -18,13 +21,14 @@ import (
 )
 
 // SystemOneHelper relays native synchronous decisions. Transport, reservation and
-// authoritative cost settlement remain owned by the existing relay mechanisms.
-func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+// authoritative cost settlement remain owned by the existing relay mechanisms;
+// a Task that took over a deferred cost settles it from generation metadata.
+func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
 	adaptor := GetAdaptor(info.ApiType)
 	capability, supported := adaptor.(interface {
 		SupportsSystemOne(*relaycommon.RelayInfo) bool
-		ReadSystemOneResponse(*http.Response, *relaycommon.RelayInfo) ([]byte, *types.NewAPIError)
+		ReadSystemOneResponse(*gin.Context, *http.Response, *relaycommon.RelayInfo) ([]byte, *types.NewAPIError)
 	})
 	if !supported || !capability.SupportsSystemOne(info) {
 		return types.NewErrorWithStatusCode(errors.New("channel does not support System One"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -87,7 +91,16 @@ func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIE
 	if resp.StatusCode != http.StatusOK {
 		return mapping.RelayErrorHandler(c.Request.Context(), resp, false)
 	}
-	body, responseErr := capability.ReadSystemOneResponse(resp, info)
+	defer func() {
+		// Nothing reached the client; the generation lookup charges what
+		// OpenRouter billed.
+		if newAPIError != nil && relaycommon.HasOpenRouterSyncTask(info) {
+			if failErr := taskrecord.FailOpenRouterSyncTask(info, "undelivered_chat_result"); failErr != nil {
+				logger.LogError(c, fmt.Sprintf("OpenRouter undelivered decisions task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, failErr))
+			}
+		}
+	}()
+	body, responseErr := capability.ReadSystemOneResponse(c, resp, info)
 	if responseErr != nil {
 		return responseErr
 	}
@@ -100,6 +113,14 @@ func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIE
 	billinggateway.PostTextConsumeQuota(c, info, usage, nil)
 	if typedErr != nil {
 		return systemOneResponseError(typedErr.Error())
+	}
+	if relaycommon.HasOpenRouterSyncTask(info) {
+		// The Task retains the hold, so the response is still delivered; an
+		// unfinished reservation is parked in manual reconciliation by the poller.
+		if completeErr := taskrecord.CompleteOpenRouterSyncTask(c, info, body, "application/json"); completeErr != nil {
+			failErr := taskrecord.FailOpenRouterSyncTask(info, "chat_completion_unavailable")
+			logger.LogError(c, fmt.Sprintf("OpenRouter decisions task %s requires reconciliation: complete=%v fail=%v", info.OpenRouterCost.TaskID, completeErr, failErr))
+		}
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(contentType, "application/json") {

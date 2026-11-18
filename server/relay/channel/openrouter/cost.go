@@ -199,8 +199,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ChatImage = false
 	}
 	// A chat completion defers a missing cost in every client format, as do a
-	// Responses response and a legacy completion, streamed or not, and an
-	// embedding.
+	// Responses response and a legacy completion, streamed or not, an
+	// embedding and a decisions response.
 	textOutput := !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -212,6 +212,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ChatText = textOutput && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
 	case types.RelayFormatEmbedding:
 		info.OpenRouterCost.ChatText = textOutput && operation == "embeddings" && info.RelayMode == relayconstant.RelayModeEmbeddings
+	case types.RelayFormatSystemOne:
+		info.OpenRouterCost.ChatText = textOutput && operation == "decisions" && info.RelayMode == relayconstant.RelayModeSystemOne
 	}
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))
@@ -354,6 +356,38 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return err
 	}
 	return configureGenerationLookup(c, info, adaptor)
+}
+
+// DeferNonstreamCostToGeneration decides a nonstream response that failed
+// ValidateResponse. A chat text hold with a generation identity moves to a
+// Task, and nil asks the caller to deliver the buffered response restored by
+// ValidateResponse; an upstream error envelope still answers with that error.
+// Otherwise costErr is returned and, without a Task, the caller refunds the
+// hold.
+func DeferNonstreamCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, costErr *types.NewAPIError) *types.NewAPIError {
+	if info.IsChannelTest || !info.OpenRouterCost.ChatText {
+		return costErr
+	}
+	if info.OpenRouterCost.UnknownReason == "upstream_error" {
+		// With a generation identity the Task keeps the hold and the lookup
+		// charges what OpenRouter billed; the client still gets the upstream
+		// error.
+		if deferErr := DeferCostToGeneration(c, info, adaptor); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+			logger.LogError(c, fmt.Sprintf("OpenRouter upstream error cost deferral incomplete; task %s retains the hold: %v", info.OpenRouterCost.TaskID, deferErr))
+		}
+		return RejectUpstreamError(c, info, costErr)
+	}
+	if deferErr := DeferCostToGeneration(c, info, adaptor); deferErr != nil {
+		if !relaycommon.HasOpenRouterSyncTask(info) {
+			logger.LogWarn(c, "OpenRouter cost deferral unavailable: unknown_reason=%s channel=%d reserve=%d: %v",
+				info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr)
+			return costErr
+		}
+		// Once a Task owns the hold the buffered response is always delivered.
+		logger.LogError(c, fmt.Sprintf("OpenRouter cost deferral incomplete; task %s retains the hold for reconciliation: unknown_reason=%s channel=%d reserve=%d: %v",
+			info.OpenRouterCost.TaskID, info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr))
+	}
+	return nil
 }
 
 // upstreamError carries the upstream message/code of a successful-status

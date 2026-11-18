@@ -28,6 +28,7 @@ const (
 	TaskActionChat        = "chat"
 	TaskActionCompletions = "completions"
 	TaskActionEmbeddings  = "embeddings"
+	TaskActionDecisions   = "decisions"
 )
 
 var legacyTaskActionAliases = map[string]string{
