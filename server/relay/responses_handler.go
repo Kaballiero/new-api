@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/logger"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -65,6 +66,13 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	request, err := common.DeepCopy(responsesReq)
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
+	// Plugins and server tool stop rules are OpenRouter request fields: other
+	// upstreams may reject them, and searches they start there would run
+	// outside the OpenRouter search reserve.
+	if info.ChannelType != constant.ChannelTypeOpenRouter {
+		request.Plugins = nil
+		request.StopServerToolsWhen = nil
 	}
 
 	err = helper.ModelMappedHelper(c, info, request)
