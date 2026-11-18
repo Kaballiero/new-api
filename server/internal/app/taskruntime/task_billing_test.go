@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
 	service "github.com/QuantumNous/new-api/relay/billing"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
@@ -3088,6 +3089,38 @@ func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
 			assert.Equal(t, 50, refunds[0].Quota)
 		})
 	}
+}
+
+func TestOpenRouterAudioRefusedReservationClosesIntent(t *testing.T) {
+	taskfixture.Truncate(t)
+	disableTaskFixtureArtifacts(t)
+	const id = 987
+	taskfixture.SeedUser(t, id, 100000)
+	taskfixture.SeedToken(t, id, id, "audio-task-fixture", 10)
+	taskfixture.SeedChannel(t, id)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
+		RelayMode:   relayconstant.RelayModeAudioSpeech,
+		UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture",
+	}
+	info.UserSetting.BillingPreference = "wallet_only"
+	info.PriceData.BillingGroupRatio = 1
+
+	err := openrouter.ReserveCost(c, info, 0.1)
+	require.Error(t, err)
+	require.True(t, service.IsReservationRefused(err), "the token cannot cover the reserve")
+
+	task, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
+	assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
+	assert.False(t, task.PrivateData.Reconciliation.Required)
+	assert.Zero(t, task.Quota)
+	assert.Equal(t, "settled", OpenRouterSyncReconciliation(task)["billing_state"])
+	assert.Equal(t, 100000, getUserQuota(t, id))
+	assert.Equal(t, 10, getTokenRemainQuota(t, id))
 }
 
 func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
