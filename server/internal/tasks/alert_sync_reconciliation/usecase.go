@@ -31,9 +31,9 @@ func NewUsecase(store Store, alerts Alerts, now func() time.Time) Usecase {
 	return Usecase{store, alerts, now}
 }
 
-// Execute reports every manual hold not reported before in one summary, then
-// marks those holds reported. A summary that is not delivered leaves them for
-// the next run.
+// Execute reports every manual hold with reserved quota not reported before in
+// one summary, then marks those holds reported. A summary that is not
+// delivered leaves them for the next run.
 func (u Usecase) Execute(ctx context.Context) error {
 	var unreported []*domain.Task
 	var afterID int64
@@ -44,7 +44,8 @@ func (u Usecase) Execute(ctx context.Context) error {
 		}
 		for _, task := range holds {
 			afterID = task.ID
-			if task.PrivateData.OpenRouterSyncState().AlertedAt == 0 {
+			// A hold without reserved quota holds nothing for root to resolve.
+			if task.PrivateData.OpenRouterSyncState().AlertedAt == 0 && task.PrivateData.Reconciliation.ReservedQuota > 0 {
 				unreported = append(unreported, task)
 			}
 		}

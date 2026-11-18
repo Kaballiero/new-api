@@ -49,7 +49,9 @@ func (a *fakeAlerts) ManualHolds(holds []*domain.Task) error {
 }
 
 func manualHold(id, alertedAt int64) *domain.Task {
-	return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), PrivateData: domain.TaskPrivateData{OpenRouterSync: &domain.OpenRouterSyncTask{AlertedAt: alertedAt}}}
+	return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), PrivateData: domain.TaskPrivateData{
+		OpenRouterSync: &domain.OpenRouterSyncTask{AlertedAt: alertedAt}, Reconciliation: &domain.TaskReconciliation{ReservedQuota: 50},
+	}}
 }
 
 func TestExecuteReportsNewManualHoldsOnceInOneSummary(t *testing.T) {
@@ -86,4 +88,16 @@ func TestExecuteLeavesHoldsUnmarkedWhenSummaryIsNotDelivered(t *testing.T) {
 	require.NoError(t, usecase.Execute(context.Background()))
 	assert.Len(t, alerts.summaries, 2)
 	assert.Contains(t, store.alerted, int64(1))
+}
+
+func TestExecuteSkipsHoldsWithoutReservedQuota(t *testing.T) {
+	empty := manualHold(1, 0)
+	empty.PrivateData.Reconciliation.ReservedQuota = 0
+	store := &fakeStore{holds: []*domain.Task{empty, manualHold(2, 0)}, alerted: map[int64]int64{}}
+	alerts := &fakeAlerts{}
+	usecase := NewUsecase(store, alerts, time.Now)
+
+	require.NoError(t, usecase.Execute(context.Background()))
+	assert.Equal(t, [][]string{{"task_2"}}, alerts.summaries)
+	assert.NotContains(t, store.alerted, int64(1))
 }

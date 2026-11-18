@@ -12,7 +12,8 @@ var openRouterSyncUndeliveredReasons = []string{"submission_outcome_unknown", "u
 
 // OpenRouterSyncOperatorEligible reports a durable OpenRouter hold parked in
 // manual reconciliation without an upstream cost, which root may resolve by a
-// zero-cost release (nothing delivered) or an explicit cost settlement.
+// zero-cost release (nothing delivered) or an explicit cost settlement, or an
+// uncommitted reservation without reserved quota, which root may release.
 func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	a, r, bc := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation, t.PrivateData.BillingContext
 	var operation bool
@@ -26,10 +27,17 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	case string(TaskPlatformOpenRouterRerank):
 		operation = t.Action == TaskActionRerank
 	}
-	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil || bc == nil ||
-		bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 ||
-		!r.Required || r.ReservationPending || r.SubmissionPending || r.SettlementPending || r.MainApplied || r.Finalized ||
+	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil ||
+		!r.Required || r.SubmissionPending || r.SettlementPending || r.MainApplied || r.Finalized ||
 		r.HasUpstreamCost || a.OperatorDecision != nil {
+		return false
+	}
+	// A reservation never committed was never submitted. One that recorded no
+	// reserved quota held nothing, so a release closes it without a settlement.
+	if r.ReservationPending {
+		return action == OpenRouterSyncOperatorRelease && r.ReservedQuota == 0
+	}
+	if bc == nil || bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 {
 		return false
 	}
 	switch action {

@@ -100,12 +100,18 @@ func (u Usecase) Execute(_ context.Context, input Input) (domain.OpenRouterSyncO
 	if !task.OpenRouterSyncOperatorEligible(action) {
 		return result, fmt.Errorf("%w: task is not eligible for %s", domain.ErrOpenRouterSyncOperatorConflict, action)
 	}
-	if err := task.PriceOpenRouterSyncDecision(costValue, u.settlement.Prepare); err != nil {
-		return result, err
-	}
-	// A recorded decision is irreversible, so refuse one that cannot settle.
-	if err := u.store.Feasible(task); err != nil {
-		return result, fmt.Errorf("%w: settlement is not feasible: %v", domain.ErrOpenRouterSyncOperatorConflict, err)
+	if r.ReservationPending {
+		// The uncommitted reservation held no quota, so the release closes it
+		// without a settlement.
+		r.ReservationPending, r.Required, r.Finalized = false, false, true
+	} else {
+		if err := task.PriceOpenRouterSyncDecision(costValue, u.settlement.Prepare); err != nil {
+			return result, err
+		}
+		// A recorded decision is irreversible, so refuse one that cannot settle.
+		if err := u.store.Feasible(task); err != nil {
+			return result, fmt.Errorf("%w: settlement is not feasible: %v", domain.ErrOpenRouterSyncOperatorConflict, err)
+		}
 	}
 	decision := domain.OpenRouterSyncOperatorDecision{Action: action, CostUSD: result.CostUSD, OperatorID: operatorID, Evidence: evidence, DecidedAt: u.now().Unix()}
 	if action == domain.OpenRouterSyncOperatorRelease {
