@@ -35,6 +35,7 @@ import (
 	perfmetrics "github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	systemruntime "github.com/QuantumNous/new-api/internal/app/systemruntime"
 	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
@@ -386,6 +387,7 @@ func InitResources() error {
 	}
 
 	identitycore.StartAuthArtifactCleanup()
+	tasksapp.StartSyncTaskCredentialCleanup()
 
 	return nil
 }

@@ -1570,7 +1570,6 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 					assert.True(t, task.PrivateData.OpenRouterSyncState().DispatchPrepared)
 					assert.Equal(t, constant.TaskPlatformOpenRouterImage, task.Platform)
 					assert.Empty(t, task.PrivateData.Key)
-					assert.Empty(t, task.PrivateData.OpenRouterSyncState().Headers)
 					if tc.lateHeaders {
 						task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
 						require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(&task, task.PrivateData.OpenRouterSyncState().Revision))

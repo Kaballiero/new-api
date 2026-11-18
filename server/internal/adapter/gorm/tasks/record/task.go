@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 type TaskStatus = domain.TaskStatus
@@ -113,38 +112,37 @@ type TaskPrivateData struct {
 	OpenRouterSync  *OpenRouterSyncTask `json:"openrouter_sync,omitempty"`
 }
 
-// OpenRouterSyncTask separates delivery from financial reconciliation. Headers
-// and transport settings are private account provenance, never public Task.Data.
+// OpenRouterSyncTask separates delivery from financial reconciliation. It keeps
+// only hashes of the selected account; the cost lookup authenticates with the
+// bound channel account at use time, so no credential is stored.
 type OpenRouterSyncTask struct {
-	CredentialHash    string              `json:"credential_hash,omitempty"`
-	ConfigHash        string              `json:"config_hash,omitempty"`
-	RoutingHash       string              `json:"routing_hash,omitempty"`
-	CredentialIndex   int                 `json:"credential_index,omitempty"`
-	IdentityConflict  bool                `json:"identity_conflict,omitempty"`
-	UpstreamRequestID string              `json:"upstream_request_id,omitempty"`
-	DispatchPrepared  bool                `json:"dispatch_prepared,omitempty"`
-	ProviderTag       string              `json:"provider_tag,omitempty"`
-	ReservationSource string              `json:"reservation_source,omitempty"`
-	ReserveUSD        float64             `json:"reserve_usd,omitempty"`
-	PricingUnknown    bool                `json:"pricing_unknown,omitempty"`
-	Revision          int                 `json:"revision"`
-	RequestID         string              `json:"request_id"`
-	BillingPreference string              `json:"billing_preference"`
-	PlannedQuota      int                 `json:"planned_quota"`
-	LeaseUntil        int64               `json:"lease_until"`
-	Deadline          int64               `json:"deadline"`
-	MetadataURL       string              `json:"metadata_url,omitempty"`
-	Headers           map[string][]string `json:"headers,omitempty"`
-	Transport         dto.ChannelSettings `json:"transport"`
-	Attempts          int                 `json:"attempts"`
-	NextPoll          int64               `json:"next_poll,omitempty"`
-	LastHTTPStatus    int                 `json:"last_http_status,omitempty"`
-	LastError         string              `json:"last_error,omitempty"`
-	ResultReady       bool                `json:"result_ready"`
-	ResultFailed      bool                `json:"result_failed,omitempty"`
-	ResultMimeType    string              `json:"result_mime_type,omitempty"`
-	ResultSize        int64               `json:"result_size,omitempty"`
-	ResultSHA256      string              `json:"result_sha256,omitempty"`
+	CredentialHash    string  `json:"credential_hash,omitempty"`
+	ConfigHash        string  `json:"config_hash,omitempty"`
+	RoutingHash       string  `json:"routing_hash,omitempty"`
+	CredentialIndex   int     `json:"credential_index,omitempty"`
+	IdentityConflict  bool    `json:"identity_conflict,omitempty"`
+	UpstreamRequestID string  `json:"upstream_request_id,omitempty"`
+	DispatchPrepared  bool    `json:"dispatch_prepared,omitempty"`
+	ProviderTag       string  `json:"provider_tag,omitempty"`
+	ReservationSource string  `json:"reservation_source,omitempty"`
+	ReserveUSD        float64 `json:"reserve_usd,omitempty"`
+	PricingUnknown    bool    `json:"pricing_unknown,omitempty"`
+	Revision          int     `json:"revision"`
+	RequestID         string  `json:"request_id"`
+	BillingPreference string  `json:"billing_preference"`
+	PlannedQuota      int     `json:"planned_quota"`
+	LeaseUntil        int64   `json:"lease_until"`
+	Deadline          int64   `json:"deadline"`
+	MetadataURL       string  `json:"metadata_url,omitempty"`
+	Attempts          int     `json:"attempts"`
+	NextPoll          int64   `json:"next_poll,omitempty"`
+	LastHTTPStatus    int     `json:"last_http_status,omitempty"`
+	LastError         string  `json:"last_error,omitempty"`
+	ResultReady       bool    `json:"result_ready"`
+	ResultFailed      bool    `json:"result_failed,omitempty"`
+	ResultMimeType    string  `json:"result_mime_type,omitempty"`
+	ResultSize        int64   `json:"result_size,omitempty"`
+	ResultSHA256      string  `json:"result_sha256,omitempty"`
 	// ResultReason is the first reason recorded by the result path. Unlike
 	// LastError it is never overwritten by later lookup or manual outcomes.
 	ResultReason string `json:"result_reason,omitempty"`

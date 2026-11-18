@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -468,7 +469,7 @@ func TestTaskDomainRoundTrip(t *testing.T) {
 		task record.Task
 	}{
 		{"zero", record.Task{}}, {"populated", full},
-		{"empty", record.Task{Data: json.RawMessage{}, PrivateData: record.TaskPrivateData{PluginState: json.RawMessage{}, OpenRouterSync: &record.OpenRouterSyncTask{Headers: map[string][]string{}, Transport: record.FromDomainTransport(domain.TransportSettings{OpenRouterModelReserveUSD: map[string]float64{}, OpenRouterReservationSource: map[string]string{}})}}}},
+		{"empty", record.Task{Data: json.RawMessage{}, PrivateData: record.TaskPrivateData{PluginState: json.RawMessage{}, OpenRouterSync: &record.OpenRouterSyncTask{}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			converted := record.ToDomain(&tc.task)
@@ -643,4 +644,101 @@ func TestAdminTaskListSelectsOpenRouterSyncTasksByBillingStateAndHoldReasonPostg
 			assert.Equal(t, int64(len(tt.want)), store.TaskCountAllTasks(tt.params))
 		})
 	}
+}
+
+func TestClearOpenRouterSyncCredentials(t *testing.T) {
+	_, db := newTaskTestStore(t)
+	testClearOpenRouterSyncCredentials(t, db)
+}
+
+func TestClearOpenRouterSyncCredentialsPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN is not configured")
+	}
+	db := pgfixture.Open(t, dsn)
+	require.NoError(t, db.AutoMigrate(&record.Task{}))
+	testClearOpenRouterSyncCredentials(t, db)
+}
+
+// Rows written by earlier releases kept the account key, the lookup headers
+// and the channel transport; the cleanup removes them and keeps the rest.
+func testClearOpenRouterSyncCredentials(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	store := NewStore(func() *gorm.DB { return db }, accountstorage.Cache())
+	stored := func(taskID string, platform constant.TaskPlatform, status record.TaskStatus, privateData string) int64 {
+		task := &record.Task{TaskID: taskID, Platform: platform, Action: "audio", Status: status}
+		insertTask(t, db, task)
+		require.NoError(t, db.Model(&record.Task{}).Where("id = ?", task.ID).Update("private_data", privateData).Error)
+		return task.ID
+	}
+	rawPrivateData := func(id int64) string {
+		var raw string
+		require.NoError(t, db.Model(&record.Task{}).Select("private_data").Where("id = ?", id).Scan(&raw).Error)
+		return raw
+	}
+	// bind stands for the channel account: only the current key still belongs to it.
+	var bound []string
+	bind := func(task *domain.Task, key string) error {
+		bound = append(bound, task.TaskID)
+		if key != "stored-account-key" {
+			return errors.New("key no longer belongs to the channel")
+		}
+		state := task.PrivateData.OpenRouterSyncState()
+		state.CredentialHash, state.CredentialIndex, state.ConfigHash = "credential-hash", 2, "config-hash"
+		return nil
+	}
+	audio := stored("task_audio_legacy", constant.TaskPlatformOpenRouterAudio, record.TaskStatusSuccess, `{"key":"stored-account-key","token_id":3,"reconciliation":{"reserved_quota":50,"finalized":true},`+
+		`"openrouter_audio":{"revision":4,"request_id":"request","metadata_url":"https://openrouter.ai/api/v1/generation","headers":{"Authorization":["Bearer stored-account-key"]},"transport":{"proxy":"http://user:pass@proxy","openrouter_model_reserve_usd":{"vendor/audio":0.5}},"result_ready":true}}`)
+	rerank := stored("task_rerank_legacy", constant.TaskPlatformOpenRouterRerank, record.TaskStatusInProgress, `{"key":"stored-account-key","token_id":3,"reconciliation":{"reserved_quota":50},`+
+		`"openrouter_sync":{"revision":2,"request_id":"request","headers":{"Authorization":["Bearer stored-account-key"]},"transport":{}}}`)
+	rotated := stored("task_audio_rotated", constant.TaskPlatformOpenRouterAudio, record.TaskStatusInProgress, `{"key":"rotated-account-key","token_id":3,"reconciliation":{"reserved_quota":50},"openrouter_audio":{"revision":1,"request_id":"request"}}`)
+	clean := stored("task_chat_clean", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusInProgress, `{"token_id":3,"reconciliation":{"reserved_quota":50},"openrouter_sync":{"revision":7,"request_id":"request","credential_hash":"hash"}}`)
+	plugin := stored("task_plugin", "openrouter-video", record.TaskStatusInProgress, `{"key":"plugin-poll-key","token_id":3,"reconciliation":{"reserved_quota":50}}`)
+	cleanBefore := rawPrivateData(clean)
+
+	lastID, cleared, err := store.ClearOpenRouterSyncCredentials(0, 1, bind)
+	require.NoError(t, err)
+	assert.Equal(t, audio, lastID)
+	assert.Equal(t, 1, cleared)
+	lastID, cleared, err = store.ClearOpenRouterSyncCredentials(lastID, 10, bind)
+	require.NoError(t, err)
+	assert.Equal(t, clean, lastID, "the page ends at the last synchronous Task")
+	assert.Equal(t, 2, cleared)
+	assert.Equal(t, []string{"task_rerank_legacy", "task_audio_rotated"}, bound, "only unfinished Tasks without a binding are bound")
+
+	for _, id := range []int64{audio, rerank, rotated} {
+		raw := rawPrivateData(id)
+		assert.NotContains(t, raw, "stored-account-key")
+		assert.NotContains(t, raw, `"headers"`)
+		assert.NotContains(t, raw, `"transport"`)
+		assert.NotContains(t, raw, `"key"`)
+	}
+	var saved record.Task
+	require.NoError(t, db.First(&saved, audio).Error)
+	assert.Equal(t, 5, saved.PrivateData.OpenRouterAudio.Revision, "a writer holding the older snapshot must fail its claim")
+	assert.Equal(t, "https://openrouter.ai/api/v1/generation", saved.PrivateData.OpenRouterAudio.MetadataURL)
+	assert.True(t, saved.PrivateData.OpenRouterAudio.ResultReady)
+	assert.True(t, saved.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, 3, saved.PrivateData.TokenId)
+	var savedRerank record.Task
+	require.NoError(t, db.First(&savedRerank, rerank).Error)
+	assert.Equal(t, 3, savedRerank.PrivateData.OpenRouterSync.Revision)
+	assert.Equal(t, "credential-hash", savedRerank.PrivateData.OpenRouterSync.CredentialHash, "an unfinished Task keeps its cost lookup")
+	assert.Equal(t, 2, savedRerank.PrivateData.OpenRouterSync.CredentialIndex)
+	assert.Equal(t, "config-hash", savedRerank.PrivateData.OpenRouterSync.ConfigHash)
+	var savedRotated record.Task
+	require.NoError(t, db.First(&savedRotated, rotated).Error)
+	assert.Empty(t, savedRotated.PrivateData.OpenRouterAudio.CredentialHash, "a key that left the channel is not bound")
+	assert.Equal(t, 2, savedRotated.PrivateData.OpenRouterAudio.Revision)
+	assert.Equal(t, cleanBefore, rawPrivateData(clean))
+	assert.Contains(t, rawPrivateData(plugin), "plugin-poll-key", "a polled plugin Task is not a synchronous Task")
+
+	lastID, cleared, err = store.ClearOpenRouterSyncCredentials(0, 10, bind)
+	require.NoError(t, err)
+	assert.Equal(t, clean, lastID)
+	assert.Zero(t, cleared, "a repeated run changes nothing")
+	var repeated record.Task
+	require.NoError(t, db.First(&repeated, audio).Error)
+	assert.Equal(t, 5, repeated.PrivateData.OpenRouterAudio.Revision)
 }

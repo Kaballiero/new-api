@@ -1951,6 +1951,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			if tc.channelReserve != nil {
 				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: *tc.channelReserve}
 			}
+			channel := &Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
+			channel.SetSetting(info.ChannelSetting)
+			require.NoError(t, db.Save(channel).Error)
 			billing := &sonarAdmissionBilling{}
 			if tc.insufficient {
 				billing.err = errors.New("insufficient audio quota")
@@ -2640,7 +2643,6 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			require.NoError(t, db.Create(&User{Id: id, Username: fmt.Sprintf("rerank-%d", id), AffCode: fmt.Sprint(id), Quota: 10000000}).Error)
 			key := fmt.Sprintf("rerank-key-%d", id)
 			require.NoError(t, db.Create(&Token{Id: id, UserId: id, Key: key, RemainQuota: 10000000, Status: common.TokenStatusEnabled}).Error)
-			require.NoError(t, db.Create(&Channel{Id: id}).Error)
 			const model = "vendor/reranker"
 			prices := `{}`
 			if tc.configured && !tc.missingPrice {
@@ -2718,6 +2720,9 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			if tc.nonOR {
 				info.ChannelType = constant.ChannelTypeOpenAI
 			}
+			channel := &Channel{Id: id, Type: info.ChannelType, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
+			channel.SetSetting(info.ChannelSetting)
+			require.NoError(t, db.Create(channel).Error)
 			var deadlineTransport *sonarAdmissionTransport
 			if tc.deadline {
 				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})

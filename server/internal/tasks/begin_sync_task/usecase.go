@@ -48,7 +48,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (*domain.Task, error)
 	} else {
 		task.PrivateData.OpenRouterSync = state
 	}
-	if task.Platform == string(domain.TaskPlatformOpenRouterChatImage) {
+	if task.Platform != string(domain.TaskPlatformOpenRouterImage) {
 		if err := u.accounts.Prepare(task, input.Account); err != nil {
 			return nil, err
 		}
