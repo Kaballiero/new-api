@@ -157,6 +157,8 @@ export interface OpenRouterReserveAdminInfo {
   openrouter_approximate_reserve_model?: string
   openrouter_add_on_reserve_usd?: number
   openrouter_add_on_reserve_model?: string
+  openrouter_floor_reserve_usd?: number
+  openrouter_floor_reserve_model?: string
   openrouter_approximate_research_reserve_usd?: number
   openrouter_order_facts?: OpenRouterOrderFacts
 }

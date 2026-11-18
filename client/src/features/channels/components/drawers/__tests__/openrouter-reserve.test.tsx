@@ -200,7 +200,9 @@ describe('OpenRouter reserve table', () => {
     })
     const group = screen.getByRole('group', { name: 'OpenRouter reserves' })
     expect(group).toHaveAccessibleDescription(
-      expect.stringContaining('hosted web search (web_search_options)')
+      expect.stringContaining(
+        'holds the larger of the estimate and this amount'
+      )
     )
     expect(
       within(group)

@@ -111,6 +111,28 @@ describe('OpenRouter reserve in log details', () => {
     expect(section.getByText('0.25 USD · openai/gpt-5-mini')).toBeVisible()
   })
 
+  test('shows a floor reserve that won as a manual source to admins', () => {
+    renderUsageLog(
+      {
+        admin_info: {
+          openrouter_reservation_source: 'manual',
+          openrouter_admission_policy: 'model_reserve_floor',
+          openrouter_floor_reserve_usd: 2,
+          openrouter_floor_reserve_model: 'openai/gpt-5-mini',
+        },
+      },
+      true
+    )
+
+    const section = within(reserveSection())
+    expect(section.getByText('Manual reserve')).toBeVisible()
+    expect(section.getByText('model_reserve_floor')).toBeVisible()
+    const floor = section.getByText('Floor reserve')
+    expect(floor.nextElementSibling?.textContent).toBe(
+      '2 USD · openai/gpt-5-mini'
+    )
+  })
+
   test('shows the reserved quantities beside the source', () => {
     renderUsageLog(
       {
