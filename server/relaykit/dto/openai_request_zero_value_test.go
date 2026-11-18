@@ -329,3 +329,33 @@ func TestGeneralOpenAIRequestPreserveMessageLevelTools(t *testing.T) {
 	assert.Contains(t, meta.CombineText, "Get the current time of a city")
 	assert.Contains(t, meta.CombineText, "lookup_order")
 }
+
+// OpenRouter plugins and server tool fields survive the relay round trip,
+// max_tool_calls keeps an explicit zero, and requests without them marshal
+// unchanged.
+func TestOpenAIRequestsPreserveOpenRouterServerToolFields(t *testing.T) {
+	const openRouterRequest = `{"model":"m","plugins":[{"id":"web","engine":"native","max_results":5}],"stop_server_tools_when":{"max_cost":1},"max_tool_calls":0,"tools":[{"type":"openrouter:web_search","parameters":{"engine":"auto","max_uses":3}}]}`
+	for _, tc := range []struct {
+		name, raw  string
+		request    any
+		openRouter bool
+	}{
+		{name: "chat", raw: openRouterRequest, request: &GeneralOpenAIRequest{}, openRouter: true},
+		{name: "responses", raw: openRouterRequest, request: &OpenAIResponsesRequest{}, openRouter: true},
+		{name: "chat without them", raw: `{"model":"m","tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object"}}}]}`, request: &GeneralOpenAIRequest{}},
+		{name: "responses without them", raw: `{"model":"m","tools":[{"type":"function","name":"f","parameters":{"type":"object"}}]}`, request: &OpenAIResponsesRequest{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, kitutil.Unmarshal([]byte(tc.raw), tc.request))
+			encoded, err := kitutil.Marshal(tc.request)
+			require.NoError(t, err)
+			if !tc.openRouter {
+				assert.JSONEq(t, tc.raw, string(encoded))
+				return
+			}
+			for _, path := range []string{"plugins", "stop_server_tools_when", "max_tool_calls", "tools.0.parameters"} {
+				assert.JSONEq(t, gjson.Get(tc.raw, path).Raw, gjson.GetBytes(encoded, path).Raw, path)
+			}
+		})
+	}
+}

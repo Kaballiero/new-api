@@ -86,9 +86,12 @@ type GeneralOpenAIRequest struct {
 	// OpenAI Chat web search.
 	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 	// OpenRouter Params
-	ImageConfig json.RawMessage `json:"image_config,omitempty"`
-	Usage       json.RawMessage `json:"usage,omitempty"`
-	Reasoning   json.RawMessage `json:"reasoning,omitempty"`
+	ImageConfig         json.RawMessage `json:"image_config,omitempty"`
+	Usage               json.RawMessage `json:"usage,omitempty"`
+	Reasoning           json.RawMessage `json:"reasoning,omitempty"`
+	Plugins             json.RawMessage `json:"plugins,omitempty"`
+	MaxToolCalls        *int            `json:"max_tool_calls,omitempty"`
+	StopServerToolsWhen json.RawMessage `json:"stop_server_tools_when,omitempty"`
 	// Ali Qwen Params
 	VlHighResolutionImages json.RawMessage `json:"vl_high_resolution_images,omitempty"`
 	EnableThinking         json.RawMessage `json:"enable_thinking,omitempty"`
@@ -373,6 +376,9 @@ type ToolCallRequest struct {
 	Type     string          `json:"type"`
 	Function FunctionRequest `json:"function"`
 	Custom   json.RawMessage `json:"custom,omitempty"`
+	// Parameters configure a server tool such as openrouter:web_search; a
+	// function tool carries its parameters in Function.
+	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
 type FunctionRequest struct {
@@ -1035,6 +1041,9 @@ type OpenAIResponsesRequest struct {
 	ThinkingBudget json.RawMessage `json:"thinking_budget,omitempty"`
 	// perplexity
 	Preset json.RawMessage `json:"preset,omitempty"`
+	// OpenRouter
+	Plugins             json.RawMessage `json:"plugins,omitempty"`
+	StopServerToolsWhen json.RawMessage `json:"stop_server_tools_when,omitempty"`
 
 	// Internal conversion state; never serialized to an upstream protocol.
 	ReasoningConversion *ReasoningConversionState `json:"-"`

@@ -40,6 +40,14 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	if request.WebSearchOptions != nil {
 		c.Set("chat_completion_web_search_context_size", request.WebSearchOptions.SearchContextSize)
 	}
+	// Plugins and server tool limits are OpenRouter request fields: other
+	// upstreams may reject them, and searches they start there would run
+	// outside the OpenRouter search reserve.
+	if info.ChannelType != constant.ChannelTypeOpenRouter {
+		request.Plugins = nil
+		request.MaxToolCalls = nil
+		request.StopServerToolsWhen = nil
+	}
 
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
