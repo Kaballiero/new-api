@@ -200,6 +200,13 @@ export function OpenRouterSyncReconciliation(
         value={String(view.lookup_attempts)}
         mono
       />
+      {view.cost_confirmed ? (
+        <DetailRow
+          label={t('Upstream cost')}
+          value={`${view.upstream_cost_usd} USD`}
+          mono
+        />
+      ) : null}
       <DetailRow
         label={t('Held quota')}
         value={formatLogQuota(view.reserved_quota)}

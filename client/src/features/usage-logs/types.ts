@@ -396,6 +396,8 @@ export interface OpenRouterSyncAdminView {
   replay_allowed: boolean
   identity_available: boolean
   cost_confirmed: boolean
+  /** Confirmed upstream cost; meaningful only when cost_confirmed. */
+  upstream_cost_usd?: number
   next_lookup_at?: number | null
   result_ready: boolean
   result_failed: boolean

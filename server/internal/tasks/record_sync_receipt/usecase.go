@@ -87,13 +87,27 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
 		a.ResultFailed, a.LastError = true, "upstream_rejected"
 		a.RecordResultReason("upstream_rejected")
-		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
-		task.FailReason = fmt.Sprintf("OpenRouter rejected the request with HTTP %d; reservation released", input.Status)
+		rejected := fmt.Sprintf("OpenRouter rejected the request with HTTP %d; reservation released", input.Status)
+		finishAfterSettlement := domain.ConfirmSyncCost(task, u.now(), u.settlement.Prepare)
+		if !finishAfterSettlement {
+			task.FailReason = rejected
+		}
 		u.codec.Project(task)
 		if err := u.store.UpdateRevision(task, a.Revision); err != nil {
 			return err
 		}
-		return u.settlement.SettleDurable(task)
+		settleErr := u.settlement.SettleDurable(task)
+		// A settlement that moved no balances stays for the poller to retry.
+		if !finishAfterSettlement || settleErr != nil && !r.MainApplied {
+			return settleErr
+		}
+		domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
+		task.FailReason = rejected
+		u.codec.Project(task)
+		if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+			return err
+		}
+		return settleErr
 	}
 	if input.RequestError || !input.ResponsePresent || input.Status != 200 && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false

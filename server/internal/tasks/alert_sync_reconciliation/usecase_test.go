@@ -14,18 +14,26 @@ import (
 )
 
 type fakeStore struct {
-	holds   []*domain.Task
-	alerted map[int64]int64
+	holds, unfinished []*domain.Task
+	alerted           map[int64]int64
 }
 
 func (s *fakeStore) ManualHolds(afterID int64, limit int) ([]*domain.Task, error) {
+	return taskPage(s.holds, afterID, limit), nil
+}
+
+func (s *fakeStore) Unfinished(afterID int64, limit int) ([]*domain.Task, error) {
+	return taskPage(s.unfinished, afterID, limit), nil
+}
+
+func taskPage(tasks []*domain.Task, afterID int64, limit int) []*domain.Task {
 	var page []*domain.Task
-	for _, task := range s.holds {
+	for _, task := range tasks {
 		if task.ID > afterID && len(page) < limit {
 			page = append(page, task)
 		}
 	}
-	return page, nil
+	return page
 }
 
 func (s *fakeStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
@@ -49,7 +57,9 @@ func (a *fakeAlerts) ManualHolds(holds []*domain.Task) error {
 }
 
 func manualHold(id, alertedAt int64) *domain.Task {
-	return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), PrivateData: domain.TaskPrivateData{OpenRouterSync: &domain.OpenRouterSyncTask{AlertedAt: alertedAt}}}
+	return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), Status: domain.TaskStatusFailure, PrivateData: domain.TaskPrivateData{
+		OpenRouterSync: &domain.OpenRouterSyncTask{AlertedAt: alertedAt}, Reconciliation: &domain.TaskReconciliation{ReservedQuota: 50},
+	}}
 }
 
 func TestExecuteReportsNewManualHoldsOnceInOneSummary(t *testing.T) {
@@ -86,4 +96,27 @@ func TestExecuteLeavesHoldsUnmarkedWhenSummaryIsNotDelivered(t *testing.T) {
 	require.NoError(t, usecase.Execute(context.Background()))
 	assert.Len(t, alerts.summaries, 2)
 	assert.Contains(t, store.alerted, int64(1))
+}
+
+func TestExecuteReportsSettlementsPendingLongerThanStallAge(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	pending := func(id int64, since time.Time) *domain.Task {
+		return &domain.Task{ID: id, TaskID: fmt.Sprintf("task_%d", id), Status: domain.TaskStatusInProgress, PrivateData: domain.TaskPrivateData{
+			OpenRouterSync: &domain.OpenRouterSyncTask{SettlementPendingSince: since.Unix()}, Reconciliation: &domain.TaskReconciliation{ReservedQuota: 50, SettlementPending: true},
+		}}
+	}
+	recent := pending(2, now.Add(-29*time.Minute))
+	awaitingCost := pending(3, now.Add(-time.Hour))
+	awaitingCost.PrivateData.Reconciliation.SettlementPending = false
+	videoTask := &domain.Task{ID: 4, TaskID: "task_4", Status: domain.TaskStatusInProgress}
+	store := &fakeStore{
+		unfinished: []*domain.Task{pending(1, now.Add(-30*time.Minute)), recent, awaitingCost, videoTask, pending(5, time.Unix(0, 0))},
+		alerted:    map[int64]int64{},
+	}
+	alerts := &fakeAlerts{}
+	usecase := NewUsecase(store, alerts, func() time.Time { return now })
+
+	require.NoError(t, usecase.Execute(context.Background()))
+	assert.Equal(t, [][]string{{"task_1", "task_5"}}, alerts.summaries, "a settlement pending before its start was recorded is reported")
+	assert.Equal(t, map[int64]int64{1: now.Unix(), 5: now.Unix()}, store.alerted)
 }

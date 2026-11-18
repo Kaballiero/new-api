@@ -66,10 +66,11 @@ func (u Usecase) Execute(ctx context.Context, input Input) error {
 	a.ResultReady, a.ResultMimeType, a.ResultSize = true, input.MimeType, input.BodySize
 	r.SubmissionPending = false
 	a.NextPoll = u.now().Unix()
+	finishAfterSettlement := false
 	if state.Final && state.Valid {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		r.UpstreamIsBYOK, r.UpstreamCostDetails = state.IsBYOK, string(state.CostDetails)
-		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
+		finishAfterSettlement = domain.ConfirmSyncCost(task, u.now(), u.settlement.Prepare)
 	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && a.MetadataURL == "" {
 		domain.MarkSyncManual(task, "missing_generation_identity", u.now().Unix())
 	}
@@ -77,10 +78,18 @@ func (u Usecase) Execute(ctx context.Context, input Input) error {
 	if err := u.store.UpdateRevision(task, a.Revision); err != nil {
 		return err
 	}
-	if r.SettlementPending {
-		if err := u.settlement.SettleDurable(task); err != nil {
-			u.diagnostics.SettlementRepair(ctx, task.TaskID)
-		}
+	if !r.SettlementPending {
+		return nil
 	}
-	return nil
+	settleErr := u.settlement.SettleDurable(task)
+	if settleErr != nil {
+		u.diagnostics.SettlementRepair(ctx, task.TaskID)
+	}
+	// A settlement that moved no balances stays for the poller to retry.
+	if !finishAfterSettlement || settleErr != nil && !r.MainApplied {
+		return nil
+	}
+	domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
+	u.codec.Project(task)
+	return u.store.UpdateRevision(task, a.Revision)
 }

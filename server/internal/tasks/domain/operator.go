@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -43,6 +44,18 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 		return r.ReservedQuota >= 0
 	}
 	return false
+}
+
+// OpenRouterSyncSettlementRetryable reports a terminal result whose settlement
+// of a confirmed cost is pending without a recorded decision and moved no
+// balances. Root repeats that frozen settlement by asserting the confirmed
+// cost. A manual hold or an unverified generation identity is not a result.
+func (t *Task) OpenRouterSyncSettlementRetryable() bool {
+	a, r := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation
+	terminal := t.Status == TaskStatusSuccess || t.Status == TaskStatusFailure
+	manualHold := strings.HasPrefix(t.FailReason, SyncManualFailReason(""))
+	return terminal && !manualHold && a != nil && r != nil && !a.IdentityConflict && a.OperatorDecision == nil &&
+		r.HasUpstreamCost && r.UpstreamCostConfirmed && r.SettlementPending && !r.MainApplied && !r.Finalized
 }
 
 // OpenRouterSyncAutoReleaseDue reports a hold root could release whose

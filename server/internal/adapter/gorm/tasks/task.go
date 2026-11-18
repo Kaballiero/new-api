@@ -285,6 +285,16 @@ func (s Store) HasManualHoldsSince(since int64) bool {
 	return err == nil && id != 0
 }
 
+// GetUnfinishedOpenRouterSyncTasks pages unfinished OpenRouter synchronous
+// tasks, whose settlement may be pending.
+func (s Store) GetUnfinishedOpenRouterSyncTasks(afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.db().Where("platform IN ?", openRouterSyncPlatforms).
+		Where("status NOT IN ?", []string{record.TaskStatusFailure, record.TaskStatusSuccess}).
+		Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
 // MarkManualHoldAlerted records when a manual hold was reported on the locked
 // row, keeping every other field another writer may have changed.
 func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {

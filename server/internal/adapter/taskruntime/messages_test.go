@@ -64,6 +64,10 @@ func TestManualHoldsNotificationSummarizesHoldsForRoot(t *testing.T) {
 	assert.Contains(t, content, "task_11 ")
 	assert.NotContains(t, content, "task_12")
 
+	holds[1].FailReason, holds[1].PrivateData.Reconciliation.SettlementPending = "", true
+	_, content = ManualHoldsNotification("en", holds[:2])
+	assert.Contains(t, content, "\n- task_1 (chat, settlement_pending): $0.010000")
+
 	subject, content = ManualHoldsNotification("ru", holds[:1])
 	assert.Equal(t, "OpenRouter: резервы ждут ручной сверки", subject)
 	assert.True(t, strings.HasPrefix(content, "Новых резервов OpenRouter в ручной сверке: 1, всего удержано $0.010000."), content)
