@@ -744,6 +744,12 @@ const (
 	MsgTasksSyncManualHolds        = "tasks.sync_manual_holds"
 )
 
+// Usage alerts to the operators use the root user's language.
+const (
+	MsgUsageUnknownOutcomeRefundsSubject = "usage.unknown_outcome_refunds_subject"
+	MsgUsageUnknownOutcomeRefunds        = "usage.unknown_outcome_refunds"
+)
+
 // Batch response and recipient log messages.
 const (
 	MsgBatchBatchBusy                           = "batch.batch_busy"
