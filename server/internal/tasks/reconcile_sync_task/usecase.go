@@ -2,6 +2,7 @@ package reconcile_sync_task
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net/url"
 	"strings"
@@ -75,6 +76,12 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 		r.SubmissionPending = false
 		a.ResultFailed = !a.ResultReady
 	}
+	if r.SettlementPending || r.Finalized {
+		if now.Unix() < a.NextPoll {
+			return nil
+		}
+		return u.finishSettlement(task)
+	}
 	if now.Unix() >= a.Deadline || a.Attempts >= 16 {
 		domain.MarkSyncManual(task, "cost_lookup_deadline_or_attempt_limit", u.now().Unix())
 		u.codec.Project(task)
@@ -103,7 +110,13 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 	a.LastHTTPStatus, a.LastError, a.LastLookupClass = status, class, class
 	if class == "" {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, cost
+		priorStatus, priorProgress, priorFailReason := task.Status, task.Progress, task.FailReason
 		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
+		if r.SettlementPending {
+			// The Task turns terminal only once its settlement applies, so the
+			// poller retries a settlement that failed or was interrupted.
+			task.Status, task.Progress, task.FinishTime, task.FailReason = priorStatus, priorProgress, 0, priorFailReason
+		}
 	} else if class == "auth" || class == "account_binding_changed" || class == "identity_or_invalid_cost" || class == "permanent_http_error" {
 		domain.MarkSyncManual(task, class, u.now().Unix())
 	} else {
@@ -117,9 +130,31 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 		return err
 	}
 	if r.SettlementPending {
-		return u.settlement.SettleDurable(task)
+		return u.finishSettlement(task)
 	}
 	return nil
+}
+
+// settlementRetryDelay spaces the retries of a settlement that moved no balances.
+const settlementRetryDelay = time.Minute
+
+// finishSettlement applies the frozen settlement, then records the terminal
+// result. A settlement that moved no balances keeps the Task pollable; one that
+// moved them is never replayed and leaves only its repair to an operator.
+func (u Usecase) finishSettlement(task *domain.Task) error {
+	a := task.PrivateData.OpenRouterSyncState()
+	settleErr := u.settlement.SettleDurable(task)
+	if settleErr != nil && !task.PrivateData.Reconciliation.MainApplied {
+		a.NextPoll = u.now().Add(settlementRetryDelay).Unix()
+		u.codec.Project(task)
+		return errors.Join(settleErr, u.store.UpdateRevision(task, a.Revision))
+	}
+	domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
+	u.codec.Project(task)
+	if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+		return err
+	}
+	return settleErr
 }
 
 func (u Usecase) lookup(ctx context.Context, task *domain.Task) (float64, int, time.Duration, string) {

@@ -214,7 +214,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 						return
 					}
 					if err := u.reconciler.Poll(ctx, task); err != nil {
-						u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred", task.TaskID))
+						u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred: %v", task.TaskID, err))
 					}
 				}
 			})
