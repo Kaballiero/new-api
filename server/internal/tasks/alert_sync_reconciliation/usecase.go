@@ -34,10 +34,10 @@ func NewUsecase(store Store, alerts Alerts, now func() time.Time) Usecase {
 }
 
 // Execute reports every manual hold, except a reservation never committed that
-// may hold no quota, and every settlement
-// pending longer than domain.SyncSettlementStallAge not reported before in one summary,
-// then marks those Tasks reported. A summary that is not delivered leaves
-// them for the next run.
+// may hold no quota, and every settlement pending longer than
+// domain.SyncSettlementStallAge not reported before in one summary, then marks
+// those Tasks reported. A summary that is not delivered leaves them for the
+// next run.
 func (u Usecase) Execute(ctx context.Context) error {
 	now := u.now()
 	var unreported []*domain.Task

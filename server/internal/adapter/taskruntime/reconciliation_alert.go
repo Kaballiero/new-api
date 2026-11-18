@@ -67,9 +67,10 @@ func EstimateSettlementsNotification(lang string, charges, stalledClaims []*doma
 			taskIDs[i] = task.TaskID
 		}
 		builder.WriteString(i18n.Translate(lang, i18n.MsgTasksSyncStalledEstimateSettlements, map[string]any{
-			"Count":   len(stalledClaims),
-			"Shown":   shown,
-			"TaskIDs": strings.Join(taskIDs, ", "),
+			"Count":        len(stalledClaims),
+			"StallMinutes": int(domain.SyncSettlementStallAge.Minutes()),
+			"Shown":        shown,
+			"TaskIDs":      strings.Join(taskIDs, ", "),
 		}))
 	}
 	return i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlementsSubject), builder.String()

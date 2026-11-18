@@ -465,7 +465,7 @@ usage.invalid_end: "invalid end_timestamp"
 usage.invalid_range: "invalid time range"
 usage.invalid_token_id: "token_id must be a positive integer"
 usage.positive_time: "start_timestamp and end_timestamp must be positive"
-usage.unknown_outcome_refunds_subject: "OpenRouter: refunds with unknown charge"
+usage.unknown_outcome_refunds_subject: "OpenRouter: refunds with unknown charge and estimate charges"
 usage.unknown_outcome_refunds: "OpenRouter reserves refunded on {{.Day}} (Moscow time) although the upstream charge is unknown; the clients were not charged.\nText requests: {{.TextCount}}, {{.TextAmount}}\nImages: {{.ImageCount}}, {{.ImageAmount}}\n\nCharged an estimate of the unknown upstream cost: {{.EstimatedCount}}, {{.EstimatedAmount}}"
 usage.granularity: "granularity must be one of hour, day, week, month"
 usage.month_limit: "granularity month supports at most 120 months per request"
@@ -651,7 +651,7 @@ tasks.sync_manual_holds_subject: "OpenRouter: reserves need manual reconciliatio
 tasks.sync_manual_holds: "New OpenRouter reserves in manual reconciliation: {{.Count}}, {{.Reserved}} held in total. The reserves stay held until root resolves each one in the task details of the task logs.\n\nHolds (showing {{.Shown}}/{{.Count}}):"
 tasks.sync_estimate_settlements_subject: "OpenRouter: costs charged by estimate"
 tasks.sync_estimate_settlements: "OpenRouter results delivered without an upstream cost were charged an estimate: {{.Count}}, {{.Charged}} charged in total. A text is charged its tokens at the largest tariff of its reserve, an image or a video its reserve; no estimate exceeds the reserve. Check them against the OpenRouter activity.\n\nCharges (showing {{.Shown}}/{{.Count}}):"
-tasks.sync_stalled_estimate_settlements: "Need repair: {{.Count}} estimate settlements claimed over 30 minutes ago never moved the balances; the retries keep failing. Tasks (showing {{.Shown}}/{{.Count}}): {{.TaskIDs}}"
+tasks.sync_stalled_estimate_settlements: "Need repair: {{.Count}} estimate settlements claimed over {{.StallMinutes}} minutes ago never moved the balances; the retries keep failing. Tasks (showing {{.Shown}}/{{.Count}}): {{.TaskIDs}}"
 
 # Batch messages: Chinese locales preserve the previous response bytes.
 batch.batch_busy: "batch reconciliation is already in progress"
