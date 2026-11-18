@@ -31,6 +31,10 @@ type AppliedModelUpdates struct {
 	// RemovalLimitCandidates are the auto removals of a channel with more than
 	// MaxAutoRemovedModels of them: a scheduled run removes none.
 	RemovalLimitCandidates []string
+	// ReserveRefusedModels are the pending additions a scheduled run does not
+	// add because their reserve is ReserveRefused and no manual reserve
+	// covers them.
+	ReserveRefusedModels []string
 }
 
 // MaxAutoRemovedModels is the most models a scheduled run removes from a
@@ -92,17 +96,19 @@ func ApplySelectedModelChanges(originModels []string, addModels []string, remove
 // list. AutoRemoveEnabled lets a scheduled run with auto sync also remove the
 // removal candidates. LastConflictModels are the upstream models that were not
 // offered for addition because their canonical name is taken by another
-// target.
+// target. ManualReserveModels are the upstream models a manual reserve of the
+// channel covers, read from its OpenRouter reserve settings.
 type ModelUpdateState struct {
-	CheckEnabled       bool
-	AutoSyncEnabled    bool
-	AutoRemoveEnabled  bool
-	CatalogSyncEnabled bool
-	LastCheckTime      int64
-	LastDetectedModels []string
-	LastRemovedModels  []string
-	LastConflictModels []string
-	IgnoredModels      []string
+	CheckEnabled        bool
+	AutoSyncEnabled     bool
+	AutoRemoveEnabled   bool
+	CatalogSyncEnabled  bool
+	LastCheckTime       int64
+	LastDetectedModels  []string
+	LastRemovedModels   []string
+	LastConflictModels  []string
+	IgnoredModels       []string
+	ManualReserveModels []string
 }
 
 // UpstreamModels are the models of a channel's upstream. Listed are the models
@@ -114,13 +120,16 @@ type ModelUpdateState struct {
 // AutoApplyBlocked marks models of a source that lost too many published
 // models, or whose UnresolvedMappingChannels leave the published models
 // unknown: their changes are detected, but a scheduled run applies none of
-// them.
+// them. ReserveRefused are the Addable models whose reserve the gateway cannot
+// price from the upstream catalog, with the reason: a scheduled run adds them
+// only to a channel whose manual reserve covers them.
 type UpstreamModels struct {
 	Listed                    []string
 	Addable                   []string
 	Shortcuts                 []string
 	AutoApplyBlocked          bool
 	UnresolvedMappingChannels []UnresolvedMappingChannel
+	ReserveRefused            map[string]string
 }
 
 // UnresolvedMappingChannel is a channel whose model mapping does not resolve

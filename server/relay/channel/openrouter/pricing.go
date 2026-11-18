@@ -106,6 +106,14 @@ func NewRequestEstimator() *RequestEstimator {
 	}
 }
 
+// NewCatalogEstimator is an estimator that prices the reserve with reserve.
+// It is never bound to a request, so it never discovers live endpoints.
+func NewCatalogEstimator(reserve estimate_upstream_reserve.Usecase) *RequestEstimator {
+	estimator := NewRequestEstimator()
+	estimator.reserve = reserve
+	return estimator
+}
+
 // Estimate takes the complete maximum over eligible endpoints, preserving the
 // actual routing payload. Price strings are USD per token/request/image.
 func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, operation string) (float64, error) {

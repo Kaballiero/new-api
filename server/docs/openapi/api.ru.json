@@ -3541,6 +3541,12 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "reserve_refused_models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"

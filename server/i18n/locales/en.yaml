@@ -431,6 +431,7 @@ channel.model_update_unresolved_mapping: "Changes are not applied automatically 
 channel.model_update_auto_added: "Added by auto sync (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_removed: "Removed by auto sync (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_removal_limit: "Needs decision — more than {{.Limit}} models to remove, nothing removed: {{.Channels}}"
+channel.model_update_reserve_refused: "Needs decision — the reserve cannot be computed from catalog prices, the model was not added automatically; set a manual reserve in the channel and apply (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "Failed channel IDs (showing {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " ({{.Count}} more omitted)"
 

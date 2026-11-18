@@ -36,6 +36,7 @@ interface UpstreamUpdateDialogProps {
   addModels: string[]
   removeModels: string[]
   conflictModels: string[]
+  reserveRefusedModels: string[]
   preferredTab: UpstreamUpdateTab
   confirmLoading: boolean
   onConfirm: (data: { addModels: string[]; removeModels: string[] }) => void
@@ -168,7 +169,8 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
             <TabsTrigger value='needs-decision' className='gap-1'>
               {t('Needs decision')}
               <StatusBadge variant='neutral' className='ml-1' copyable={false}>
-                {props.conflictModels.length}
+                {props.conflictModels.length +
+                  props.reserveRefusedModels.length}
               </StatusBadge>
             </TabsTrigger>
           </TabsList>
@@ -300,6 +302,24 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
                 </p>
               )}
             </ScrollArea>
+            {props.reserveRefusedModels.length > 0 && (
+              <>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'These upstream models are not added automatically: their reserve cannot be computed from catalog prices. Set a manual reserve in the channel, then add them.'
+                  )}
+                </p>
+                <ScrollArea className='h-[140px] rounded-md border p-2'>
+                  <ul className='space-y-1'>
+                    {props.reserveRefusedModels.map((model) => (
+                      <li key={model} className='truncate px-2 py-1.5 text-sm'>
+                        {model}
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+              </>
+            )}
           </TabsContent>
         </Tabs>
       </Dialog>

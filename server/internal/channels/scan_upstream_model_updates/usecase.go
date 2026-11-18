@@ -57,9 +57,10 @@ func (usecase Usecase) Check(
 		if settings.LastCheckTime > 0 &&
 			now-settings.LastCheckTime < minInterval {
 			// A recent check keeps its pending changes; a catalog channel
-			// still reports whether its catalog blocks auto-apply and whether
-			// its removals exceed the auto removal limit, so the report does
-			// not change between the checks. The catalog is read once per run.
+			// still reports whether its catalog blocks auto-apply, whether
+			// its removals exceed the auto removal limit and which additions
+			// have a refused reserve, so the report does not change between
+			// the checks. The catalog is read once per run.
 			if !settings.CatalogSyncEnabled {
 				return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, nil
 			}
@@ -68,7 +69,8 @@ func (usecase Usecase) Check(
 				return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, err
 			}
 			limitCandidates, err := usecase.rules.RemovalLimitCandidates(channel, *settings, upstreamModels)
-			return domain.AppliedModelUpdates{RemovalLimitCandidates: limitCandidates}, upstreamModels, err
+			reserveRefused := domain.ReserveRefusedModels(domain.NormalizeModelNames(settings.LastDetectedModels), settings.ManualReserveModels, upstreamModels.ReserveRefused)
+			return domain.AppliedModelUpdates{RemovalLimitCandidates: limitCandidates, ReserveRefusedModels: reserveRefused}, upstreamModels, err
 		}
 	}
 
@@ -222,6 +224,13 @@ scanLoop:
 			if len(appliedUpdates.RemovalLimitCandidates) > 0 {
 				usecase.log(fmt.Sprintf("upstream model update removal limit exceeded: channel_id=%d channel_name=%s candidates=%d limit=%d", channel.Id, channel.Name, len(appliedUpdates.RemovalLimitCandidates), domain.MaxAutoRemovedModels))
 			}
+			if len(appliedUpdates.ReserveRefusedModels) > 0 {
+				reasons := make(map[string]string, len(appliedUpdates.ReserveRefusedModels))
+				for _, model := range appliedUpdates.ReserveRefusedModels {
+					reasons[model] = upstreamModels.ReserveRefused[model]
+				}
+				usecase.log(fmt.Sprintf("upstream model update reserve refused: channel_id=%d channel_name=%s models=%v reasons=%v", channel.Id, channel.Name, appliedUpdates.ReserveRefusedModels, reasons))
+			}
 			currentAddCount := len(currentAddModels) + len(appliedUpdates.AddedModels)
 			currentRemoveCount := len(currentRemoveModels) + len(appliedUpdates.RemovedModels)
 			detectedAddModels += currentAddCount
@@ -239,6 +248,7 @@ scanLoop:
 					AutoAddedModels:        appliedUpdates.AddedModels,
 					AutoRemovedModels:      appliedUpdates.RemovedModels,
 					RemovalLimitCandidates: appliedUpdates.RemovalLimitCandidates,
+					ReserveRefusedModels:   appliedUpdates.ReserveRefusedModels,
 				})
 			}
 			// Every catalog channel of a scan shares one catalog read, so

@@ -3,6 +3,7 @@ package channels
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -35,22 +36,43 @@ var channelUpstreamModelUpdateSelectFields = []string{
 }
 
 // ModelUpdateState reads the upstream model update state from the channel
-// settings without repairing invalid settings.
+// settings without repairing invalid settings. The ManualReserveModels of an
+// OpenRouter channel are the upstream models of its exact model reserves and
+// the Sonar research model of its legacy reserve, each above zero.
 func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState, error) {
 	settings, err := parseOtherSettings(channel)
 	if err != nil {
 		return domain.ModelUpdateState{}, err
 	}
+	var manualReserveModels []string
+	if channel.Type == constant.ChannelTypeOpenRouter {
+		setting, err := parseChannelSetting(channel)
+		if err != nil {
+			return domain.ModelUpdateState{}, err
+		}
+		// The legacy reserve covers the Sonar research model unless an exact
+		// model reserve takes precedence (OpenRouterReserveUSD).
+		models := slices.Sorted(maps.Keys(setting.OpenRouterModelReserveUSD))
+		if sonarResearchModel := "perplexity/sonar-deep-research"; !slices.Contains(models, sonarResearchModel) {
+			models = append(models, sonarResearchModel)
+		}
+		for _, model := range models {
+			if reserve := setting.OpenRouterReserveUSD(model); reserve != nil && *reserve > 0 {
+				manualReserveModels = append(manualReserveModels, model)
+			}
+		}
+	}
 	return domain.ModelUpdateState{
-		CheckEnabled:       settings.UpstreamModelUpdateCheckEnabled,
-		AutoSyncEnabled:    settings.UpstreamModelUpdateAutoSyncEnabled,
-		AutoRemoveEnabled:  settings.UpstreamModelUpdateAutoRemoveEnabled,
-		CatalogSyncEnabled: settings.UpstreamModelUpdateCatalogSyncEnabled,
-		LastCheckTime:      settings.UpstreamModelUpdateLastCheckTime,
-		LastDetectedModels: settings.UpstreamModelUpdateLastDetectedModels,
-		LastRemovedModels:  settings.UpstreamModelUpdateLastRemovedModels,
-		LastConflictModels: settings.UpstreamModelUpdateLastConflictModels,
-		IgnoredModels:      settings.UpstreamModelUpdateIgnoredModels,
+		CheckEnabled:        settings.UpstreamModelUpdateCheckEnabled,
+		AutoSyncEnabled:     settings.UpstreamModelUpdateAutoSyncEnabled,
+		AutoRemoveEnabled:   settings.UpstreamModelUpdateAutoRemoveEnabled,
+		CatalogSyncEnabled:  settings.UpstreamModelUpdateCatalogSyncEnabled,
+		LastCheckTime:       settings.UpstreamModelUpdateLastCheckTime,
+		LastDetectedModels:  settings.UpstreamModelUpdateLastDetectedModels,
+		LastRemovedModels:   settings.UpstreamModelUpdateLastRemovedModels,
+		LastConflictModels:  settings.UpstreamModelUpdateLastConflictModels,
+		IgnoredModels:       settings.UpstreamModelUpdateIgnoredModels,
+		ManualReserveModels: manualReserveModels,
 	}, nil
 }
 
@@ -68,6 +90,17 @@ func parseOtherSettings(channel *domain.Channel) (dto.ChannelOtherSettings, erro
 	return settings, nil
 }
 
+func parseChannelSetting(channel *domain.Channel) (dto.ChannelSettings, error) {
+	setting := dto.ChannelSettings{}
+	if channel.Setting == nil || strings.TrimSpace(*channel.Setting) == "" {
+		return setting, nil
+	}
+	if err := common.UnmarshalJsonStr(*channel.Setting, &setting); err != nil {
+		return dto.ChannelSettings{}, fmt.Errorf("invalid channel setting: %w", err)
+	}
+	return setting, nil
+}
+
 // FetchFingerprint returns the configuration that decides where and how the
 // upstream models of the channel are fetched.
 func (store Store) FetchFingerprint(channel *domain.Channel) (domain.ModelFetchFingerprint, error) {
@@ -75,11 +108,9 @@ func (store Store) FetchFingerprint(channel *domain.Channel) (domain.ModelFetchF
 		return domain.ModelFetchFingerprint{}, fmt.Errorf("channel is nil")
 	}
 
-	setting := dto.ChannelSettings{}
-	if channel.Setting != nil && strings.TrimSpace(*channel.Setting) != "" {
-		if err := common.UnmarshalJsonStr(*channel.Setting, &setting); err != nil {
-			return domain.ModelFetchFingerprint{}, fmt.Errorf("invalid channel setting: %w", err)
-		}
+	setting, err := parseChannelSetting(channel)
+	if err != nil {
+		return domain.ModelFetchFingerprint{}, err
 	}
 
 	effectiveBaseURL := constant.ChannelBaseURLs[channel.Type]

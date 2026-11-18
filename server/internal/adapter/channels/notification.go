@@ -13,8 +13,8 @@ import (
 // At most 8 channels, 12 model samples of each kind and 10 failed channel IDs
 // are listed. The models applied by auto sync are listed with their channel,
 // the channels over the auto removal limit with their number of auto
-// removals, and the channels whose unresolved model mapping blocks auto-apply
-// by id and name.
+// removals, the additions with a refused reserve with their channel, and the
+// channels whose unresolved model mapping blocks auto-apply by id and name.
 func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subject, content string) {
 	var builder strings.Builder
 	failedChannels := len(report.FailedChannelIDs)
@@ -42,13 +42,14 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
 	// An unresolved mapping blocks the catalog before its model loss is
 	// compared, so the blocked channels are listed only without one.
-	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
+	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, reserveRefusedSamples, blockedChannels []string
 	for _, summary := range report.Channels {
 		if summary.AutoApplyBlocked && len(report.UnresolvedMappingChannels) == 0 {
 			blockedChannels = append(blockedChannels, summary.ChannelName)
 		}
 		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
 		autoRemovedSamples = append(autoRemovedSamples, channelModelSamples(summary.ChannelName, summary.AutoRemovedModels)...)
+		reserveRefusedSamples = append(reserveRefusedSamples, channelModelSamples(summary.ChannelName, summary.ReserveRefusedModels)...)
 		if len(summary.RemovalLimitCandidates) > 0 {
 			removalLimitChannels = append(removalLimitChannels, fmt.Sprintf("%s (%d)", summary.ChannelName, len(summary.RemovalLimitCandidates)))
 		}
@@ -58,6 +59,7 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 	if len(removalLimitChannels) > 0 {
 		builder.WriteString("\n\n" + i18n.Translate(lang, i18n.MsgChannelModelUpdateRemovalLimit, map[string]any{"Limit": domain.MaxAutoRemovedModels, "Channels": strings.Join(removalLimitChannels, ", ")}))
 	}
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateReserveRefused, reserveRefusedSamples)
 	conflictSamples := make([]string, len(report.ConflictModels))
 	for i, conflict := range report.ConflictModels {
 		conflictSamples[i] = fmt.Sprintf("%s (%s)", conflict.Model, conflict.ChannelName)

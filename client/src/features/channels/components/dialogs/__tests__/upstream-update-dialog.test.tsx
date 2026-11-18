@@ -61,6 +61,7 @@ describe('upstream update dialog needs-decision section', () => {
         addModels={[]}
         removeModels={[]}
         conflictModels={['mongodb/voyage-4', 'acme/gpt-4o']}
+        reserveRefusedModels={[]}
         preferredTab='add'
         confirmLoading={false}
         onConfirm={vi.fn()}
@@ -75,6 +76,30 @@ describe('upstream update dialog needs-decision section', () => {
     expect(conflictList).toHaveTextContent('acme/gpt-4o')
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  })
+
+  it('lists additions with a refused reserve under needs decision and counts them', async () => {
+    const user = userEvent.setup()
+    render(
+      <UpstreamUpdateDialog
+        open
+        addModels={['acme/chat', 'acme/unreservable']}
+        removeModels={[]}
+        conflictModels={[]}
+        reserveRefusedModels={['acme/unreservable']}
+        preferredTab='add'
+        confirmLoading={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const needsDecision = screen.getByRole('tab', { name: /Needs decision/ })
+    expect(needsDecision).toHaveTextContent('1')
+    await user.click(needsDecision)
+
+    expect(screen.getByRole('list')).toHaveTextContent('acme/unreservable')
+    expect(screen.getByText('Nothing needs a decision')).toBeInTheDocument()
   })
 })
 

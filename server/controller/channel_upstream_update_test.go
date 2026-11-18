@@ -1869,7 +1869,7 @@ func (catalog *upstreamCatalogStub) ServeHTTP(w http.ResponseWriter, r *http.Req
 	}
 	coverage := `{"expectedSources":[],"missingSources":[],"normalization":"complete","offers":"complete","reasons":[]}`
 	component := `{"amountUSD":"0.8","billable":"input_text","componentId":"input","conditions":{},"direction":"input","modality":"text","normalization":{"appliedDiscount":null,"comparable":true,"discountBasis":"net","effective":true,"reasons":[]},"parameter":"prompt","provenance":{"source":"generic"},"quantity":"1","source":{"amount":null,"currency":null,"key":"prompt","unit":null},"unit":"million_tokens","variant":{}}`
-	offer := `{"capabilities":{},"components":[` + component + `],"coverage":` + coverage + `,"eligibility":{"eligible":true,"reasons":[]},"facts":{},"id":"offer","identity":{},"limitations":[],"limits":{},"mode":null,"operation":null,"provider":null,"scope":"endpoint","variant":{"variant":"standard"}}`
+	offer := `{"capabilities":{},"components":[` + component + `],"coverage":` + coverage + `,"eligibility":{"eligible":true,"reasons":[]},"facts":{"pricing":{"prompt":"0.0000008","completion":"0.0000016"}},"id":"offer","identity":{},"limitations":[],"limits":{},"mode":null,"operation":null,"provider":{"id":"acme","name":"Acme","tag":"acme"},"scope":"endpoint","variant":{"variant":"standard"}}`
 	models := slices.Sorted(slices.Values(catalog.models))
 	documents := map[string]string{}
 	refs := make([]string, len(models))
@@ -2453,6 +2453,60 @@ func TestDetectModelDeltaMarksAutoRemovalLimit(t *testing.T) {
 			assert.Empty(t, result.RemovedModels)
 		})
 	}
+}
+
+// An addition whose reserve the catalog refuses is not added by auto sync
+// unless a manual reserve of the channel covers it; it stays pending and every
+// check marks it, also a manual check and one of a channel without auto sync.
+// A refused same-name replacement stays pending with its removal.
+func TestDetectModelDeltaKeepsReserveRefusedAdditionsPending(t *testing.T) {
+	autoSync := channeldomain.ModelUpdateState{AutoSyncEnabled: true}
+	covered := channeldomain.ModelUpdateState{AutoSyncEnabled: true, ManualReserveModels: []string{"acme/unreservable"}}
+	upstream := channeldomain.UpstreamModels{Listed: []string{"kept", "acme/chat", "acme/unreservable"}, Addable: []string{"acme/chat", "acme/unreservable"},
+		ReserveRefused: map[string]string{"acme/unreservable": "invalid OpenRouter endpoint price"}}
+	replacement := channeldomain.UpstreamModels{Listed: []string{"foo"}, Addable: []string{"foo"}, ReserveRefused: map[string]string{"foo": "invalid OpenRouter endpoint price"}}
+	for _, tc := range []struct {
+		name, models, mapping string
+		state                 channeldomain.ModelUpdateState
+		upstreamModels        channeldomain.UpstreamModels
+		allowAutoApply        bool
+		wantAdded             []string
+		wantRefused           []string
+		wantDetected          []string
+	}{
+		{name: "scheduled run adds only the reservable model", models: "kept", state: autoSync, upstreamModels: upstream, allowAutoApply: true,
+			wantAdded: []string{"acme/chat"}, wantRefused: []string{"acme/unreservable"}, wantDetected: []string{"acme/unreservable"}},
+		{name: "manual reserve covers the refused model", models: "kept", state: covered, upstreamModels: upstream, allowAutoApply: true,
+			wantAdded: []string{"acme/chat", "acme/unreservable"}, wantDetected: []string{}},
+		{name: "manual check", models: "kept", state: autoSync, upstreamModels: upstream,
+			wantRefused: []string{"acme/unreservable"}, wantDetected: []string{"acme/chat", "acme/unreservable"}},
+		{name: "channel without auto sync", models: "kept", upstreamModels: upstream, allowAutoApply: true,
+			wantRefused: []string{"acme/unreservable"}, wantDetected: []string{"acme/chat", "acme/unreservable"}},
+		{name: "refused same-name replacement", models: "foo", mapping: `{"foo":"anthropic/foo"}`, state: autoSync, upstreamModels: replacement, allowAutoApply: true,
+			wantAdded: []string{}, wantRefused: []string{"foo"}, wantDetected: []string{"foo"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := &channeldomain.Channel{Type: constant.ChannelTypeOpenRouter, Models: tc.models, ModelMapping: &tc.mapping}
+			state := tc.state
+
+			result, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).DetectModelDelta(channel, &state, tc.upstreamModels, tc.allowAutoApply)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantAdded, result.AddedModels)
+			assert.Equal(t, tc.wantRefused, result.ReserveRefusedModels)
+			assert.Equal(t, tc.wantDetected, state.LastDetectedModels)
+		})
+	}
+}
+
+// A report whose additions with a refused reserve changed is new even when the
+// pending additions stay the same.
+func TestModelUpdateReportFingerprintFollowsReserveRefusedModels(t *testing.T) {
+	report := func(refused []string) channeldomain.ModelUpdateReport {
+		return channeldomain.ModelUpdateReport{Channels: []channeldomain.ModelUpdateChannelSummary{{ChannelID: 1, PendingAddModels: []string{"acme/unreservable"}, ReserveRefusedModels: refused}}}
+	}
+	assert.Equal(t, channeldomain.ModelUpdateReportFingerprint(report([]string{"acme/unreservable"})), channeldomain.ModelUpdateReportFingerprint(report([]string{"acme/unreservable"})))
+	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(nil)), channeldomain.ModelUpdateReportFingerprint(report([]string{"acme/unreservable"})))
 }
 
 // A report whose channel became blocked from auto-apply, or was unblocked, is

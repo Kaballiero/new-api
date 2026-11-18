@@ -59,6 +59,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
   const [addModels, setAddModels] = useState<string[]>([])
   const [removeModels, setRemoveModels] = useState<string[]>([])
   const [conflictModels, setConflictModels] = useState<string[]>([])
+  const [reserveRefusedModels, setReserveRefusedModels] = useState<string[]>([])
   const [preferredTab, setPreferredTab] = useState<UpstreamUpdateTab>('add')
   const [applyLoading, setApplyLoading] = useState(false)
   const [detectAllLoading, setDetectAllLoading] = useState(false)
@@ -75,7 +76,8 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       pendingAdd: string[] = [],
       pendingRemove: string[] = [],
       conflicts: string[] = [],
-      tab: UpstreamUpdateTab = 'add'
+      tab: UpstreamUpdateTab = 'add',
+      reserveRefused: string[] = []
     ) => {
       const normAdd = normalizeModelList(pendingAdd)
       const normRemove = normalizeModelList(pendingRemove)
@@ -90,6 +92,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       setAddModels(normAdd)
       setRemoveModels(normRemove)
       setConflictModels(normConflicts)
+      setReserveRefusedModels(normalizeModelList(reserveRefused))
       setPreferredTab(tab)
       setShowModal(true)
     },
@@ -102,6 +105,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
     setAddModels([])
     setRemoveModels([])
     setConflictModels([])
+    setReserveRefusedModels([])
     setPreferredTab('add')
   }, [])
 
@@ -223,15 +227,19 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
           })
         )
         await refresh()
-        // Conflicts have no badge in the channel table, so the dialog shows
-        // them right after detection.
-        if (data?.conflict_models?.length > 0) {
+        // Conflicts and refused reserves have no badge in the channel
+        // table, so the dialog shows them right after detection.
+        if (
+          data?.conflict_models?.length > 0 ||
+          data?.reserve_refused_models?.length > 0
+        ) {
           openModal(
             ch,
             data.add_models,
             data.remove_models,
             data.conflict_models,
-            'needs-decision'
+            'needs-decision',
+            data.reserve_refused_models
           )
         }
       } catch (e: unknown) {
@@ -283,6 +291,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       addModels,
       removeModels,
       conflictModels,
+      reserveRefusedModels,
       preferredTab,
       applyLoading,
       detectAllLoading,
@@ -300,6 +309,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       addModels,
       removeModels,
       conflictModels,
+      reserveRefusedModels,
       preferredTab,
       applyLoading,
       detectAllLoading,
