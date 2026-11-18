@@ -509,6 +509,15 @@ func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
 	assert.Equal(t, "missing_generation_identity", saved.PrivateData.OpenRouterSync.LastError)
 	assert.Equal(t, 500, saved.PrivateData.Reconciliation.ReservedQuota)
 	assert.Equal(t, missingIdentity.FailReason, saved.FailReason)
+
+	retrying := &record.Task{TaskID: "task_retrying", Platform: constant.TaskPlatformOpenRouterAudio, Action: "audio", Status: record.TaskStatusInProgress,
+		PrivateData: record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{ReservedQuota: 500, SettlementPending: true}, OpenRouterAudio: &record.OpenRouterSyncTask{}}}
+	insertTask(t, db, retrying)
+	insertTask(t, db, &record.Task{TaskID: "task_video", Platform: "suno", Status: record.TaskStatusInProgress})
+	unfinished, err := store.GetUnfinishedOpenRouterSyncTasks(0, 10)
+	require.NoError(t, err)
+	require.Len(t, unfinished, 1, "terminal holds and other platforms are not paged")
+	assert.Equal(t, retrying.TaskID, unfinished[0].TaskID)
 }
 
 func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {

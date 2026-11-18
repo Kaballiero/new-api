@@ -125,6 +125,10 @@ type OpenRouterSyncTask struct {
 	// AlertedAt is when the manual hold was reported to the operators; zero
 	// until it is reported.
 	AlertedAt int64
+	// SettlementPendingSince is when the settlement of the confirmed cost of
+	// a Task in progress became pending; zero for Tasks confirmed before it
+	// was recorded.
+	SettlementPendingSince int64
 	// UsageEstimateUSD prices the usage of a delivered text at the largest
 	// endpoint tariffs of its reserve, capped by the reserve; zero without a
 	// tariff.

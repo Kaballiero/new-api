@@ -20,7 +20,7 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 	case r.MainApplied:
 		billing = "settlement_repair_required"
 	case r.SettlementPending:
-		billing = "settlement_pending"
+		billing = SyncBillingSettlementPending
 	case r.ReservationPending:
 		billing, submission = "reservation_unknown", "preparing"
 	case task.Status == TaskStatusFailure:
@@ -68,8 +68,10 @@ func OpenRouterSyncAdminView(task *Task) map[string]any {
 	view["lookup_attempts"] = a.Attempts
 	view["identity_conflict"] = a.IdentityConflict
 	view["operator_decision"] = decision
-	view["release_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease)
-	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorSettle)
+	retryable := task.OpenRouterSyncSettlementRetryable()
+	view["upstream_cost_usd"] = r.UpstreamCostUSD
+	view["release_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease) || retryable && r.UpstreamCostUSD == 0
+	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorSettle) || retryable && r.UpstreamCostUSD > 0
 	view["alerted_at"] = a.AlertedAt
 	view["cost_estimated"] = r.UpstreamCostEstimated
 	return view

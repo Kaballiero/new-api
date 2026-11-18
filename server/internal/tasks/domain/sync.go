@@ -4,6 +4,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 )
 
 type SyncIdentity struct {
@@ -109,6 +110,14 @@ const (
 	SyncBillingAwaitingCost         = "awaiting_cost"
 )
 
+// SyncBillingSettlementPending is the billing state of a confirmed cost whose
+// settlement has not applied yet.
+const SyncBillingSettlementPending = "settlement_pending"
+
+// SyncSettlementRetryDelay spaces the retries of a settlement that moved no
+// balances.
+const SyncSettlementRetryDelay = time.Minute
+
 // SyncManualFailReason is the stored failure text of a manual hold for reason.
 func SyncManualFailReason(reason string) string {
 	return "OpenRouter synchronous manual reconciliation required: " + reason
@@ -130,6 +139,26 @@ func FinishSyncTask(task *Task, now int64, prepare func(*Task)) {
 	prepare(task)
 }
 
+// ConfirmSyncCost freezes the settlement of the confirmed cost. A Task in
+// progress turns terminal only once its settlement applies, so the poller
+// retries a settlement that failed; it reports whether the caller records the
+// terminal result after the settlement. A manual hold claimed by a late cost
+// turns terminal at once.
+func ConfirmSyncCost(task *Task, now time.Time, prepare func(*Task)) (finishAfterSettlement bool) {
+	if task.Status == TaskStatusFailure {
+		FinishSyncTask(task, now.Unix(), prepare)
+		return false
+	}
+	prepare(task)
+	if !task.PrivateData.Reconciliation.SettlementPending {
+		FinishSyncTask(task, now.Unix(), func(*Task) {})
+		return false
+	}
+	a := task.PrivateData.OpenRouterSyncState()
+	a.NextPoll, a.SettlementPendingSince = now.Add(SyncSettlementRetryDelay).Unix(), now.Unix()
+	return true
+}
+
 func OpenRouterSyncData(task *Task) map[string]any {
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
 	status := SyncBillingAwaitingCost
@@ -138,7 +167,7 @@ func OpenRouterSyncData(task *Task) map[string]any {
 	} else if r.SubmissionPending {
 		status = "submission_pending"
 	} else if r.SettlementPending {
-		status = "settlement_pending"
+		status = SyncBillingSettlementPending
 	} else if r.Finalized {
 		status = "settled"
 	} else if task.Status == TaskStatusFailure {
