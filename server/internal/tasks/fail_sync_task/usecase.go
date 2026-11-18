@@ -49,10 +49,11 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 	a.RecordResultReason(input.Reason)
 	r.SubmissionPending = false
 	a.NextPoll = u.now().Unix()
+	finishAfterSettlement := false
 	if state.Final && state.Valid && !a.IdentityConflict && (task.Platform == string(domain.TaskPlatformOpenRouterImage) ||
 		task.Platform == string(domain.TaskPlatformOpenRouterChatImage)) {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
-		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
+		finishAfterSettlement = domain.ConfirmSyncCost(task, u.now(), u.settlement.Prepare)
 	} else if a.IdentityConflict || task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterImage) {
 		domain.MarkSyncManual(task, input.Reason, u.now().Unix())
 	}
@@ -60,8 +61,18 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 	if err := u.store.UpdateRevision(task, a.Revision); err != nil {
 		return err
 	}
-	if r.SettlementPending {
-		return u.settlement.SettleDurable(task)
+	if !r.SettlementPending {
+		return nil
 	}
-	return nil
+	settleErr := u.settlement.SettleDurable(task)
+	// A settlement that moved no balances stays for the poller to retry.
+	if !finishAfterSettlement || settleErr != nil && !r.MainApplied {
+		return settleErr
+	}
+	domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
+	u.codec.Project(task)
+	if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+		return err
+	}
+	return settleErr
 }

@@ -97,6 +97,17 @@ func (u Usecase) Execute(_ context.Context, input Input) (domain.OpenRouterSyncO
 		result.BillingState, _ = domain.OpenRouterSyncReconciliation(task)["billing_state"].(string)
 		return result, nil
 	}
+	if task.OpenRouterSyncSettlementRetryable() {
+		// The confirmed cost is frozen, so root may only repeat its settlement.
+		if !cost.Equal(decimal.NewFromFloat(r.UpstreamCostUSD)) {
+			return result, fmt.Errorf("%w: cost differs from the confirmed cost", domain.ErrOpenRouterSyncOperatorConflict)
+		}
+		if err := u.settlement.SettleDurable(task); err != nil {
+			return result, openRouterSyncOperatorSettlementError(task)
+		}
+		result.BillingState, _ = domain.OpenRouterSyncReconciliation(task)["billing_state"].(string)
+		return result, nil
+	}
 	if !task.OpenRouterSyncOperatorEligible(action) {
 		return result, fmt.Errorf("%w: task is not eligible for %s", domain.ErrOpenRouterSyncOperatorConflict, action)
 	}

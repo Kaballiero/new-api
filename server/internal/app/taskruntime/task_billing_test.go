@@ -2992,6 +2992,78 @@ func TestOpenRouterAudioSettlesAfterTokenDeleted(t *testing.T) {
 	assert.Equal(t, 9960, token.RemainQuota)
 }
 
+func TestOpenRouterSyncInlineSettlementIsRecoverable(t *testing.T) {
+	// failInlineSettlement completes a chat-image Task with a confirmed cost
+	// while its channel row is missing, so the inline settlement moves nothing.
+	failInlineSettlement := func(t *testing.T) (*relaycommon.RelayInfo, *model.Task) {
+		c, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+		channel := model.Channel{}
+		require.NoError(t, model.DB.First(&channel, info.ChannelId).Error)
+		require.NoError(t, model.DB.Unscoped().Delete(&model.Channel{}, info.ChannelId).Error)
+		info.OpenRouterCost.Observe([]byte(`{"id":"gen-inline","usage":{"cost":0.04}}`), true)
+		require.NoError(t, taskrecord.CompleteOpenRouterSyncTask(c, info, []byte("delivered"), "application/json"))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		require.NoError(t, model.DB.Create(&channel).Error)
+		return info, task
+	}
+	t.Run("poller retries a failed inline settlement", func(t *testing.T) {
+		info, task := failInlineSettlement(t)
+		state := task.PrivateData.OpenRouterSync
+		assert.Equal(t, record.TaskStatus(record.TaskStatusInProgress), task.Status)
+		assert.Equal(t, "settlement_pending", OpenRouterSyncReconciliation(task)["billing_state"])
+		assert.Equal(t, 50, task.Quota)
+		assert.NotZero(t, state.SettlementPendingSince)
+		assert.Equal(t, state.SettlementPendingSince+60, state.NextPoll)
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+
+		require.NoError(t, pollOpenRouterSync(t.Context(), task), "the retry waits for its claimed time")
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+		task.PrivateData.OpenRouterSync.NextPoll = time.Now().Add(-time.Second).Unix()
+		require.NoError(t, fixtureStore.UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSync.Revision))
+		require.NoError(t, pollOpenRouterSync(t.Context(), task))
+
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), task.Status)
+		assert.True(t, task.PrivateData.Reconciliation.Finalized)
+		assert.Equal(t, 40, task.Quota)
+		assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+		assert.Equal(t, 9960, getTokenRemainQuota(t, info.TokenId))
+	})
+	t.Run("root repeats a terminal pending settlement at the confirmed cost", func(t *testing.T) {
+		info, task := failInlineSettlement(t)
+		// Builds before the poller retry recorded the result before settling.
+		task.Status, task.Progress = record.TaskStatusSuccess, "100%"
+		require.NoError(t, fixtureStore.UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSync.Revision))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		view := OpenRouterSyncAdminView(task)
+		assert.Equal(t, false, view["release_allowed"])
+		assert.Equal(t, true, view["settle_allowed"])
+		assert.Equal(t, 0.04, view["upstream_cost_usd"])
+
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorSettle, "0.05", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+		result, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorSettle, "0.040", "confirmed cost", 1)
+		require.NoError(t, err)
+		assert.Equal(t, "settled", result.BillingState)
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorSettle, "0.04", "again", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict, "a settled Task is never settled again")
+
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), task.Status)
+		assert.True(t, task.PrivateData.Reconciliation.Finalized)
+		assert.Nil(t, task.PrivateData.OpenRouterSync.OperatorDecision)
+		assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+		assert.Equal(t, 9960, getTokenRemainQuota(t, info.TokenId))
+	})
+}
+
 func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 	for _, hasGeneration := range []bool{false, true} {
 		t.Run(fmt.Sprint("generation_", hasGeneration), func(t *testing.T) {

@@ -157,6 +157,9 @@ type OpenRouterSyncTask struct {
 	// AlertedAt is when the manual hold was reported to the operators; zero
 	// until it is reported.
 	AlertedAt int64 `json:"alerted_at,omitempty"`
+	// SettlementPendingSince is when the settlement of the confirmed cost of
+	// a Task in progress became pending.
+	SettlementPendingSince int64 `json:"settlement_pending_since,omitempty"`
 }
 
 // RecordResultReason keeps the first result-path reason; later failures of

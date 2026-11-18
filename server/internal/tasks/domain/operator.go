@@ -53,6 +53,17 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	return false
 }
 
+// OpenRouterSyncSettlementRetryable reports a terminal Task whose settlement
+// of a confirmed cost is pending without a recorded decision and moved no
+// balances: a result recorded before the settlement applied. Root repeats
+// that frozen settlement by asserting the confirmed cost.
+func (t *Task) OpenRouterSyncSettlementRetryable() bool {
+	a, r := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation
+	terminal := t.Status == TaskStatusSuccess || t.Status == TaskStatusFailure
+	return terminal && a != nil && r != nil && a.OperatorDecision == nil && r.HasUpstreamCost && r.UpstreamCostConfirmed &&
+		r.SettlementPending && !r.MainApplied && !r.Finalized
+}
+
 // OpenRouterSyncAutoReleaseDue reports a hold root could release whose
 // submission outcome stayed unknown without an upstream identity for the
 // auto-release delay. A Task with an identity keeps the cost lookup flow.

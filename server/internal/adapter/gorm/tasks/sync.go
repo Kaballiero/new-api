@@ -43,6 +43,10 @@ func (s SyncStore) ManualHolds(afterID int64, limit int) ([]*domain.Task, error)
 	return tasks, err
 }
 
+func (s SyncStore) Unfinished(afterID int64, limit int) ([]*domain.Task, error) {
+	return PollingStore{Store: s.Store}.UnfinishedPage(limit, afterID), nil
+}
+
 func (s SyncStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
 	return s.Store.MarkManualHoldAlerted(task.ID, alertedAt)
 }
