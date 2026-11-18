@@ -28,10 +28,13 @@ type Usecase struct {
 	sent   SentReports
 	alerts Alerts
 	now    func() time.Time
+	// undelivered keeps the tally of the day whose summary was not delivered,
+	// so the retries do not read the day's logs again.
+	undelivered map[string]domain.UnknownOutcomeRefunds
 }
 
 func NewUsecase(logs RefundLogs, sent SentReports, alerts Alerts, now func() time.Time) Usecase {
-	return Usecase{logs, sent, alerts, now}
+	return Usecase{logs, sent, alerts, now, map[string]domain.UnknownOutcomeRefunds{}}
 }
 
 // reportedDayKey holds the Moscow date (YYYY-MM-DD) of the last reported day.
@@ -45,7 +48,8 @@ const reportHour = 10
 
 // Execute reports the previous Moscow day once, from 10:00 Moscow time. A day
 // without such refunds and estimate charges is marked reported without a
-// message; a summary that is not delivered leaves the day for the next run.
+// message; a summary that is not delivered leaves the day, with its tally, for
+// the next run.
 func (u Usecase) Execute(ctx context.Context) error {
 	now := u.now().In(moscow)
 	if now.Hour() < reportHour {
@@ -61,14 +65,19 @@ func (u Usecase) Execute(ctx context.Context) error {
 	if reported >= dayKey {
 		return nil
 	}
-	refunds, err := u.logs.UnknownOutcomeRefunds(ctx, day.Unix(), today.Unix())
-	if err != nil {
-		return err
-	}
-	if refunds.Text.Count+refunds.Image.Count+refunds.EstimatedCharges.Count > 0 {
-		if err := u.alerts.UnknownOutcomeRefunds(dayKey, refunds); err != nil {
+	refunds, tallied := u.undelivered[dayKey]
+	if !tallied {
+		if refunds, err = u.logs.UnknownOutcomeRefunds(ctx, day.Unix(), today.Unix()); err != nil {
 			return err
 		}
 	}
+	if refunds.Text.Count+refunds.Image.Count+refunds.EstimatedCharges.Count > 0 {
+		if err := u.alerts.UnknownOutcomeRefunds(dayKey, refunds); err != nil {
+			clear(u.undelivered)
+			u.undelivered[dayKey] = refunds
+			return err
+		}
+	}
+	clear(u.undelivered)
 	return u.sent.SaveBulk(ctx, []string{reportedDayKey}, map[string]string{reportedDayKey: dayKey})
 }

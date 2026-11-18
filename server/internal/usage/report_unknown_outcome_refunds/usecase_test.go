@@ -105,3 +105,19 @@ func TestDailyUnknownOutcomeRefundReport(t *testing.T) {
 		})
 	}
 }
+
+func TestUndeliveredDailySummaryKeepsItsTally(t *testing.T) {
+	logs := &refundLogs{refunds: domain.UnknownOutcomeRefunds{EstimatedCharges: domain.Tally{Count: 1, Quota: 70}}}
+	sent := &sentReports{options: map[string]string{}}
+	delivered := &alerts{err: errors.New("telegram down")}
+	report := report_unknown_outcome_refunds.NewUsecase(logs, sent, delivered, func() time.Time { return time.Date(2026, 11, 18, 7, 0, 0, 0, time.UTC) })
+
+	require.ErrorIs(t, report.Execute(context.Background()), delivered.err)
+	require.ErrorIs(t, report.Execute(context.Background()), delivered.err)
+	delivered.err = nil
+	require.NoError(t, report.Execute(context.Background()))
+
+	assert.Equal(t, 1, logs.calls, "the retries reuse the tally of the day")
+	assert.Equal(t, []domain.UnknownOutcomeRefunds{logs.refunds}, delivered.sent)
+	assert.Equal(t, "2026-11-17", sent.options["openrouter_unknown_refunds_reported_day"])
+}

@@ -13,8 +13,10 @@ import (
 	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
 
@@ -440,11 +442,12 @@ func TestUnknownOutcomeRefundLogsTallyRefundsAndEstimateCharges(t *testing.T) {
 		consumed(usagerecord.LogTypeConsume, from, 2000, "generation")
 		consumed(usagerecord.LogTypeConsume, to, 4000, domain.OpenRouterCostSourceEstimate)
 		// A task settled at an estimate below its reserve logs the refunded
-		// change and the charge, as TaskBilling.Durable writes it.
-		settlement := new(usagerecord.LogOther)
-		settlement.SetPublic("actual_quota", 700)
-		settlement.SetAdmin("upstream_cost_estimated", true)
-		require.NoError(t, model.LOG_DB.Create(&usagerecord.Log{Type: usagerecord.LogTypeRefund, CreatedAt: to - 1, Quota: 300, Other: settlement.JSONString()}).Error)
+		// change, 300, and its charge, 700.
+		task := taskfixture.MakeTask(1, 1, 1000, 0, "wallet", 0)
+		task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 1000, TargetQuota: 700, UpstreamCostEstimated: true}
+		billing := TaskBilling{Writer: NewWriter(WriterEnvironment{DB: func() *gorm.DB { return model.DB }, LogDB: func() *gorm.DB { return model.LOG_DB }})}
+		require.NoError(t, billing.Durable(tasksrecord.ToDomain(task), -300))
+		require.NoError(t, model.LOG_DB.Model(&usagerecord.Log{}).Where("type = ?", usagerecord.LogTypeRefund).Update("created_at", to-1).Error)
 
 		refunds, err := UnknownOutcomeRefundLogs{LogDB: func() *gorm.DB { return model.LOG_DB }}.UnknownOutcomeRefunds(context.Background(), from, to)
 		require.NoError(t, err)
