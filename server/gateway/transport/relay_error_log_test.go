@@ -1047,24 +1047,29 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 		body         string
 		channelError bool
 		autoDisabled bool
+		// unknownRefund expects the one error log of a refunded hold whose
+		// OpenRouter charge is unknown; errorLogOff disables the error log setting.
+		unknownRefund, errorLogOff bool
 	}{
-		{name: "chat/client abort before content", client: chat, walletQuota: funded, tokenQuota: funded, abort: true},
-		{name: "messages/client abort before content", client: messages, walletQuota: funded, tokenQuota: funded, abort: true},
-		{name: "responses/client abort before content", client: responses, walletQuota: funded, tokenQuota: funded, abort: true},
-		{name: "gemini/client abort before content", client: gemini, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "chat/client abort before content", client: chat, walletQuota: funded, tokenQuota: funded, abort: true, unknownRefund: true},
+		{name: "chat/client abort before content without error log setting", client: chat, walletQuota: funded, tokenQuota: funded, abort: true, unknownRefund: true, errorLogOff: true},
+		{name: "messages/client abort before content", client: messages, walletQuota: funded, tokenQuota: funded, abort: true, unknownRefund: true},
+		{name: "responses/client abort before content", client: responses, walletQuota: funded, tokenQuota: funded, abort: true, unknownRefund: true},
+		{name: "gemini/client abort before content", client: gemini, walletQuota: funded, tokenQuota: funded, abort: true, unknownRefund: true},
 		{name: "other channel/client abort is not retried", client: nonstreamChat, channelType: constant.ChannelTypeOpenAI, modelPrice: `{"vendor/text-fixture":0.03}`, walletQuota: funded, tokenQuota: funded, abortBeforeHeaders: true},
 		{name: "wallet reserve shortfall", client: chat, walletQuota: 5, tokenQuota: funded, status: http.StatusForbidden},
 		{name: "API key reserve shortfall", client: chat, walletQuota: funded, tokenQuota: 5, status: http.StatusForbidden},
 		{name: "saturated reserve", client: chat, walletQuota: funded, tokenQuota: funded, groupRatio: "1e15", status: http.StatusForbidden,
 			body: `{"error":{"message":"insufficient quota","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
 		{name: "request conversion refusal", client: unsupportedTool, walletQuota: funded, tokenQuota: funded, status: http.StatusBadRequest},
-		{name: "upstream 401", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusUnauthorized, status: http.StatusUnauthorized, channelError: true, autoDisabled: true},
-		{name: "upstream 403", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusForbidden, status: http.StatusForbidden, channelError: true, autoDisabled: true},
-		{name: "upstream 502", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadGateway, status: http.StatusBadGateway, channelError: true, autoDisabled: true},
-		{name: "upstream 400 with a local error code", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadRequest, upstreamCode: `"invalid_request"`, status: http.StatusBadRequest, channelError: true},
+		{name: "upstream 401", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusUnauthorized, status: http.StatusUnauthorized, channelError: true, autoDisabled: true, unknownRefund: true},
+		{name: "upstream 403", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusForbidden, status: http.StatusForbidden, channelError: true, autoDisabled: true, unknownRefund: true},
+		{name: "upstream 502", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadGateway, status: http.StatusBadGateway, channelError: true, autoDisabled: true, unknownRefund: true},
+		{name: "upstream 400 with a local error code", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadRequest, upstreamCode: `"invalid_request"`, status: http.StatusBadRequest, channelError: true, unknownRefund: true},
 		{name: "pricing discovery 401", client: chat, walletQuota: funded, tokenQuota: funded, discoveryStatus: http.StatusUnauthorized, status: http.StatusBadRequest, channelError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			constant.ErrorLogEnabled = !tc.errorLogOff
 			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
 			sqlDB, err := database.DB()
@@ -1172,11 +1177,18 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 				}
 				return user.Quota == tc.walletQuota && token.RemainQuota == tc.tokenQuota
 			}, 5*time.Second, 10*time.Millisecond, "a failed request charges nothing and returns any reservation")
-			var errorLogs int64
-			require.NoError(t, database.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeError).Count(&errorLogs).Error)
+			var errorLogs []string
+			require.NoError(t, database.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeError).Pluck("other", &errorLogs).Error)
 			assert.Equal(t, tc.channelError, strings.Contains(errorLog.String(), channelError), errorLog.String())
-			if !tc.channelError {
-				assert.Zero(t, errorLogs, "only a channel failure records an error log")
+			switch {
+			case tc.unknownRefund:
+				require.Len(t, errorLogs, 1, "a refund of an unknown charge leaves exactly one record")
+				assert.Contains(t, errorLogs[0], `"openrouter_financial_outcome":"unknown"`)
+				assert.Contains(t, errorLogs[0], `"openrouter_error_policy":"refund_without_retry"`)
+			case tc.channelError:
+				assert.Len(t, errorLogs, 1, "a channel failure records one error log")
+			default:
+				assert.Empty(t, errorLogs, "only a channel failure records an error log")
 			}
 			if tc.autoDisabled {
 				require.Eventually(t, func() bool {

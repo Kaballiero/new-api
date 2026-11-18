@@ -262,12 +262,26 @@ func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *usager
 }
 
 func RecordUpstreamFailure(c *gin.Context, channelID int, err *types.NewAPIError, info *relaycommon.RelayInfo) {
-	admission, gateErr := Recording().Failure.Execute(c, record_failure.Input{Step: record_failure.AdmitUpstream})
+	if !types.IsRecordErrorLog(err) {
+		return
+	}
+	recordFailure(c, record_failure.AdmitUpstream, channelID, err, info)
+}
+
+// RecordUnknownOutcomeRefund records the error of a sent OpenRouter request
+// whose hold is refunded although its upstream charge is unknown, whatever the
+// error log setting.
+func RecordUnknownOutcomeRefund(c *gin.Context, channelID int, err *types.NewAPIError, info *relaycommon.RelayInfo) {
+	recordFailure(c, record_failure.AdmitUnknownOutcomeRefund, channelID, err, info)
+}
+
+func recordFailure(c *gin.Context, admit record_failure.Step, channelID int, err *types.NewAPIError, info *relaycommon.RelayInfo) {
+	admission, gateErr := Recording().Failure.Execute(c, record_failure.Input{Step: admit})
 	if gateErr != nil {
 		logger.LogError(c, "error admitting upstream failure: "+gateErr.Error())
 		return
 	}
-	if !admission.Allowed() || !types.IsRecordErrorLog(err) {
+	if !admission.Allowed() {
 		return
 	}
 	// The caller gate is deliberately before metadata capture and elapsed time.

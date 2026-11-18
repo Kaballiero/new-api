@@ -416,7 +416,9 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 		{name: "chat text handler failure after deferral awaits generation cost", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true},
 		{name: "chat text missing cost without identity refunds", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
 		{name: "chat text missing cost with invalid identity refunds", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
-		{name: "chat text upstream error is surfaced", body: `{"id":"gen-text-error","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
+		{name: "chat text upstream error with identity defers to generation", body: `{"id":"gen-text-error","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, deferred: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
+		{name: "chat text upstream error without identity refunds", body: `{"choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
+		{name: "chat text non-JSON body refunds", body: `<html>bad gateway</html>`, chatText: true},
 		{name: "chat text valid cost ignores invalid identity", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, chatText: true, valid: true, cost: .03},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -652,6 +654,8 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 		{name: "responses/nonstream without terminal cost", format: responses, upstream: responsesNonstream, deferred: true},
 		{name: "responses/nonstream without identity refunds", format: responses, upstream: responsesNonstreamWithoutID, wantErr: missingCost},
+		{name: "responses/nonstream failed with identity defers", format: responses, upstream: `{"id":"` + generationID + `","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"Upstream failed"}}`,
+			deferred: true, wantErr: "Upstream failed", undeliveredResult: true},
 		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
 		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
 		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", undeliveredResult: true},
@@ -669,7 +673,11 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 
 		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
 		{name: "embeddings/without identity refunds", format: embeddings, upstream: embedding("", `{"prompt_tokens":1,"total_tokens":1}`), wantErr: missingCost},
+		{name: "embeddings/without usage defers", format: embeddings, upstream: `{"id":"` + generationID + `","object":"list","model":"vendor/provider-test","data":[{"object":"embedding","index":0,"embedding":[0.25]}]}`, deferred: true, delivered: "0.25"},
+		{name: "embeddings/empty usage defers", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{}`), deferred: true, delivered: "0.25"},
+		{name: "embeddings/empty usage without identity refunds", format: embeddings, upstream: embedding("", `{}`), wantErr: missingCost},
 		{name: "embeddings/upstream error refunds", format: embeddings, upstream: `{"error":{"message":"Upstream failed","code":"server_error"}}`, wantErr: "Upstream failed"},
+		{name: "embeddings/upstream error with identity defers", format: embeddings, upstream: `{"id":"` + generationID + `","error":{"message":"Upstream failed","code":"server_error"}}`, deferred: true, wantErr: "Upstream failed", undeliveredResult: true},
 		{name: "embeddings/completed", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1,"cost":0.004}`), cost: .004, delivered: "0.25"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
