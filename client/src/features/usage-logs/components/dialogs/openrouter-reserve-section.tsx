@@ -60,6 +60,16 @@ export function OpenRouterReserveSection(props: {
     [OPENROUTER_RESERVATION_QUANTITY.AUDIO_SECONDS]: t(
       'Reserved transcription seconds'
     ),
+    [OPENROUTER_RESERVATION_QUANTITY.CHARACTERS]: t(
+      'Reserved speech characters'
+    ),
+    [OPENROUTER_RESERVATION_QUANTITY.UTF8_BYTES]: t(
+      'Reserved speech UTF-8 bytes'
+    ),
+    [OPENROUTER_RESERVATION_QUANTITY.SPEECH_SECONDS]: t(
+      'Reserved speech seconds'
+    ),
+    [OPENROUTER_RESERVATION_QUANTITY.SEARCH_UNITS]: t('Reserved search units'),
   }
   const quantities = Object.entries(
     info.openrouter_reservation_quantities ?? {}

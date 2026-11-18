@@ -177,6 +177,21 @@ func AppendTaskIdentity(other *usagerecord.LogOther, task *model.Task) {
 	usageMetadata.TaskIdentity(other, usagedomain.TaskIdentity{TaskID: task.TaskID, UpstreamTaskID: task.PrivateData.UpstreamTaskID, NodeName: task.PrivateData.NodeName, Plugin: plugin})
 }
 
+// AppendOpenRouterOrder records the cost basis and the order facts of an
+// OpenRouter task order in the admin log, with the reserve source and the
+// measured reserve quantities of the order facts under the names the consume
+// log of a request uses.
+func AppendOpenRouterOrder(other *usagerecord.LogOther, bc *record.TaskBillingContext) {
+	other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
+	other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+	if source, ok := bc.OpenRouterOrderFacts["reservation_source"]; ok {
+		other.SetAdmin("openrouter_reservation_source", source)
+	}
+	if quantities, ok := bc.OpenRouterOrderFacts["reservation_quantities"]; ok {
+		other.SetAdmin("openrouter_reservation_quantities", quantities)
+	}
+}
+
 func taskBillingContextPriceData(bc *record.TaskBillingContext) *types.PriceData {
 	if bc == nil || len(bc.OtherRatios) == 0 {
 		return nil
@@ -210,11 +225,7 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	other.SetAdmin("billing_fx", bc.BillingFX)
 	other.SetAdmin("billing_submit_group", bc.SubmitGroup)
 	if bc.OpenRouterCost != nil {
-		other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
-		other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
-		if source, ok := bc.OpenRouterOrderFacts["reservation_source"]; ok {
-			other.SetAdmin("openrouter_reservation_source", source)
-		}
+		AppendOpenRouterOrder(other, bc)
 	} else if bc.TieredSnapshot != nil {
 		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
 	}
