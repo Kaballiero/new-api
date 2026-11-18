@@ -1,0 +1,207 @@
+{
+ "alias": null,
+ "id": "openai/whisper-large-v3-turbo",
+ "modalities": {
+  "input": [
+   "audio"
+  ],
+  "output": [
+   "transcription"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.00000333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "net",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.00000333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "deepinfra_stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.00000333"
+    }
+   },
+   "provider": {
+    "id": "deepinfra/us",
+    "name": "DeepInfra",
+    "tag": "deepinfra/us"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "openai/whisper-large-v3-turbo",
+    "model_variant_slug": "openai/whisper-large-v3-turbo",
+    "provider_region": "us",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000111111111111",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000111111111111",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.04",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "groq_stt:audio_hours",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "3600",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000111111111111"
+    }
+   },
+   "provider": {
+    "id": "groq",
+    "name": "Groq",
+    "tag": "groq"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "openai/whisper-large-v3-turbo",
+    "model_variant_slug": "openai/whisper-large-v3-turbo",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {
+    "observations": [
+     {
+      "pricing": {
+       "completion": "0",
+       "prompt": "0.00000333"
+      },
+      "scope": "model",
+      "source": "generic",
+      "sourceEndpointId": null,
+      "url": "https://openrouter.ai/api/v1/models",
+      "version": null
+     }
+    ]
+   },
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

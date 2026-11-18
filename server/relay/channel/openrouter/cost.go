@@ -88,7 +88,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 	originalBody := body
 	if operation == "audio/transcriptions" {
-		body, err = transcriptionReservationPayload(c.Request.Header.Get("Content-Type"), body)
+		body, err = transcriptionReservationPayload(c.Request.Context(), c.Request.Header.Get("Content-Type"), body)
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +108,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		// The estimate measures decisions itself (decisionQuantities); a
 		// configured price expression gets no token quantities for them.
 	case "audio/transcriptions":
-		// File bytes are not text tokens or measured seconds.
+		// File bytes are not text tokens; their seconds are measured from the
+		// audio headers.
 	case "audio/speech":
 		var request dto.AudioRequest
 		if common.Unmarshal(body, &request) == nil {

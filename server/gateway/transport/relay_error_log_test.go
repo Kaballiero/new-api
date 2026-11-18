@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -744,27 +746,48 @@ func TestOpenRouterReserveShortfallAnswersLikeOtherChannels(t *testing.T) {
 	model.KeyColumn = "`key`"
 	const textModel = "vendor/text-fixture"
 	const imageModel = "black-forest-labs/flux.2-pro"
+	const transcriptionModel = "vendor/stt-fixture"
 	const funded = 1000000
 	type clientFormat struct {
 		format      types.RelayFormat
 		path, body  string
 		model       string
 		channelType int
+		// contentType is the request content type, JSON when empty.
+		contentType string
+		// channelSetting is the channel's setting JSON.
+		channelSetting *string
 	}
-	chat := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", `{"model":"vendor/text-fixture","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`, textModel, constant.ChannelTypeOpenRouter}
-	responses := clientFormat{types.RelayFormatOpenAIResponses, "/v1/responses", `{"model":"vendor/text-fixture","input":"hi","max_output_tokens":16}`, textModel, constant.ChannelTypeOpenRouter}
-	messages := clientFormat{types.RelayFormatClaude, "/v1/messages", `{"model":"vendor/text-fixture","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, textModel, constant.ChannelTypeOpenRouter}
-	gemini := clientFormat{types.RelayFormatGemini, "/v1beta/models/vendor/text-fixture:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}`, textModel, constant.ChannelTypeOpenRouter}
-	images := clientFormat{types.RelayFormatOpenAIImage, "/v1/images/generations", `{"model":"black-forest-labs/flux.2-pro","prompt":"a red square"}`, imageModel, constant.ChannelTypeOpenRouter}
+	chat := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", `{"model":"vendor/text-fixture","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`, textModel, constant.ChannelTypeOpenRouter, "", nil}
+	responses := clientFormat{types.RelayFormatOpenAIResponses, "/v1/responses", `{"model":"vendor/text-fixture","input":"hi","max_output_tokens":16}`, textModel, constant.ChannelTypeOpenRouter, "", nil}
+	messages := clientFormat{types.RelayFormatClaude, "/v1/messages", `{"model":"vendor/text-fixture","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, textModel, constant.ChannelTypeOpenRouter, "", nil}
+	gemini := clientFormat{types.RelayFormatGemini, "/v1beta/models/vendor/text-fixture:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}`, textModel, constant.ChannelTypeOpenRouter, "", nil}
+	images := clientFormat{types.RelayFormatOpenAIImage, "/v1/images/generations", `{"model":"black-forest-labs/flux.2-pro","prompt":"a red square"}`, imageModel, constant.ChannelTypeOpenRouter, "", nil}
 	// The same chat request on a fixed-price OpenAI channel is the reference
 	// pre-consume shortfall that OpenRouter must match.
-	otherChannel := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", chat.body, textModel, constant.ChannelTypeOpenAI}
+	otherChannel := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", chat.body, textModel, constant.ChannelTypeOpenAI, "", nil}
+	// A transcription of a file whose duration no reader can read, with
+	// request-token counting on: an OpenRouter channel with a channel reserve
+	// reaches its reserve, while another channel still fails to count it.
+	var transcriptionForm bytes.Buffer
+	transcriptionWriter := multipart.NewWriter(&transcriptionForm)
+	require.NoError(t, transcriptionWriter.WriteField("model", transcriptionModel))
+	transcriptionFile, err := transcriptionWriter.CreateFormFile("file", "speech.mpga")
+	require.NoError(t, err)
+	_, err = transcriptionFile.Write([]byte("not audio at all"))
+	require.NoError(t, err)
+	require.NoError(t, transcriptionWriter.Close())
+	transcription := clientFormat{types.RelayFormatOpenAIAudio, "/v1/audio/transcriptions", transcriptionForm.String(), transcriptionModel, constant.ChannelTypeOpenRouter,
+		transcriptionWriter.FormDataContentType(), common.GetPointer(`{"openrouter_model_reserve_usd":{"vendor/stt-fixture":0.3}}`)}
+	otherTranscription := transcription
+	otherTranscription.channelType, otherTranscription.channelSetting = constant.ChannelTypeOpenAI, nil
 	for _, tc := range []struct {
 		name           string
 		client         clientFormat
 		walletQuota    int
 		tokenQuota     int
 		metadataStatus int
+		countToken     bool
 		status         int
 		body           string
 	}{
@@ -792,17 +815,22 @@ func TestOpenRouterReserveShortfallAnswersLikeOtherChannels(t *testing.T) {
 			body: `{"error":{"message":"Failed to reserve quota, remaining user quota: 5, required quota: 30000 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
 		{name: "other channel/token", client: otherChannel, walletQuota: funded, tokenQuota: 5, status: 403,
 			body: `{"error":{"message":"token quota is not enough, token remain quota: 5, need quota: 30000 (request id: shortfall)","type":"new_api_error","param":"","code":"pre_consume_token_quota_failed"}}`},
+		{name: "unreadable transcription/wallet", client: transcription, countToken: true, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"message":"Failed to reserve quota, remaining user quota: 5, required quota: 300000 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "unreadable transcription on another channel", client: otherTranscription, countToken: true, walletQuota: funded, tokenQuota: funded, status: 500,
+			body: `{"error":{"message":"error getting audio duration: unsupported audio format: .mpga (request id: shortfall)","type":"new_api_error","param":"","code":"count_token_failed"}}`},
 		{name: "chat/pricing error", client: chat, walletQuota: funded, tokenQuota: funded, metadataStatus: 404, status: 400,
 			body: `{"error":{"message":"OpenRouter pricing discovery HTTP 404 (request id: shortfall)","type":"new_api_error","param":"","code":"model_price_error"}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			constant.CountToken = tc.countToken
 			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
 			sqlDB, err := database.DB()
 			require.NoError(t, err)
 			sqlDB.SetMaxOpenConns(1)
 			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}))
+			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}, &model.Task{}))
 			model.DB, model.LOG_DB = database, database
 			fxseed.SeedNativeRouteFX(t, database)
 			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
@@ -828,15 +856,19 @@ func TestOpenRouterReserveShortfallAnswersLikeOtherChannels(t *testing.T) {
 					_, _ = fmt.Fprintf(w, `{"id":%q,"endpoints":[{"provider_tag":"fixture","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]}`, imageModel)
 					return
 				}
+				if strings.Contains(r.URL.Path, transcriptionModel) {
+					_, _ = fmt.Fprintf(w, `{"data":{"id":%q,"architecture":{"output_modalities":["transcription"]},"endpoints":[{"tag":"fixture","pricing":{"prompt":"0.0001","completion":"0"}}]}}`, transcriptionModel)
+					return
+				}
 				_, _ = fmt.Fprintf(w, `{"data":{"id":%q,"endpoints":[{"tag":"fixture","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`, textModel)
 			}))
 			t.Cleanup(upstream.Close)
-			selected := model.Channel{Id: 21, Type: tc.client.channelType, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled, Models: tc.client.model, Group: "default"}
+			selected := model.Channel{Id: 21, Type: tc.client.channelType, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled, Models: tc.client.model, Group: "default", Setting: tc.client.channelSetting}
 			require.NoError(t, database.Create(&selected).Error)
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequest(http.MethodPost, tc.client.path, strings.NewReader(tc.client.body))
-			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("Content-Type", cmp.Or(tc.client.contentType, "application/json"))
 			common.SetContextKey(c, common.RequestIdKey, "shortfall")
 			common.SetContextKey(c, constant.ContextKeyUserId, 7)
 			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")

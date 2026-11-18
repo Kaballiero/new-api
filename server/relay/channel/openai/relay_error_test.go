@@ -1780,7 +1780,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
 		{name: "TTS without catalog unit prices or a source rejects before submission", kind: "tts", noSource: true, wantError: "endpoint unit prices are unknown"},
-		{name: "STT without price or channel opt in fails closed", kind: "stt", noSource: true, noLocal: true, wantError: "requires configured_price"},
+		{name: "STT without catalog unit prices or a source rejects before submission", kind: "stt", noSource: true, noLocal: true, wantError: "endpoint unit prices are unknown"},
 		{name: "TTS channel reserve without global price", kind: "tts", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
 		{name: "STT channel reserve settles above hold", kind: "stt", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
 		{name: "STT channel reserve settles below hold", kind: "stt", cost: "0.04", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
@@ -1855,7 +1855,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				}
 				file, err := writer.CreateFormFile("file", "sample.wav")
 				require.NoError(t, err)
-				_, err = file.Write([]byte("RIFF audio fixture"))
+				// One second of 8 kHz 8-bit mono PCM: the reserve measures the
+				// duration from the audio headers.
+				_, err = file.Write(append([]byte("RIFF\x64\x1f\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x40\x1f\x00\x00\x40\x1f\x00\x00\x01\x00\x08\x00data\x40\x1f\x00\x00"), make([]byte, 8000)...))
 				require.NoError(t, err)
 				require.NoError(t, writer.Close())
 				body, contentType = b.String(), writer.FormDataContentType()

@@ -268,6 +268,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			relayInfo.OpenRouterCost = nil
 			relayInfo.ForcePreConsume = false
 			relayInfo.OpenRouterPricingDeferred = false
+			// OpenRouter does not count transcription audio as tokens; the
+			// direct channel prices it from its own count.
+			if relayInfo.RelayMode == relayconstant.RelayModeAudioTranscription {
+				tokens, err = tokenusage.EstimateRequestToken(c, meta, relayInfo)
+				if err != nil {
+					newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed, types.ErrOptionWithSkipRetry())
+					break
+				}
+				relayInfo.SetEstimatePromptTokens(tokens)
+			}
 			directPrice, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 			if priceErr != nil {
 				newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())

@@ -6392,6 +6392,7 @@
     "OpenRouter charge unknown": "Facturation OpenRouter inconnue",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "La requête a atteint OpenRouter mais son coût n'a pas été confirmé. Vérifiez la facturation dans OpenRouter avant de la résoudre.",
     "Reserved web searches": "Recherches web réservées",
-    "Reserved prompt tokens": "Jetons de prompt réservés"
+    "Reserved prompt tokens": "Jetons de prompt réservés",
+    "Reserved transcription seconds": "Secondes de transcription réservées"
   }
 }

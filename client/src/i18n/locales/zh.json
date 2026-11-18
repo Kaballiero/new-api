@@ -6392,6 +6392,7 @@
     "OpenRouter charge unknown": "OpenRouter 扣费未知",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "请求已到达 OpenRouter，但其成本未确认。处理前请在 OpenRouter 中核对扣费。",
     "Reserved web searches": "预留网络搜索次数",
-    "Reserved prompt tokens": "预留提示词 token 数"
+    "Reserved prompt tokens": "预留提示词 token 数",
+    "Reserved transcription seconds": "预留转录秒数"
   }
 }
