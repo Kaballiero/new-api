@@ -26,6 +26,10 @@ type Step int
 const (
 	AdmitUpstream Step = iota
 	Persist
+	// AdmitUnknownOutcomeRefund admits the record of a refunded hold whose
+	// upstream charge is unknown. Every paid request leaves a record, so it does
+	// not depend on the error log setting.
+	AdmitUnknownOutcomeRefund
 )
 
 // Admission captures the early upstream gate before attempt metadata and timing.
@@ -44,6 +48,8 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Admission, error) {
 	switch in.Step {
 	case AdmitUpstream:
 		return Admission{allowed: u.enabled()}, nil
+	case AdmitUnknownOutcomeRefund:
+		return Admission{allowed: true}, nil
 	case Persist:
 		failure := in.Failure
 		if failure.Consumption != nil {

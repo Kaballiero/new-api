@@ -49,6 +49,9 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	usagegateway.RecordUpstreamFailure(c, channelError.ChannelId, err, relayInfo)
+	// The refund of an unknown OpenRouter outcome records this error itself.
+	if !relaycommon.IsOpenRouterUnknownOutcomeRefund(relayInfo) {
+		usagegateway.RecordUpstreamFailure(c, channelError.ChannelId, err, relayInfo)
+	}
 
 }
