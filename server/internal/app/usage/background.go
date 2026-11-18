@@ -60,9 +60,17 @@ func StartUnknownOutcomeRefundReport() {
 			ticker := time.NewTicker(unknownOutcomeRefundReportTick)
 			defer ticker.Stop()
 			for range ticker.C {
-				if err := report.Execute(context.Background()); err != nil {
-					logger.LogWarn(context.Background(), fmt.Sprintf("unknown outcome refund report failed: %v", err))
-				}
+				func() {
+					// A failed run must not stop the daily summary until restart.
+					defer func() {
+						if recovered := recover(); recovered != nil {
+							logger.LogError(context.Background(), fmt.Sprintf("unknown outcome refund report panicked: %v", recovered))
+						}
+					}()
+					if err := report.Execute(context.Background()); err != nil {
+						logger.LogWarn(context.Background(), fmt.Sprintf("unknown outcome refund report failed: %v", err))
+					}
+				}()
 			}
 		})
 	})
