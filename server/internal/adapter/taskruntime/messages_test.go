@@ -68,6 +68,11 @@ func TestManualHoldsNotificationSummarizesHoldsForRoot(t *testing.T) {
 	_, content = ManualHoldsNotification("en", holds[:2])
 	assert.Contains(t, content, "\n- task_1 (chat, settlement_pending): $0.010000")
 
+	holds[2].PrivateData.Reconciliation.ReservedQuota, holds[2].PrivateData.Reconciliation.ReservationPending = 0, true
+	holds[2].PrivateData.OpenRouterSync = &domain.OpenRouterSyncTask{PlannedQuota: 2500}
+	_, content = ManualHoldsNotification("en", holds[2:3])
+	assert.Contains(t, content, "$0.005000 held in total", "an uncommitted reservation shows its planned reserve")
+
 	subject, content = ManualHoldsNotification("ru", holds[:1])
 	assert.Equal(t, "OpenRouter: резервы ждут ручной сверки", subject)
 	assert.True(t, strings.HasPrefix(content, "Новых резервов OpenRouter в ручной сверке: 1, всего удержано $0.010000."), content)

@@ -23,9 +23,11 @@ func NewUsecase(store Store, codec Projection, now func() time.Time) Usecase {
 	return Usecase{store: store, codec: codec, now: now}
 }
 
-// Execute closes an intent whose quota reservation was refused. Commit records
-// the reserved quota before it transfers the hold, so an intent still pending
-// without one never held quota and leaves nothing to reconcile.
+// Execute closes an intent whose quota reservation was refused, or whose
+// Commit failed before recording the reserved quota while the billing session
+// still holds it for the caller to refund. Commit records the reserved quota
+// before it transfers the hold, so an intent still pending without one leaves
+// the Task nothing to reconcile.
 func (u Usecase) Execute(_ context.Context, task *domain.Task) error {
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
 	if !r.ReservationPending || r.ReservedQuota != 0 || u.now().Unix() >= a.LeaseUntil {

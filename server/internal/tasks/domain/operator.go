@@ -13,7 +13,8 @@ var openRouterSyncUndeliveredReasons = []string{"submission_outcome_unknown", "u
 
 // OpenRouterSyncOperatorEligible reports a durable OpenRouter hold parked in
 // manual reconciliation without an upstream cost, which root may resolve by a
-// zero-cost release (nothing delivered) or an explicit cost settlement.
+// zero-cost release (nothing delivered) or an explicit cost settlement, or an
+// uncommitted reservation that may hold no quota, which root may release.
 func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	a, r, bc := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation, t.PrivateData.BillingContext
 	var operation bool
@@ -27,10 +28,18 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 	case string(TaskPlatformOpenRouterRerank):
 		operation = t.Action == TaskActionRerank
 	}
-	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil || bc == nil ||
-		bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 ||
-		!r.Required || r.ReservationPending || r.SubmissionPending || r.SettlementPending || r.MainApplied || r.Finalized ||
+	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil ||
+		!r.Required || r.SubmissionPending || r.SettlementPending || r.MainApplied || r.Finalized ||
 		r.HasUpstreamCost || a.OperatorDecision != nil {
+		return false
+	}
+	// A reservation never committed was never submitted. One that may hold no
+	// quota is closed by a release without a settlement; any other stays with
+	// root until its funds are checked.
+	if r.ReservationPending {
+		return action == OpenRouterSyncOperatorRelease && t.OpenRouterSyncHeldQuota() == 0
+	}
+	if bc == nil || bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 {
 		return false
 	}
 	switch action {
@@ -44,6 +53,18 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 		return r.ReservedQuota >= 0
 	}
 	return false
+}
+
+// OpenRouterSyncHeldQuota is the quota a hold may keep: the recorded reserve,
+// or for a reservation not yet committed the larger of it and the planned
+// reserve, which the billing session may take before Commit records it. A
+// zero planned reserve funded by a subscription still takes one quota unit.
+func (t *Task) OpenRouterSyncHeldQuota() int {
+	r := t.PrivateData.Reconciliation
+	if !r.ReservationPending {
+		return r.ReservedQuota
+	}
+	return max(r.ReservedQuota, t.PrivateData.OpenRouterSyncState().PlannedQuota)
 }
 
 // OpenRouterSyncSettlementRetryable reports a terminal result whose settlement

@@ -60,7 +60,7 @@ func OpenRouterSyncAdminView(task *Task) map[string]any {
 	if d := a.OperatorDecision; d != nil {
 		decision = map[string]any{"action": d.Action, "cost_usd": d.CostUSD, "operator_id": d.OperatorID, "decided_at": d.DecidedAt}
 	}
-	view["reserved_quota"] = r.ReservedQuota
+	view["reserved_quota"] = task.OpenRouterSyncHeldQuota()
 	view["target_quota"] = r.TargetQuota
 	view["result_reason"] = a.ResultReason
 	view["last_lookup_class"] = a.LastLookupClass
