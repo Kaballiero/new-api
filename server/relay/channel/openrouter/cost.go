@@ -295,9 +295,10 @@ func configureGenerationLookup(c *gin.Context, info *relaycommon.RelayInfo, adap
 // usable usage.cost to a durable Task that settles it from generation
 // metadata. Without a Task the caller still owns the hold and refunds it.
 // A response with a generation identity is deferred even when nothing reached
-// the client: the lookup charges exactly what OpenRouter billed. Without an
-// identity only a stream that delivered output keeps the hold; the Task then
-// requires manual reconciliation.
+// the client, including an upstream error or a body without usage: the lookup
+// charges exactly what OpenRouter billed. Without an identity only a stream
+// that delivered output keeps the hold; the Task then requires manual
+// reconciliation.
 func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
 	if info.IsChannelTest {
 		return errors.New("OpenRouter channel tests cannot defer cost to a financial task")
@@ -307,17 +308,7 @@ func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		return errors.New("OpenRouter cost deferral requires a chat text reservation")
 	}
 	switch state.UnknownReason {
-	case "missing_cost", "missing_terminal_cost", "invalid_cost":
-	case "malformed_usage", "":
-		// A stream can end or break without a terminal usage chunk.
-		if !info.IsStream {
-			return errors.New("OpenRouter cost is not recoverable from generation metadata")
-		}
-	case "upstream_error":
-		// A non-stream error envelope is refunded with the upstream message.
-		if !info.IsStream {
-			return errors.New("OpenRouter upstream error delivered no output")
-		}
+	case "missing_cost", "missing_terminal_cost", "invalid_cost", "malformed_usage", "upstream_error", "":
 	default:
 		return errors.New("OpenRouter cost is not recoverable from generation metadata")
 	}

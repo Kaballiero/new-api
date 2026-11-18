@@ -912,6 +912,12 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					return nil, costErr
 				}
 				if info.OpenRouterCost.UnknownReason == "upstream_error" {
+					// With a generation identity the Task keeps the hold and the
+					// lookup charges what OpenRouter billed; the client still gets
+					// the upstream error.
+					if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+						logger.LogError(c, fmt.Sprintf("OpenRouter upstream error cost deferral incomplete; task %s retains the hold: %v", info.OpenRouterCost.TaskID, deferErr))
+					}
 					return nil, openrouter.RejectUpstreamError(c, info, costErr)
 				}
 				// Deferral needs an inspected body, so delivery below always reads
