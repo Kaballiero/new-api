@@ -3,6 +3,7 @@ package billing
 import (
 	"errors"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -410,4 +411,22 @@ func TestCostMappingWithoutGinRequest(t *testing.T) {
 	_, err := New().CaptureFX(nil)
 	require.Error(t, err)
 	assert.True(t, mappingfx.IsBillingFXError(err))
+}
+
+func TestIsReservationRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		refused bool
+	}{
+		{name: "insufficient quota", err: types.NewErrorWithStatusCode(errors.New("wallet"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden), refused: true},
+		{name: "token refused", err: types.NewErrorWithStatusCode(errors.New("token"), types.ErrorCodePreConsumeTokenQuotaFailed, http.StatusForbidden), refused: true},
+		{name: "funding update failure", err: types.NewError(errors.New("update"), types.ErrorCodeUpdateDataError)},
+		{name: "query failure", err: types.NewError(errors.New("query"), types.ErrorCodeQueryDataError)},
+		{name: "plain error", err: errors.New("plain")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.refused, IsReservationRefused(tc.err))
+		})
+	}
 }

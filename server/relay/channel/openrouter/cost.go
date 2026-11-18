@@ -69,9 +69,12 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	if reserveErr != nil {
 		// A refused reservation moved no quota, so the intent closes now
 		// instead of awaiting manual reconciliation; an unknown outcome keeps it.
+		// Without a Task the caller refunds any hold the session already had.
 		if durable && billinggateway.IsReservationRefused(reserveErr) {
-			if failErr := taskrecord.FailOpenRouterSyncTask(info, "reservation_refused"); failErr != nil {
-				logger.LogError(c, fmt.Sprintf("OpenRouter refused reservation task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, failErr))
+			if refuseErr := taskrecord.RefuseOpenRouterSyncReservation(info); refuseErr != nil {
+				logger.LogError(c, fmt.Sprintf("OpenRouter refused reservation task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, refuseErr))
+			} else {
+				info.OpenRouterCost.TaskID = ""
 			}
 		}
 		return reserveErr

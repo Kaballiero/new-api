@@ -124,6 +124,16 @@ func CommitOpenRouterSyncReservation(c *gin.Context, info *relaycommon.RelayInfo
 	}
 	return syncTasks().Commit(context.Background(), commit_sync_reservation.Input{Task: task, Source: info.BillingSource, SubscriptionID: info.SubscriptionId, Hold: syncReservationHold{context: c, info: info}})
 }
+
+// RefuseOpenRouterSyncReservation closes the intent of a reservation that was
+// refused before the Task held any quota.
+func RefuseOpenRouterSyncReservation(info *relaycommon.RelayInfo) error {
+	task, err := openRouterSyncTask(info)
+	if err != nil {
+		return err
+	}
+	return syncTasks().Refuse(context.Background(), task)
+}
 func ConfigureOpenRouterSyncSubmission(info *relaycommon.RelayInfo, metadataURL string, headers http.Header) error {
 	task, err := openRouterSyncTask(info)
 	if err != nil {

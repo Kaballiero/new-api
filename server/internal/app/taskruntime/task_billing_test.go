@@ -3092,35 +3092,57 @@ func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
 }
 
 func TestOpenRouterAudioRefusedReservationClosesIntent(t *testing.T) {
-	taskfixture.Truncate(t)
-	disableTaskFixtureArtifacts(t)
-	const id = 987
-	taskfixture.SeedUser(t, id, 100000)
-	taskfixture.SeedToken(t, id, id, "audio-task-fixture", 10)
-	taskfixture.SeedChannel(t, id)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
-	info := &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
-		RelayMode:   relayconstant.RelayModeAudioSpeech,
-		UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture",
+	// A prior hold is a session an earlier retry attempt opened; the refused
+	// increase leaves it with the request, which refunds it without a Task.
+	for _, priorHold := range []int{0, 20} {
+		t.Run(fmt.Sprint("prior_hold_", priorHold), func(t *testing.T) {
+			taskfixture.Truncate(t)
+			disableTaskFixtureArtifacts(t)
+			const id = 987
+			taskfixture.SeedUser(t, id, 100000)
+			taskfixture.SeedToken(t, id, id, "audio-task-fixture", 30)
+			taskfixture.SeedChannel(t, id)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
+				RelayMode:   relayconstant.RelayModeAudioSpeech,
+				UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture",
+			}
+			info.UserSetting.BillingPreference = "wallet_only"
+			info.PriceData.BillingGroupRatio = 1
+			if priorHold > 0 {
+				info.ForcePreConsume = true
+				require.Nil(t, service.PreConsumeBilling(c, priorHold, info))
+				require.Equal(t, 30-priorHold, getTokenRemainQuota(t, id))
+			}
+			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+
+			err := openrouter.ReserveCost(c, info, 0.1)
+			require.Error(t, err)
+			require.True(t, service.IsReservationRefused(err), "the token cannot cover the reserve")
+			assert.False(t, relaycommon.HasOpenRouterSyncTask(info), "the request owns any remaining hold")
+
+			var task model.Task
+			require.NoError(t, model.DB.Where("user_id = ?", id).First(&task).Error)
+			assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
+			assert.Equal(t, "OpenRouter synchronous reservation refused; nothing was charged", task.FailReason)
+			assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
+			assert.False(t, task.PrivateData.Reconciliation.Required)
+			assert.Zero(t, task.Quota)
+			reconciliation := OpenRouterSyncReconciliation(&task)
+			assert.Equal(t, "settled", reconciliation["billing_state"])
+			assert.Equal(t, "reservation_refused", reconciliation["reason_code"])
+
+			if info.Billing != nil {
+				info.Billing.Refund(c)
+			}
+			// The session refund is queued asynchronously.
+			assert.Eventually(t, func() bool {
+				return getUserQuota(t, id) == 100000 && getTokenRemainQuota(t, id) == 30
+			}, 5*time.Second, 50*time.Millisecond)
+		})
 	}
-	info.UserSetting.BillingPreference = "wallet_only"
-	info.PriceData.BillingGroupRatio = 1
-
-	err := openrouter.ReserveCost(c, info, 0.1)
-	require.Error(t, err)
-	require.True(t, service.IsReservationRefused(err), "the token cannot cover the reserve")
-
-	task, err := openRouterSyncTask(info)
-	require.NoError(t, err)
-	assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
-	assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
-	assert.False(t, task.PrivateData.Reconciliation.Required)
-	assert.Zero(t, task.Quota)
-	assert.Equal(t, "settled", OpenRouterSyncReconciliation(task)["billing_state"])
-	assert.Equal(t, 100000, getUserQuota(t, id))
-	assert.Equal(t, 10, getTokenRemainQuota(t, id))
 }
 
 func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {

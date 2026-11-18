@@ -40,22 +40,6 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 		task.PrivateData.UpstreamTaskID = id
 	}
 	r := task.PrivateData.Reconciliation
-	// A commit records its reserved quota before transferring the hold, so an
-	// intent without one never held quota.
-	if r.ReservationPending && r.ReservedQuota == 0 {
-		if u.now().Unix() >= a.LeaseUntil {
-			return errors.New("OpenRouter synchronous reservation lease expired")
-		}
-		// The reservation was refused before the Task held any quota: nothing
-		// remains to reconcile.
-		r.ReservationPending, r.Required, r.Finalized = false, false, true
-		a.ResultFailed, a.LastError = true, input.Reason
-		a.RecordResultReason(input.Reason)
-		task.Status, task.Progress, task.FinishTime = domain.TaskStatusFailure, "100%", u.now().Unix()
-		task.FailReason = "OpenRouter synchronous reservation refused; nothing was charged"
-		u.codec.Project(task)
-		return u.store.UpdateRevision(task, a.Revision)
-	}
 	lateImageCost := (task.Platform == string(domain.TaskPlatformOpenRouterImage) ||
 		task.Platform == string(domain.TaskPlatformOpenRouterChatImage)) && state.Final && state.Valid && !a.IdentityConflict && !r.ReservationPending && !r.HasUpstreamCost && !r.SettlementPending && !r.Finalized
 	if (!r.SubmissionPending || u.now().Unix() >= a.LeaseUntil) && !lateImageCost {

@@ -96,6 +96,10 @@ const (
 	SyncReasonAutoReleaseUnavailable   = "auto_release_unavailable"
 )
 
+// SyncReasonReservationRefused closes an intent whose quota reservation was
+// refused before the Task held any quota.
+const SyncReasonReservationRefused = "reservation_refused"
+
 // Billing states of an OpenRouter synchronous task the admin task list selects:
 // a manual hold awaiting an operator and an attempt still awaiting its cost.
 const (

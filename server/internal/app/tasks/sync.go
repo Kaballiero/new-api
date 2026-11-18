@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/reconcile_sync_task"
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_generation"
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_receipt"
+	"github.com/QuantumNous/new-api/internal/tasks/refuse_sync_reservation"
 	"github.com/QuantumNous/new-api/internal/tasks/release_unidentified_sync_holds"
 )
 
@@ -30,6 +31,7 @@ type Reconciler struct {
 	begin      begin_sync_task.Usecase
 	load       get_sync_task.Usecase
 	commit     commit_sync_reservation.Usecase
+	refuse     refuse_sync_reservation.Usecase
 	configure  configure_sync_submission.Usecase
 	generation record_sync_generation.Usecase
 	receipt    record_sync_receipt.Usecase
@@ -50,6 +52,7 @@ func NewReconciler() *Reconciler {
 		begin:      begin_sync_task.NewUsecase(store, accounts, projection, time.Now),
 		load:       get_sync_task.NewUsecase(store),
 		commit:     commit_sync_reservation.NewUsecase(store, projection, time.Now),
+		refuse:     refuse_sync_reservation.NewUsecase(store, projection, time.Now),
 		configure:  configure_sync_submission.NewUsecase(store, accounts, time.Now),
 		generation: record_sync_generation.NewUsecase(store),
 		receipt:    record_sync_receipt.NewUsecase(store, projection, billing, time.Now),
@@ -68,6 +71,9 @@ func (r *Reconciler) Load(ctx context.Context, input domain.SyncIdentity) (*doma
 }
 func (r *Reconciler) Commit(ctx context.Context, input commit_sync_reservation.Input) error {
 	return r.commit.Execute(ctx, input)
+}
+func (r *Reconciler) Refuse(ctx context.Context, task *domain.Task) error {
+	return r.refuse.Execute(ctx, task)
 }
 func (r *Reconciler) Configure(ctx context.Context, input configure_sync_submission.Input) error {
 	return r.configure.Execute(ctx, input)
