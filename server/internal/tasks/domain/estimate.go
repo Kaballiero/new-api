@@ -1,8 +1,23 @@
 package domain
 
+import (
+	"slices"
+
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+)
+
 // SyncReasonEstimateSettled is the reason code of a manual hold settled at an
 // estimate of its missing upstream cost.
 const SyncReasonEstimateSettled = "estimate_settled"
+
+// SyncEstimateSettledFailReason is the stored failure text of a manual hold
+// settled at an estimate; the estimate summary selects these holds by it.
+const SyncEstimateSettledFailReason = "OpenRouter cost settled by estimate"
+
+// openRouterVideoTariffSources are the reserve sources of a video reserve
+// priced from the endpoint tariffs alone, the only reserve a delivered video
+// without its cost is charged.
+var openRouterVideoTariffSources = []pricingdomain.ReserveSource{pricingdomain.ReserveSourceCatalog, pricingdomain.ReserveSourceCatalogStale, pricingdomain.ReserveSourceLive}
 
 // OpenRouterReserveEstimateUSD is the reserve of an OpenRouter task, the
 // estimate of a delivered result whose price is the reserve itself.
@@ -27,6 +42,22 @@ func OpenRouterSyncEstimateUSD(task *Task) float64 {
 		return min(a.UsageEstimateUSD, OpenRouterReserveEstimateUSD(task))
 	}
 	return 0
+}
+
+// OpenRouterVideoEstimateUSD is the estimate a delivered video without its
+// cost settles at: its reserve when the endpoint tariffs alone priced it, or
+// zero when a channel reserve, a configured price or the approximate source
+// media reserve set it and the video stays with root.
+func OpenRouterVideoEstimateUSD(task *Task) float64 {
+	bc := task.PrivateData.BillingContext
+	if bc.OpenRouterCost == nil {
+		return 0
+	}
+	source, _ := bc.OpenRouterOrderFacts["reservation_source"].(string)
+	if !slices.Contains(openRouterVideoTariffSources, pricingdomain.ReserveSource(source)) {
+		return 0
+	}
+	return OpenRouterReserveEstimateUSD(task)
 }
 
 // RecordOpenRouterCostEstimate records an estimate as the cost a settlement

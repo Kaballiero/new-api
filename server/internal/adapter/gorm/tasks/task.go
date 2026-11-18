@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -25,9 +24,9 @@ import (
 // synchronous reservation lifecycle instead of provider polling.
 var openRouterSyncPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}
 
-// openRouterEstimatePlatforms are the platforms whose Tasks can be charged an
-// estimate of a missing upstream cost: the synchronous ones and video.
-var openRouterEstimatePlatforms = append(slices.Clone(openRouterSyncPlatforms), constant.TaskPlatformOpenRouterVideo)
+// openRouterEstimateHoldPlatforms are the synchronous platforms whose manual
+// holds can settle at an estimate: text on chat-image and native images.
+var openRouterEstimateHoldPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterChatImage, constant.TaskPlatformOpenRouterImage}
 
 // Store executes task queries and mutations against the current primary database.
 type Store struct {
@@ -303,16 +302,32 @@ func (s Store) MarkManualHoldAlerted(id, alertedAt int64) error {
 	})
 }
 
-// GetFinishedEstimateTasks pages the OpenRouter tasks that can carry an
-// estimate charge and turned terminal at or after since, with only the
-// columns the estimate summary reads.
-func (s Store) GetFinishedEstimateTasks(since, afterID int64, limit int) ([]*record.Task, error) {
+// GetEstimateSettledHolds pages the holds settled at an estimate that finished
+// after the (finish_time, id) cursor, in that order, as whole rows.
+func (s Store) GetEstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*record.Task, error) {
 	var tasks []*record.Task
-	err := s.db().Select("id", "task_id", "action", "private_data").
-		Where("platform IN ?", openRouterEstimatePlatforms).
-		Where("status IN ?", []string{record.TaskStatusSuccess, record.TaskStatusFailure}).
-		Where("finish_time >= ?", since).Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	query := s.db().Where("platform IN ? AND status = ? AND fail_reason = ?", openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimateSettledFailReason)
+	err := finishedAfter(query, afterFinishTime, afterID).Limit(limit).Find(&tasks).Error
 	return tasks, err
+}
+
+// GetEstimateCharges pages the tasks that may carry an estimate charge, holds
+// settled at an estimate and successful OpenRouter videos, that finished
+// after the (finish_time, id) cursor, with only the columns the estimate
+// summary reads.
+func (s Store) GetEstimateCharges(afterFinishTime, afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	query := s.db().Select("id", "task_id", "action", "finish_time", "private_data").
+		Where("((platform IN ? AND status = ? AND fail_reason = ?) OR (platform = ? AND status = ?))",
+			openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimateSettledFailReason, constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess)
+	err := finishedAfter(query, afterFinishTime, afterID).Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// finishedAfter keysets query on (finish_time, id) after the cursor, so the
+// finish_time index bounds the scan.
+func finishedAfter(query *gorm.DB, afterFinishTime, afterID int64) *gorm.DB {
+	return query.Where("finish_time >= ? AND (finish_time > ? OR id > ?)", afterFinishTime, afterFinishTime, afterID).Order("finish_time").Order("id")
 }
 
 // MarkEstimateAlerted records when an estimate charge was reported on the

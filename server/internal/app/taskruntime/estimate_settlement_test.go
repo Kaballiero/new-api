@@ -159,8 +159,10 @@ func TestOpenRouterSyncEstimateSettlement(t *testing.T) {
 	}
 }
 
-func TestOpenRouterVideoEstimateSettlement(t *testing.T) {
-	chat := newTelegramChat(t)
+// finishOpenRouterVideo polls a v2 OpenRouter video whose reserve came from
+// reservationSource to a success without its cost.
+func finishOpenRouterVideo(t *testing.T, reservationSource string) *model.Task {
+	t.Helper()
 	taskfixture.Truncate(t)
 	const id = 992
 	taskfixture.SeedUser(t, id, 9950)
@@ -173,12 +175,37 @@ func TestOpenRouterVideoEstimateSettlement(t *testing.T) {
 	bc := task.PrivateData.BillingContext
 	bc.SettlementMode = record.TaskSettlementOpenRouterCostV2
 	bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: record.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: .05}
+	bc.OpenRouterOrderFacts = map[string]any{"reservation_source": reservationSource}
 	task.PrivateData.Reconciliation = &record.TaskReconciliation{ReservedQuota: 50, Required: true}
 	require.NoError(t, model.DB.Create(task).Error)
 
 	adaptor := &scriptedPollingAdaptor{body: []byte(`{}`), parse: &relaycommon.TaskInfo{Status: string(record.TaskStatusSuccess), Url: "https://video.invalid/result.mp4"}}
 	channel := &model.Channel{Id: id, Type: constant.ChannelTypeOpenRouter, Key: "fixture"}
 	require.NoError(t, updateVideoSingleTask(t.Context(), adaptor, channel, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task}))
+	return task
+}
+
+func TestOpenRouterVideoWithoutTariffReserveStaysWithRoot(t *testing.T) {
+	for _, source := range []string{"manual", "configured_price"} {
+		t.Run(source, func(t *testing.T) {
+			chat := newTelegramChat(t)
+			task := finishOpenRouterVideo(t, source)
+			NewPolling().RunTasks(t.Context(), nil)
+			var loaded model.Task
+			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+			assert.True(t, loaded.PrivateData.Reconciliation.Required)
+			assert.False(t, loaded.PrivateData.Reconciliation.UpstreamCostEstimated)
+			assert.False(t, loaded.PrivateData.Reconciliation.Finalized)
+			assert.Equal(t, 50, loaded.Quota)
+			assert.Empty(t, chat.summaries)
+		})
+	}
+}
+
+func TestOpenRouterVideoEstimateSettlement(t *testing.T) {
+	chat := newTelegramChat(t)
+	task := finishOpenRouterVideo(t, "live")
+	const id = 992
 	var loaded model.Task
 	require.NoError(t, model.DB.First(&loaded, task.ID).Error)
 	assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), loaded.Status)

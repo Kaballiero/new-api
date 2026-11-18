@@ -47,8 +47,17 @@ func (s SyncStore) MarkAlerted(task *domain.Task, alertedAt int64) error {
 	return s.Store.MarkManualHoldAlerted(task.ID, alertedAt)
 }
 
-func (s SyncStore) FinishedEstimateTasks(since, afterID int64, limit int) ([]*domain.Task, error) {
-	rows, err := s.Store.GetFinishedEstimateTasks(since, afterID, limit)
+func (s SyncStore) EstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error) {
+	rows, err := s.Store.GetEstimateSettledHolds(afterFinishTime, afterID, limit)
+	tasks := make([]*domain.Task, len(rows))
+	for i := range rows {
+		tasks[i] = record.ToDomain(rows[i])
+	}
+	return tasks, err
+}
+
+func (s SyncStore) EstimateCharges(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error) {
+	rows, err := s.Store.GetEstimateCharges(afterFinishTime, afterID, limit)
 	tasks := make([]*domain.Task, len(rows))
 	for i := range rows {
 		tasks[i] = record.ToDomain(rows[i])

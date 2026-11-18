@@ -511,33 +511,44 @@ func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
 	assert.Equal(t, missingIdentity.FailReason, saved.FailReason)
 }
 
-func TestFinishedEstimateTasksSelectOpenRouterTasksFinishedSince(t *testing.T) {
+func TestEstimateQueriesSelectCandidatesByFinishTimeCursor(t *testing.T) {
 	store, db := newTaskTestStore(t)
-	finished := func(taskID string, platform constant.TaskPlatform, status record.TaskStatus, finishTime int64) *record.Task {
-		task := &record.Task{TaskID: taskID, Platform: platform, Action: "action", Status: status, FinishTime: finishTime, FailReason: "reason",
+	finished := func(taskID string, platform constant.TaskPlatform, status record.TaskStatus, failReason string, finishTime int64) *record.Task {
+		task := &record.Task{TaskID: taskID, Platform: platform, Action: "action", Status: status, FailReason: failReason, FinishTime: finishTime, Quota: 7,
 			PrivateData: record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{TargetQuota: 50, UpstreamCostEstimated: true, MainApplied: true}}}
 		insertTask(t, db, task)
 		return task
 	}
-	image := finished("task_image", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, 100)
-	video := finished("task_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess, 200)
-	finished("task_older", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusSuccess, 99)
-	finished("task_unfinished", constant.TaskPlatformOpenRouterAudio, record.TaskStatusInProgress, 150)
-	finished("task_other_platform", "suno", record.TaskStatusSuccess, 150)
+	settled := domain.SyncEstimateSettledFailReason
+	// Inserted out of finish order: the cursor follows (finish_time, id).
+	video := finished("task_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess, "", 200)
+	text := finished("task_text", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, settled, 100)
+	image := finished("task_image", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, settled, 100)
+	finished("task_older", constant.TaskPlatformOpenRouterImage, record.TaskStatusFailure, settled, 99)
+	finished("task_manual_hold", constant.TaskPlatformOpenRouterChatImage, record.TaskStatusFailure, domain.SyncManualFailReason("missing_generation_identity"), 150)
+	finished("task_audio", constant.TaskPlatformOpenRouterAudio, record.TaskStatusFailure, settled, 150)
+	finished("task_failed_video", constant.TaskPlatformOpenRouterVideo, record.TaskStatusFailure, "", 150)
+	finished("task_other_platform", "suno", record.TaskStatusSuccess, "", 150)
 
-	tasks, err := store.GetFinishedEstimateTasks(100, 0, 10)
+	charges, err := store.GetEstimateCharges(100, 0, 10)
 	require.NoError(t, err)
-	require.Len(t, tasks, 2)
-	assert.Equal(t, []string{image.TaskID, video.TaskID}, []string{tasks[0].TaskID, tasks[1].TaskID})
-	assert.Equal(t, video.ID, tasks[1].ID)
-	assert.Equal(t, "action", tasks[1].Action)
-	assert.True(t, tasks[1].PrivateData.Reconciliation.UpstreamCostEstimated)
-	assert.Empty(t, tasks[1].FailReason, "only the columns the summary reads")
+	require.Len(t, charges, 3)
+	assert.Equal(t, []string{text.TaskID, image.TaskID, video.TaskID}, []string{charges[0].TaskID, charges[1].TaskID, charges[2].TaskID})
+	assert.Equal(t, video.ID, charges[2].ID)
+	assert.Equal(t, int64(200), charges[2].FinishTime)
+	assert.True(t, charges[2].PrivateData.Reconciliation.UpstreamCostEstimated)
+	assert.Empty(t, charges[2].FailReason, "only the columns the summary reads")
 
-	tasks, err = store.GetFinishedEstimateTasks(100, image.ID, 1)
+	charges, err = store.GetEstimateCharges(100, text.ID, 1)
 	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-	assert.Equal(t, video.TaskID, tasks[0].TaskID)
+	require.Len(t, charges, 1)
+	assert.Equal(t, image.TaskID, charges[0].TaskID)
+
+	holds, err := store.GetEstimateSettledHolds(100, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, holds, 2)
+	assert.Equal(t, []string{text.TaskID, image.TaskID}, []string{holds[0].TaskID, holds[1].TaskID})
+	assert.Equal(t, 7, holds[0].Quota, "a retried settlement reads the whole row")
 }
 
 func TestOpenRouterSyncClaimNeverRevertsAppliedSettlement(t *testing.T) {

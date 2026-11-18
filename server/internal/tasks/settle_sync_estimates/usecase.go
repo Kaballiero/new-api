@@ -10,26 +10,20 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Store pages manual holds and the finished tasks that can carry an estimate
-// charge, claims an estimate settlement on the revision transaction an
-// operator decision uses, and marks the reported estimate charges.
+// Store pages manual holds and the holds already settled at an estimate,
+// claims an estimate settlement on the revision transaction an operator
+// decision uses, and checks that it can apply.
 type Store interface {
 	ManualHolds(afterID int64, limit int) ([]*domain.Task, error)
+	EstimateSettledHolds(afterFinishTime, afterID int64, limit int) ([]*domain.Task, error)
 	Feasible(*domain.Task) error
 	UpdateRevision(*domain.Task, int) error
-	FinishedEstimateTasks(since, afterID int64, limit int) ([]*domain.Task, error)
-	MarkEstimateAlerted(task *domain.Task, alertedAt int64) error
 }
 type Settlement interface {
 	Prepare(*domain.Task)
 	SettleDurable(*domain.Task) error
 }
 type Projection interface{ Project(*domain.Task) }
-
-// Alerts delivers one summary of estimate charges to the operators.
-type Alerts interface {
-	EstimateSettlements(tasks []*domain.Task) error
-}
 type Diagnostics interface {
 	Info(ctx context.Context, message string)
 	Warn(ctx context.Context, message string)
@@ -38,27 +32,29 @@ type Usecase struct {
 	store       Store
 	settlement  Settlement
 	projection  Projection
-	alerts      Alerts
 	diagnostics Diagnostics
 	now         func() time.Time
 }
 
 const pageSize = 100
 
-// estimateAlertWindow is how long after a task finished its unreported
-// estimate charge is still collected, which bounds the retries of a summary
-// that was not delivered.
-const estimateAlertWindow = time.Hour
+// settlementRetryWindow is how long after its claim an estimate settlement
+// that moved no balances is retried; afterwards root repeats the decision.
+const settlementRetryWindow = time.Hour
 
-func NewUsecase(store Store, settlement Settlement, projection Projection, alerts Alerts, diagnostics Diagnostics, now func() time.Time) Usecase {
-	return Usecase{store, settlement, projection, alerts, diagnostics, now}
+func NewUsecase(store Store, settlement Settlement, projection Projection, diagnostics Diagnostics, now func() time.Time) Usecase {
+	return Usecase{store, settlement, projection, diagnostics, now}
 }
 
-// Execute settles, at an estimate, every new manual hold whose result was
-// delivered without an upstream cost, then reports every estimate charge not
-// reported before in one summary. A hold that cannot settle stays with root.
+// Execute retries the claimed estimate settlements that moved no balances,
+// then settles, at an estimate, every new manual hold whose result was
+// delivered without an upstream cost. A hold that cannot settle stays with
+// root.
 func (u Usecase) Execute(ctx context.Context) error {
 	now := u.now()
+	if err := u.retry(ctx, now); err != nil {
+		return err
+	}
 	var afterID int64
 	for ctx.Err() == nil {
 		holds, err := u.store.ManualHolds(afterID, pageSize)
@@ -73,10 +69,34 @@ func (u Usecase) Execute(ctx context.Context) error {
 			break
 		}
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	return ctx.Err()
+}
+
+// retry applies again the claimed estimate settlements of the retry window
+// whose balances did not move; one that moved them is never replayed.
+func (u Usecase) retry(ctx context.Context, now time.Time) error {
+	afterFinishTime, afterID := now.Add(-settlementRetryWindow).Unix(), int64(0)
+	for ctx.Err() == nil {
+		holds, err := u.store.EstimateSettledHolds(afterFinishTime, afterID, pageSize)
+		if err != nil {
+			return err
+		}
+		for _, task := range holds {
+			afterFinishTime, afterID = task.FinishTime, task.ID
+			if r := task.PrivateData.Reconciliation; !r.SettlementPending || r.MainApplied {
+				continue
+			}
+			if err := u.settlement.SettleDurable(task); err != nil {
+				u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s estimate settlement retry incomplete: %v", task.TaskID, err))
+				continue
+			}
+			u.diagnostics.Info(ctx, fmt.Sprintf("OpenRouter sync task %s estimate settlement applied on retry", task.TaskID))
+		}
+		if len(holds) < pageSize {
+			break
+		}
 	}
-	return u.report(ctx, now)
+	return ctx.Err()
 }
 
 // settle records an automatic settle decision at the estimate and applies it.
@@ -87,13 +107,15 @@ func (u Usecase) settle(ctx context.Context, task *domain.Task, now time.Time) {
 	if !task.OpenRouterSyncOperatorEligible(domain.OpenRouterSyncOperatorSettle) || a.AlertedAt != 0 {
 		return
 	}
-	estimateUSD := domain.OpenRouterSyncEstimateUSD(task)
-	if estimateUSD <= 0 {
+	// The decision stores the cost as a decimal string the claim compares with
+	// the priced cost, so the estimate is rounded once before pricing.
+	estimate := decimal.NewFromFloat(domain.OpenRouterSyncEstimateUSD(task)).Round(12)
+	if !estimate.IsPositive() {
 		return
 	}
-	domain.RecordOpenRouterCostEstimate(task, estimateUSD)
+	estimateUSD, costUSD := estimate.InexactFloat64(), estimate.String()
 	if err := task.PriceOpenRouterSyncDecision(estimateUSD, u.settlement.Prepare); err != nil {
-		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s left to root: estimate cannot settle: %v", task.TaskID, err))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s left to root: estimate %s USD cannot settle: %v", task.TaskID, costUSD, err))
 		return
 	}
 	if r.TargetQuota <= 0 || r.TargetQuota > r.ReservedQuota {
@@ -104,11 +126,12 @@ func (u Usecase) settle(ctx context.Context, task *domain.Task, now time.Time) {
 		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s left to root: estimate settlement is not feasible: %v", task.TaskID, err))
 		return
 	}
-	costUSD := decimal.NewFromFloat(estimateUSD).String()
+	r.UpstreamCostEstimated = true
 	task.RecordOpenRouterSyncDecision(domain.OpenRouterSyncOperatorDecision{Action: domain.OpenRouterSyncOperatorSettle, CostUSD: costUSD,
 		Evidence: "automatic estimate: result delivered without an upstream cost", DecidedAt: now.Unix()},
-		domain.SyncReasonEstimateSettled, "OpenRouter cost settled by estimate")
-	// The estimate charge finishes the task, so the summary collects it.
+		domain.SyncReasonEstimateSettled, domain.SyncEstimateSettledFailReason)
+	// The estimate charge finishes the task, so the summary and the retry
+	// select it by its finish time.
 	task.FinishTime = now.Unix()
 	u.projection.Project(task)
 	// A lost revision claim means another writer resolved the hold first.
@@ -117,45 +140,8 @@ func (u Usecase) settle(ctx context.Context, task *domain.Task, now time.Time) {
 		return
 	}
 	if err := u.settlement.SettleDurable(task); err != nil {
-		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s estimate settlement incomplete; root must repeat the settle decision: %v", task.TaskID, err))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("OpenRouter sync task %s estimate settlement of %s USD incomplete; the next pass retries it: %v", task.TaskID, costUSD, err))
 		return
 	}
 	u.diagnostics.Info(ctx, fmt.Sprintf("OpenRouter sync task %s settled by estimate: cost_usd=%s target_quota=%d reserved_quota=%d", task.TaskID, costUSD, r.TargetQuota, r.ReservedQuota))
-}
-
-// report sends one summary of the estimate charges not reported before and
-// marks them reported. A summary that is not delivered leaves them for the
-// next run within the alert window; a failed summary never undoes a charge.
-func (u Usecase) report(ctx context.Context, now time.Time) error {
-	var unreported []*domain.Task
-	since := now.Add(-estimateAlertWindow).Unix()
-	var afterID int64
-	for ctx.Err() == nil {
-		tasks, err := u.store.FinishedEstimateTasks(since, afterID, pageSize)
-		if err != nil {
-			return err
-		}
-		for _, task := range tasks {
-			afterID = task.ID
-			if r := task.PrivateData.Reconciliation; r != nil && r.UpstreamCostEstimated && r.MainApplied && r.EstimateAlertedAt == 0 {
-				unreported = append(unreported, task)
-			}
-		}
-		if len(tasks) < pageSize {
-			break
-		}
-	}
-	if ctx.Err() != nil || len(unreported) == 0 {
-		return ctx.Err()
-	}
-	if err := u.alerts.EstimateSettlements(unreported); err != nil {
-		return err
-	}
-	alertedAt := u.now().Unix()
-	for _, task := range unreported {
-		if err := u.store.MarkEstimateAlerted(task, alertedAt); err != nil {
-			return err
-		}
-	}
-	return nil
 }

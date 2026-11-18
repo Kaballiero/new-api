@@ -10,6 +10,7 @@ import (
 	runtime "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
+	"github.com/QuantumNous/new-api/internal/tasks/alert_estimate_settlements"
 	"github.com/QuantumNous/new-api/internal/tasks/alert_sync_reconciliation"
 	"github.com/QuantumNous/new-api/internal/tasks/begin_sync_task"
 	"github.com/QuantumNous/new-api/internal/tasks/commit_sync_reservation"
@@ -28,20 +29,21 @@ import (
 
 // Reconciler assembles durable synchronous-task actions without a gateway dependency.
 type Reconciler struct {
-	operator   apply_sync_operator_decision.Usecase
-	begin      begin_sync_task.Usecase
-	load       get_sync_task.Usecase
-	commit     commit_sync_reservation.Usecase
-	refuse     refuse_sync_reservation.Usecase
-	configure  configure_sync_submission.Usecase
-	generation record_sync_generation.Usecase
-	receipt    record_sync_receipt.Usecase
-	complete   complete_sync_task.Usecase
-	fail       fail_sync_task.Usecase
-	poll       reconcile_sync_task.Usecase
-	release    release_unidentified_sync_holds.Usecase
-	estimates  settle_sync_estimates.Usecase
-	alert      alert_sync_reconciliation.Usecase
+	operator       apply_sync_operator_decision.Usecase
+	begin          begin_sync_task.Usecase
+	load           get_sync_task.Usecase
+	commit         commit_sync_reservation.Usecase
+	refuse         refuse_sync_reservation.Usecase
+	configure      configure_sync_submission.Usecase
+	generation     record_sync_generation.Usecase
+	receipt        record_sync_receipt.Usecase
+	complete       complete_sync_task.Usecase
+	fail           fail_sync_task.Usecase
+	poll           reconcile_sync_task.Usecase
+	release        release_unidentified_sync_holds.Usecase
+	estimates      settle_sync_estimates.Usecase
+	estimateAlerts alert_estimate_settlements.Usecase
+	alert          alert_sync_reconciliation.Usecase
 }
 
 func NewReconciler() *Reconciler {
@@ -50,20 +52,21 @@ func NewReconciler() *Reconciler {
 	accounts := httpadapter.Accounts{}
 	billing := NewBilling()
 	return &Reconciler{
-		operator:   apply_sync_operator_decision.NewUsecase(store, billing, projection, time.Now),
-		begin:      begin_sync_task.NewUsecase(store, accounts, projection, time.Now),
-		load:       get_sync_task.NewUsecase(store),
-		commit:     commit_sync_reservation.NewUsecase(store, projection, time.Now),
-		refuse:     refuse_sync_reservation.NewUsecase(store, projection, time.Now),
-		configure:  configure_sync_submission.NewUsecase(store, accounts, time.Now),
-		generation: record_sync_generation.NewUsecase(store),
-		receipt:    record_sync_receipt.NewUsecase(store, projection, billing, time.Now),
-		complete:   complete_sync_task.NewUsecase(store, projection, billing, runtime.Diagnostics{}, time.Now),
-		fail:       fail_sync_task.NewUsecase(store, projection, billing, time.Now),
-		poll:       reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
-		release:    release_unidentified_sync_holds.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
-		estimates:  settle_sync_estimates.NewUsecase(store, billing, projection, reconciliationAlerts{}, runtime.Diagnostics{}, time.Now),
-		alert:      alert_sync_reconciliation.NewUsecase(store, reconciliationAlerts{}, time.Now),
+		operator:       apply_sync_operator_decision.NewUsecase(store, billing, projection, time.Now),
+		begin:          begin_sync_task.NewUsecase(store, accounts, projection, time.Now),
+		load:           get_sync_task.NewUsecase(store),
+		commit:         commit_sync_reservation.NewUsecase(store, projection, time.Now),
+		refuse:         refuse_sync_reservation.NewUsecase(store, projection, time.Now),
+		configure:      configure_sync_submission.NewUsecase(store, accounts, time.Now),
+		generation:     record_sync_generation.NewUsecase(store),
+		receipt:        record_sync_receipt.NewUsecase(store, projection, billing, time.Now),
+		complete:       complete_sync_task.NewUsecase(store, projection, billing, runtime.Diagnostics{}, time.Now),
+		fail:           fail_sync_task.NewUsecase(store, projection, billing, time.Now),
+		poll:           reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
+		release:        release_unidentified_sync_holds.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
+		estimates:      settle_sync_estimates.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
+		estimateAlerts: alert_estimate_settlements.NewUsecase(store, reconciliationAlerts{}, runtime.Diagnostics{}, time.Now),
+		alert:          alert_sync_reconciliation.NewUsecase(store, reconciliationAlerts{}, time.Now),
 	}
 }
 func (r *Reconciler) Begin(ctx context.Context, input begin_sync_task.Input) (*domain.Task, error) {
@@ -105,6 +108,9 @@ func (r *Reconciler) ReleaseUnidentified(ctx context.Context) error {
 }
 func (r *Reconciler) SettleEstimates(ctx context.Context) error {
 	return r.estimates.Execute(ctx)
+}
+func (r *Reconciler) AlertEstimateSettlements(ctx context.Context) error {
+	return r.estimateAlerts.Execute(ctx)
 }
 func (r *Reconciler) AlertManualHolds(ctx context.Context) error {
 	return r.alert.Execute(ctx)

@@ -11,6 +11,7 @@ const (
 	TaskPlatformOpenRouterImage     = constant.TaskPlatformOpenRouterImage
 	TaskPlatformOpenRouterChatImage = constant.TaskPlatformOpenRouterChatImage
 	TaskPlatformOpenRouterRerank    = constant.TaskPlatformOpenRouterRerank
+	TaskPlatformOpenRouterVideo     = constant.TaskPlatformOpenRouterVideo
 	TaskActionImageToVideo          = constant.TaskActionImageToVideo
 	TaskActionTextToVideo           = constant.TaskActionTextToVideo
 	TaskActionFirstTailToVideo      = constant.TaskActionFirstTailToVideo
