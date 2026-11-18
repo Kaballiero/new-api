@@ -83,11 +83,13 @@ type unknownOutcomeRefundAlerts struct{}
 func (unknownOutcomeRefundAlerts) UnknownOutcomeRefunds(day string, refunds domain.UnknownOutcomeRefunds) error {
 	lang := channelruntime.RootUserLanguage()
 	content := i18n.Translate(lang, i18n.MsgUsageUnknownOutcomeRefunds, map[string]any{
-		"Day":         day,
-		"TextCount":   refunds.Text.Count,
-		"TextAmount":  fmt.Sprintf("$%.6f", float64(refunds.Text.Quota)/common.QuotaPerUnit),
-		"ImageCount":  refunds.Image.Count,
-		"ImageAmount": fmt.Sprintf("$%.6f", float64(refunds.Image.Quota)/common.QuotaPerUnit),
+		"Day":             day,
+		"TextCount":       refunds.Text.Count,
+		"TextAmount":      fmt.Sprintf("$%.6f", float64(refunds.Text.Quota)/common.QuotaPerUnit),
+		"ImageCount":      refunds.Image.Count,
+		"ImageAmount":     fmt.Sprintf("$%.6f", float64(refunds.Image.Quota)/common.QuotaPerUnit),
+		"EstimatedCount":  refunds.EstimatedCharges.Count,
+		"EstimatedAmount": fmt.Sprintf("$%.6f", float64(refunds.EstimatedCharges.Quota)/common.QuotaPerUnit),
 	})
 	return notifications.TelegramChat(i18n.Translate(lang, i18n.MsgUsageUnknownOutcomeRefundsSubject), content)
 }

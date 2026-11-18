@@ -44,8 +44,8 @@ var moscow = time.FixedZone("MSK", 3*60*60)
 const reportHour = 10
 
 // Execute reports the previous Moscow day once, from 10:00 Moscow time. A day
-// without such refunds is marked reported without a message; a summary that is
-// not delivered leaves the day for the next run.
+// without such refunds and estimate charges is marked reported without a
+// message; a summary that is not delivered leaves the day for the next run.
 func (u Usecase) Execute(ctx context.Context) error {
 	now := u.now().In(moscow)
 	if now.Hour() < reportHour {
@@ -65,7 +65,7 @@ func (u Usecase) Execute(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if refunds.Text.Count+refunds.Image.Count > 0 {
+	if refunds.Text.Count+refunds.Image.Count+refunds.EstimatedCharges.Count > 0 {
 		if err := u.alerts.UnknownOutcomeRefunds(dayKey, refunds); err != nil {
 			return err
 		}
