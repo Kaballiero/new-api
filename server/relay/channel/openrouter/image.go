@@ -408,7 +408,9 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	}
 	var lastErr error
 	var selected *relaycommon.NativeImageInfo
-	var maximumEstimate float64
+	// maximumTariffEstimate is the largest estimate priced from the endpoint
+	// tariffs, without the channel reserve.
+	var maximumEstimate, maximumTariffEstimate float64
 	var eligibleTags []string
 	var commonPayload map[string]json.RawMessage
 	selectedRank := len(routing.Order)
@@ -427,7 +429,7 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 			continue
 		}
 		endpoint = PublishedImageEndpoint(request.Model, endpoint)
-		body, estimate, convertErr := convertImageRequest(c, request, endpoint, reserve)
+		body, tariffEstimate, convertErr := convertImageRequest(c, request, endpoint, reserve)
 		if convertErr != nil {
 			if errors.Is(convertErr, errImageTariff) {
 				return convertErr
@@ -455,7 +457,9 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 				return err
 			}
 		}
+		estimate := max(tariffEstimate, reserve)
 		maximumEstimate = max(maximumEstimate, estimate)
+		maximumTariffEstimate = max(maximumTariffEstimate, tariffEstimate)
 		eligibleTags = append(eligibleTags, endpoint.ProviderTag)
 		if selected == nil || rank < selectedRank || rank == selectedRank && estimate < selected.EstimatedCostUSD {
 			selectedRank = rank
@@ -469,6 +473,12 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 		return lastErr
 	}
 	selected.EstimatedCostUSD = maximumEstimate
+	// The channel reserve names the reserve only when it exceeds every
+	// tariff estimate, as for text.
+	selected.ReserveSource = pricingdomain.ReserveSourceLive
+	if reserve > maximumTariffEstimate {
+		selected.ReserveSource = pricingdomain.ReserveSourceManual
+	}
 	if len(routing.Fields) > 0 {
 		// Preserve the client's fallback/order policy over every endpoint that
 		// passed capability and price validation, rather than pinning the first.
@@ -499,6 +509,10 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint ImageEndpoint) ([]byte, float64, error) {
 	return convertImageRequest(c, request, endpoint, 0)
 }
+
+// convertImageRequest returns the native body and the estimate priced from
+// the endpoint tariffs: zero for an unpriced endpoint, which the channel
+// reserve alone covers.
 
 func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint ImageEndpoint, reserve float64) ([]byte, float64, error) {
 	routing, err := parseImageRouting(request)
@@ -752,7 +766,6 @@ func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 				return nil, 0, fmt.Errorf("unpriced OpenRouter image parameter %s is unsupported", key)
 			}
 		}
-		estimate = reserve
 	} else {
 		estimate, err = EstimateImageCost(endpoint, int(count), len(references), payload)
 	}
@@ -760,7 +773,7 @@ func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		return nil, 0, fmt.Errorf("%w: %v", errImageTariff, err)
 	}
 	body, err := common.Marshal(payload)
-	return body, max(estimate, reserve), err
+	return body, estimate, err
 }
 
 func (a *ImageAdaptor) ConvertImageRequest(_ *gin.Context, info *relaycommon.RelayInfo, _ dto.ImageRequest) (any, error) {
@@ -794,15 +807,10 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ 
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// The live endpoint tariffs price the reserve; a channel reserve of the
-	// model joins every estimate and names it, as for text.
 	if info.OpenRouterCost == nil {
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	}
-	info.OpenRouterCost.ReserveSource = pricingdomain.ReserveSourceLive
-	if info.NativeImage.ReserveUSD > 0 {
-		info.OpenRouterCost.ReserveSource = pricingdomain.ReserveSourceManual
-	}
+	info.OpenRouterCost.ReserveSource = info.NativeImage.ReserveSource
 	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
 		return nil, err
 	}

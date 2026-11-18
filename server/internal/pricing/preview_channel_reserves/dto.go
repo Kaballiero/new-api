@@ -20,9 +20,9 @@ type Output struct {
 // OutputTokens capped by the endpoint. Speech and rerank examples price their
 // own reference request (Item.ReferenceOperation).
 type Reference struct {
-	Operation    string `json:"operation"`
-	PromptTokens int    `json:"prompt_tokens"`
-	OutputTokens int    `json:"output_tokens"`
+	Operation    ReferenceOperation `json:"operation"`
+	PromptTokens int                `json:"prompt_tokens"`
+	OutputTokens int                `json:"output_tokens"`
 }
 
 // Item is a channel model or a reserve setting key of a model outside the
@@ -37,13 +37,12 @@ type Item struct {
 	EffectiveSource  *domain.ReserveSource   `json:"effective_source"`
 	AdmissionPolicy  *domain.AdmissionPolicy `json:"admission_policy"`
 	// ReferenceOperation is the operation of the reference request the
-	// example prices: chat/completions, embeddings, audio/speech or rerank;
-	// nil without an example.
-	ReferenceOperation *string       `json:"reference_operation"`
-	ExampleUSD         *float64      `json:"example_usd"`
-	ExampleStatus      ExampleStatus `json:"example_status"`
-	ExampleError       *string       `json:"example_error"`
-	Providers          []Provider    `json:"providers"`
+	// example prices; nil when no reference request is priced (live_only).
+	ReferenceOperation *ReferenceOperation `json:"reference_operation"`
+	ExampleUSD         *float64            `json:"example_usd"`
+	ExampleStatus      ExampleStatus       `json:"example_status"`
+	ExampleError       *string             `json:"example_error"`
+	Providers          []Provider          `json:"providers"`
 }
 
 // Provider is the example of an item restricted to one endpoint tag of the
@@ -53,6 +52,17 @@ type Provider struct {
 	Tier domain.ServiceTier `json:"tier"`
 	USD  *float64           `json:"usd"`
 }
+
+// ReferenceOperation is the operation of a reference request, as the gateway
+// names it.
+type ReferenceOperation string
+
+const (
+	ReferenceOperationChatCompletions ReferenceOperation = "chat/completions"
+	ReferenceOperationEmbeddings      ReferenceOperation = "embeddings"
+	ReferenceOperationAudioSpeech     ReferenceOperation = "audio/speech"
+	ReferenceOperationRerank          ReferenceOperation = "rerank"
+)
 
 // ExampleStatus tells whether the example of an item is priced.
 type ExampleStatus string

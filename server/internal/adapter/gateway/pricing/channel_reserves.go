@@ -56,13 +56,13 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 	reference := map[string]any{"model": request.UpstreamModel}
 	format := types.RelayFormatOpenAI
 	switch request.Operation {
-	case "embeddings":
+	case preview_channel_reserves.ReferenceOperationEmbeddings:
 		reference["input"] = ""
 		format = types.RelayFormatEmbedding
-	case "audio/speech":
+	case preview_channel_reserves.ReferenceOperationAudioSpeech:
 		reference["input"] = referenceSpeechInput
 		format = types.RelayFormatOpenAIAudio
-	case "rerank":
+	case preview_channel_reserves.ReferenceOperationRerank:
 		reference["query"], reference["documents"] = referenceRerankQuery, referenceRerankDocuments
 		format = types.RelayFormatRerank
 	default:
@@ -80,7 +80,7 @@ func (r ChannelReserves) Preview(channel *domain.BuildChannel, request preview_c
 		ChannelSetting: settings, UpstreamModelName: request.UpstreamModel}
 	info.SetEstimatePromptTokens(request.PromptTokens)
 	estimator := openrouter.NewRequestEstimator()
-	usd, configured, err := openrouter.EstimateRequestReserve(estimator, info, body, request.Operation, nil)
+	usd, configured, err := openrouter.EstimateRequestReserve(estimator, info, body, string(request.Operation), nil)
 	if err != nil {
 		return preview_channel_reserves.ReservePreview{}, err
 	}

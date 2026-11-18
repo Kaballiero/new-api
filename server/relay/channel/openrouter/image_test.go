@@ -1441,6 +1441,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		reserve                                                                                                                                                                                                         float64
 		noReserve, aliasReserve, badImage, transportError, httpError, noEndpoint, noProvider, noCapability, storageDisabled, insufficient, changeChannel, partial, sourceSet, noGeneration, expired, swept, lateHeaders bool
 		wantError                                                                                                                                                                                                       string
+		// estimateAboveReserve is a tariff estimate above the channel reserve,
+		// which names the reserve live.
+		estimateAboveReserve bool
 	}{
 		{name: "empty reservation source", reserve: .02, sourceSet: true, wantError: "unsupported OpenRouter image reservation source"},
 		{name: "unknown reservation source", reserve: .02, sourceSet: true, source: "invalid", wantError: "unsupported OpenRouter image reservation source"},
@@ -1457,7 +1460,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "empty pricing opt in", reserve: .02, cost: "0.01"},
 		{name: "over reserve", reserve: .02, cost: "0.03"},
 		{name: "explicit cost zero", reserve: .02, cost: "0"},
-		{name: "known estimate floor", reserve: .02, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
+		{name: "known estimate floor", reserve: .02, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`, estimateAboveReserve: true},
 		{name: "reserve floor", reserve: .06, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
 		{name: "legacy known price without storage", noReserve: true, storageDisabled: true, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
 		{name: "published zero", noReserve: true, cost: "0", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0}]`},
@@ -1690,12 +1693,13 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				return
 			}
 			require.NotNil(t, info.OpenRouterCost)
+			wantSource := pricingdomain.ReserveSourceManual
+			if tc.noReserve || tc.estimateAboveReserve {
+				wantSource = pricingdomain.ReserveSourceLive
+			}
 			if tc.crash == "" {
-				// The channel reserve names the reserve as for text.
-				wantSource := pricingdomain.ReserveSourceManual
-				if tc.noReserve {
-					wantSource = pricingdomain.ReserveSourceLive
-				}
+				// The channel reserve names the reserve only above every
+				// tariff estimate, as for text.
 				assert.Equal(t, wantSource, info.OpenRouterCost.ReserveSource)
 			}
 			if tc.noReserve {
@@ -1716,10 +1720,10 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			require.True(t, exists)
 			if tc.crash == "" {
 				// The task facts carry the reserve source to the reservation log.
-				assert.Equal(t, "manual", task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+				assert.Equal(t, string(wantSource), task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
 				var reservation model.Log
 				require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
-				assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"manual"`)
+				assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"`+string(wantSource)+`"`)
 			}
 			if tc.crash != "" {
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1

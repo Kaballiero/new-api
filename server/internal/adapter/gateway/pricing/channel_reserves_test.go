@@ -57,9 +57,10 @@ func TestChannelReservesPreview(t *testing.T) {
 	configuredUSD := 5.0
 
 	for _, tc := range []struct {
-		name, model, operation, setting, baseURL string
-		want                                     preview_channel_reserves.ReservePreview
-		wantErr                                  error
+		name, model, setting, baseURL string
+		operation                     preview_channel_reserves.ReferenceOperation
+		want                          preview_channel_reserves.ReservePreview
+		wantErr                       error
 	}{
 		{name: "floor below the estimate of a web_search endpoint", model: "test/search", setting: `{"openrouter_model_reserve_usd":{"test/search":0.05}}`,
 			want: preview_channel_reserves.ReservePreview{USD: 1.21, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor}},
@@ -71,15 +72,15 @@ func TestChannelReservesPreview(t *testing.T) {
 			want: preview_channel_reserves.ReservePreview{USD: 5, Source: domain.ReserveSourceConfiguredPrice, ConfiguredUSD: &configuredUSD}},
 		{name: "legacy Sonar research reserve", model: "perplexity/sonar-deep-research", setting: `{"openrouter_sonar_research_reserve_usd":2}`,
 			want: preview_channel_reserves.ReservePreview{USD: 2, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicySonarResearchApproximateReserve}},
-		{name: "embeddings", model: "test/embed", operation: "embeddings",
+		{name: "embeddings", model: "test/embed", operation: preview_channel_reserves.ReferenceOperationEmbeddings,
 			want: preview_channel_reserves.ReservePreview{USD: 1, Source: domain.ReserveSourceCatalog}},
-		{name: "speech of the reference input", model: "test/speech", operation: "audio/speech",
+		{name: "speech of the reference input", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech,
 			want: preview_channel_reserves.ReservePreview{USD: .003, Source: domain.ReserveSourceCatalog}},
-		{name: "speech reserve above the estimate is the manual reserve", model: "test/speech", operation: "audio/speech", setting: `{"openrouter_model_reserve_usd":{"test/speech":0.1}}`,
+		{name: "speech reserve above the estimate is the manual reserve", model: "test/speech", operation: preview_channel_reserves.ReferenceOperationAudioSpeech, setting: `{"openrouter_model_reserve_usd":{"test/speech":0.1}}`,
 			want: preview_channel_reserves.ReservePreview{USD: .1, Source: domain.ReserveSourceManual, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
-		{name: "rerank of the reference documents", model: "test/rerank", operation: "rerank",
+		{name: "rerank of the reference documents", model: "test/rerank", operation: preview_channel_reserves.ReferenceOperationRerank,
 			want: preview_channel_reserves.ReservePreview{USD: .002, Source: domain.ReserveSourceCatalog}},
-		{name: "rerank reserve below the estimate keeps the catalog source", model: "test/rerank", operation: "rerank", setting: `{"openrouter_model_reserve_usd":{"test/rerank":0.001}}`,
+		{name: "rerank reserve below the estimate keeps the catalog source", model: "test/rerank", operation: preview_channel_reserves.ReferenceOperationRerank, setting: `{"openrouter_model_reserve_usd":{"test/rerank":0.001}}`,
 			want: preview_channel_reserves.ReservePreview{USD: .002, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelApproximateReserve}},
 		{name: "outside the catalog", model: "other/model", baseURL: live.URL, wantErr: domain.ErrEndpointDiscoveryMissing},
 	} {
@@ -88,7 +89,7 @@ func TestChannelReservesPreview(t *testing.T) {
 			if tc.baseURL != "" {
 				base = tc.baseURL
 			}
-			operation := "chat/completions"
+			operation := preview_channel_reserves.ReferenceOperationChatCompletions
 			if tc.operation != "" {
 				operation = tc.operation
 			}

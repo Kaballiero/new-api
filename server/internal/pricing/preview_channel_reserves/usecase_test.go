@@ -93,7 +93,7 @@ func TestPreviewChannelReserves(t *testing.T) {
 		"anthropic/claude|":               errors.New("OpenRouter Sonar research reserve policy is disabled"),
 		"anthropic/claude|anthropic":      errors.New("OpenRouter Sonar research reserve policy is disabled"),
 	}
-	reference := Reference{Operation: "chat/completions", PromptTokens: 1000, OutputTokens: 8192}
+	reference := Reference{Operation: ReferenceOperationChatCompletions, PromptTokens: 1000, OutputTokens: 8192}
 	live := func(model, upstream string, inChannel bool) Item {
 		return Item{Model: model, UpstreamModel: &upstream, InChannel: inChannel, ExampleStatus: ExampleStatusLiveOnly, Providers: []Provider{}}
 	}
@@ -106,7 +106,7 @@ func TestPreviewChannelReserves(t *testing.T) {
 		}
 		return item
 	}
-	priced := func(item Item, operation string, preview ReservePreview, providers ...Provider) Item {
+	priced := func(item Item, operation ReferenceOperation, preview ReservePreview, providers ...Provider) Item {
 		item.ReferenceOperation = &operation
 		item.ExampleStatus, item.ExampleUSD, item.EffectiveSource, item.ConfiguredUSD = ExampleStatusOK, &preview.USD, &preview.Source, preview.ConfiguredUSD
 		if preview.AdmissionPolicy != "" {
@@ -116,7 +116,7 @@ func TestPreviewChannelReserves(t *testing.T) {
 		return item
 	}
 	usd := func(value float64) *float64 { return &value }
-	chat := "chat/completions"
+	chat := ReferenceOperationChatCompletions
 	discoveryMissing := "OpenRouter endpoint discovery missing for perplexity/sonar-deep-research"
 	refused := "OpenRouter Sonar research reserve policy is disabled"
 
@@ -147,7 +147,7 @@ func TestPreviewChannelReserves(t *testing.T) {
 			want: Output{FetchedAt: &fresh.FetchedAt, Reference: reference, Items: []Item{
 				priced(withSettings(live("alias", "openai/gpt", true), "upstream", 0.05), chat, previews["openai/gpt|"],
 					Provider{Tag: "openai", Tier: domain.ServiceTierDefault, USD: usd(0.0571)}, Provider{Tag: "openai/fast", Tier: domain.ServiceTierPriority, USD: usd(0.09)}, Provider{Tag: "azure", Tier: domain.ServiceTierDefault}),
-				priced(live("cohere/embed", "cohere/embed", true), "embeddings", previews["cohere/embed|"], Provider{Tag: "cohere", Tier: domain.ServiceTierDefault, USD: usd(0.0001)}),
+				priced(live("cohere/embed", "cohere/embed", true), ReferenceOperationEmbeddings, previews["cohere/embed|"], Provider{Tag: "cohere", Tier: domain.ServiceTierDefault, USD: usd(0.0001)}),
 				live("google/image", "google/image", true),
 				live("missing/model", "missing/model", true),
 				func() Item {
@@ -170,8 +170,8 @@ func TestPreviewChannelReserves(t *testing.T) {
 			// filters on speech.
 			name: "speech and rerank", channels: stubChannels{channel: channel(official, "acme/tts,cohere/rerank")}, catalog: fresh, previews: 8,
 			want: Output{FetchedAt: &fresh.FetchedAt, Reference: reference, Items: []Item{
-				priced(live("acme/tts", "acme/tts", true), "audio/speech", previews["acme/tts|"]),
-				priced(live("cohere/rerank", "cohere/rerank", true), "rerank", previews["cohere/rerank|"], Provider{Tag: "cohere", Tier: domain.ServiceTierDefault, USD: usd(0.002)}),
+				priced(live("acme/tts", "acme/tts", true), ReferenceOperationAudioSpeech, previews["acme/tts|"]),
+				priced(live("cohere/rerank", "cohere/rerank", true), ReferenceOperationRerank, previews["cohere/rerank|"], Provider{Tag: "cohere", Tier: domain.ServiceTierDefault, USD: usd(0.002)}),
 				priced(withSettings(live("openai/gpt", "openai/gpt", false), "upstream", 0.05), chat, previews["openai/gpt|"],
 					Provider{Tag: "openai", Tier: domain.ServiceTierDefault, USD: usd(0.0571)}, Provider{Tag: "openai/fast", Tier: domain.ServiceTierPriority, USD: usd(0.09)}, Provider{Tag: "azure", Tier: domain.ServiceTierDefault}),
 				priced(withSettings(live("orphan/model", "orphan/model", false), "configured_price", 0), chat, previews["orphan/model|"]),
@@ -217,10 +217,10 @@ func TestPreviewChannelReservesReferenceRequests(t *testing.T) {
 	_, err := usecase.Execute(1)
 
 	require.NoError(t, err)
-	chat := ReferenceRequest{Model: "openai/gpt", UpstreamModel: "openai/gpt", Operation: "chat/completions", PromptTokens: 1000}
-	embeddings := ReferenceRequest{Model: "cohere/embed", UpstreamModel: "cohere/embed", Operation: "embeddings", PromptTokens: 1000}
-	speech := ReferenceRequest{Model: "acme/tts", UpstreamModel: "acme/tts", Operation: "audio/speech"}
-	rerank := ReferenceRequest{Model: "cohere/rerank", UpstreamModel: "cohere/rerank", Operation: "rerank"}
+	chat := ReferenceRequest{Model: "openai/gpt", UpstreamModel: "openai/gpt", Operation: ReferenceOperationChatCompletions, PromptTokens: 1000}
+	embeddings := ReferenceRequest{Model: "cohere/embed", UpstreamModel: "cohere/embed", Operation: ReferenceOperationEmbeddings, PromptTokens: 1000}
+	speech := ReferenceRequest{Model: "acme/tts", UpstreamModel: "acme/tts", Operation: ReferenceOperationAudioSpeech}
+	rerank := ReferenceRequest{Model: "cohere/rerank", UpstreamModel: "cohere/rerank", Operation: ReferenceOperationRerank}
 	only := func(request ReferenceRequest, tag string, ignore ...string) ReferenceRequest {
 		request.Only, request.Ignore = []string{tag}, ignore
 		return request

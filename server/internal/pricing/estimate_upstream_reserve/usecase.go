@@ -99,6 +99,9 @@ type Estimate struct {
 	// Source is what set the reserve: the configured price, or the manual
 	// reserve held whole or as the floor, when it exceeds the estimate priced
 	// from the model tariffs; otherwise the tariffs by tariffSourcePrecedence.
+	// With a configured price the approximate reserve is the larger of the
+	// configured price and the channel reserve, and configured_price names
+	// that amount.
 	Source domain.ReserveSource
 	// StaleCatalog reports that a stale catalog document priced a model,
 	// whatever the Source.

@@ -589,7 +589,7 @@ func TestExecuteUnitCost(t *testing.T) {
 		endpoint.Pricing = endpointPricing(t, deps, pricing)
 		return endpoint
 	}
-	manual, lowManual := .5, .01
+	manual, lowManual, equalManual := .5, .01, .03
 	for _, tc := range []struct {
 		name      string
 		endpoints []domain.NativePricedEndpoint
@@ -607,6 +607,7 @@ func TestExecuteUnitCost(t *testing.T) {
 		{name: "a zero price of an unmeasured dimension bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"), price(domain.PriceDimension{}, "0"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
 		{name: "a measured zero quantity bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{characters: 0}, wantUSD: 0, source: domain.ReserveSourceCatalog},
 		{name: "a manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &lowManual, wantUSD: .03, source: domain.ReserveSourceCatalog},
+		{name: "a manual reserve equal to the cost keeps the catalog source", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &equalManual, wantUSD: .03, source: domain.ReserveSourceCatalog},
 		{name: "a manual reserve above the cost is kept", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
 		{name: "an unknown price is refused", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, "0.00003"), price(domain.PriceDimension{}, ""))}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit price is unknown"},
 		{name: "an unknown price takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, ""))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
