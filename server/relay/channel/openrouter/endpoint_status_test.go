@@ -705,6 +705,8 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 	models := map[string]pricingdomain.NativeEndpointResponse{
 		"test/model":  tariff(`{"prompt":"0.001","completion":"0.002"}`),
 		"test/search": tariff(`{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`),
+		// A Perplexity Sonar model searches on its own on every request.
+		"perplexity/sonar-pro": tariff(`{"prompt":"0.000003","completion":"0.000015","web_search":"0.005"}`),
 	}
 	for _, tc := range []struct {
 		name, model string
@@ -717,8 +719,11 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "catalog", model: "test/model", want: 1.2, source: pricingdomain.ReserveSourceCatalog},
-		{name: "add-on on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
-			want: 1.25, source: pricingdomain.ReserveSourceCatalog, use: ReserveAddOn},
+		{name: "floor below the estimate on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
+			want: 1.21, source: pricingdomain.ReserveSourceCatalog, use: ReserveFloor},
+		{name: "floor above the estimate is the manual reserve", model: "test/model", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/model": 3}},
+			want: 3, source: pricingdomain.ReserveSourceManual, use: ReserveFloor},
+		{name: "sonar model prices one unrequested search", model: "perplexity/sonar-pro", want: .0095, source: pricingdomain.ReserveSourceCatalog},
 		{name: "configured price above the catalog", model: "test/model", settings: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{"test/model": dto.OpenRouterReservationConfiguredPrice}},
 			want: 5, configured: true, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
 		{name: "outside the catalog", model: "other/model", wantErr: "OpenRouter endpoint discovery missing for other/model"},

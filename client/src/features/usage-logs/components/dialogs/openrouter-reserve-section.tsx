@@ -166,6 +166,17 @@ export function OpenRouterReserveSection(props: {
         mono
       />
     ),
+    info.openrouter_floor_reserve_usd != null && (
+      <DetailRow
+        key='floor-reserve'
+        label={t('Floor reserve')}
+        value={formatReserve(
+          info.openrouter_floor_reserve_usd,
+          info.openrouter_floor_reserve_model
+        )}
+        mono
+      />
+    ),
     info.openrouter_approximate_research_reserve_usd != null && (
       <DetailRow
         key='approximate-research-reserve'

@@ -74,7 +74,7 @@ func TestPreviewChannelReserves(t *testing.T) {
 		ManualUSD: map[string]float64{"openai/gpt": 0.05},
 	}
 	previews := map[string]ReservePreview{
-		"openai/gpt|":            {USD: 0.0571, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveAddOn},
+		"openai/gpt|":            {USD: 0.0571, Source: domain.ReserveSourceCatalog, AdmissionPolicy: domain.AdmissionPolicyModelReserveFloor},
 		"openai/gpt|openai":      {USD: 0.0571},
 		"openai/gpt|openai/fast": {USD: 0.09},
 		"cohere/embed|":          {USD: 0.0001, Source: domain.ReserveSourceCatalog},

@@ -79,11 +79,11 @@ type Input struct {
 	// ManualSearch is a search on an engine without an endpoint price, which
 	// SearchReserveUSD alone covers.
 	ManualSearch bool
-	// ApproximateReserveUSD is the whole-hold reserve, AddOnReserveUSD the
-	// reserve added for hosted search of a priced endpoint and
-	// SearchReserveUSD the reserve for requested hosted search that no
+	// ApproximateReserveUSD is the whole-hold reserve, FloorReserveUSD the
+	// least reserve over the estimate priced from endpoint tariffs and
+	// SearchReserveUSD the reserve added for requested hosted search that no
 	// endpoint price covers (searchCost).
-	ApproximateReserveUSD, AddOnReserveUSD, SearchReserveUSD *float64
+	ApproximateReserveUSD, FloorReserveUSD, SearchReserveUSD *float64
 }
 
 // Estimate is the reserve of a request. InputUSD, PromptPriceUSD,
@@ -93,10 +93,11 @@ type Estimate struct {
 	USD                                      float64
 	InputUSD, PromptPriceUSD, OutputPriceUSD decimal.Decimal
 	OutputTokens                             int
-	// IncludesAddOnReserve reports that the maximum endpoint cost includes the
-	// add-on or the search reserve.
-	IncludesAddOnReserve bool
-	// Source is what the reserve is priced from (reserveSource).
+	// IncludesSearchReserve reports that the maximum endpoint cost includes the
+	// search reserve (SearchReserveUSD).
+	IncludesSearchReserve bool
+	// Source is what the reserve is priced from (reserveSource); the manual
+	// reserve when the floor exceeds the estimate.
 	Source domain.ReserveSource
 	// StaleCatalog reports that a stale catalog document priced a model,
 	// whatever the Source.
@@ -141,7 +142,7 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 // price takes the complete maximum over the eligible endpoints of every
 // routable model. Price strings are USD per token/request/image. An
 // unavailable monetary estimate is a *domain.EstimateUnavailableError; with
-// an add-on reserve it is returned at the first such endpoint. The tariff
+// a floor reserve it is returned at the first such endpoint. The tariff
 // model it returns instead is a catalog tariff to price again from live
 // (modelTariffs.checksLive); it is empty otherwise.
 func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, string, error) {
@@ -152,7 +153,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 		flexFallback bool
 	}
 	approximateReserve := in.ApproximateReserveUSD != nil
-	addOnReserve := in.AddOnReserveUSD != nil
+	floorReserve := in.FloorReserveUSD != nil
 	outputReserve := in.TextOutput && !approximateReserve
 	// localCover is the explicit local/minimum policy that alone covers an
 	// unavailable monetary estimate.
@@ -386,7 +387,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			// A pool the filters narrowed may hold fewer endpoints than live,
 			// so it never prices the model: only the local cover does, as for
 			// an unknown price, and otherwise the live error refuses it.
-			if addOnReserve {
+			if floorReserve {
 				return Estimate{}, "", &domain.EstimateUnavailableError{Cause: modelTariff.liveErr}
 			}
 			if !localCover {
@@ -436,7 +437,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 					return Estimate{}, tariffModel, nil
 				}
 				var unavailable *domain.EstimateUnavailableError
-				if addOnReserve && errors.As(estimateErr, &unavailable) {
+				if floorReserve && errors.As(estimateErr, &unavailable) {
 					return Estimate{}, "", estimateErr
 				}
 				if !localCover || !errors.As(estimateErr, &unavailable) {
@@ -459,7 +460,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
-				estimate.IncludesAddOnReserve = includesReserve
+				estimate.IncludesSearchReserve = includesReserve
 			}
 			found = true
 		}
@@ -482,11 +483,17 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 	if approximateReserve {
 		maximum = decimal.Max(maximum, decimal.NewFromFloat(*in.ApproximateReserveUSD))
 	}
+	estimate.Source = reserveSource(in, tariffsByModel)
+	if floorReserve {
+		if floor := decimal.NewFromFloat(*in.FloorReserveUSD); floor.GreaterThan(maximum) {
+			maximum = floor
+			estimate.Source = domain.ReserveSourceManual
+		}
+	}
 	estimate.USD, _ = maximum.Float64()
 	if math.IsInf(estimate.USD, 0) || math.IsNaN(estimate.USD) {
 		return Estimate{}, "", errors.New("OpenRouter estimate overflow")
 	}
-	estimate.Source = reserveSource(in, tariffsByModel)
 	estimate.StaleCatalog = tariffsByModel.hasStaleDocument()
 	return estimate, "", nil
 }

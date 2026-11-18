@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type PricedEndpoint struct {
@@ -67,6 +68,7 @@ const (
 	ReserveNotApplied ReserveUse = iota
 	ReserveWholeHold
 	ReserveAddOn
+	ReserveFloor
 )
 
 // SonarResearchModel is the model the legacy Sonar research reserve
@@ -352,8 +354,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("invalid OpenRouter approximate reserve")
 	}
 	approximateReserve := reserveUSD != nil && (wholeReserve || localUSD != nil || decisions || rerank || dedicatedAudio || audioOutput || imageReserveOnly || sonarModel)
-	addOnReserve := reserveUSD != nil && !approximateReserve
-	var approximateReserveUSD, addOnReserveUSD *float64
+	// Otherwise the channel reserve is the floor of the estimate priced from
+	// endpoint tariffs; an unavailable estimate retries it as a whole hold.
+	floorReserve := reserveUSD != nil && !approximateReserve
+	var approximateReserveUSD, floorReserveUSD *float64
 	if approximateReserve {
 		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
@@ -362,7 +366,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		approximateReserveUSD = reserveUSD
 	} else {
-		addOnReserveUSD = reserveUSD
+		floorReserveUSD = reserveUSD
 	}
 	for _, cap := range []*int{request.MaxTokens, request.MaxCompletionTokens, request.MaxOutputTokens} {
 		if cap != nil && (*cap < 0 || *cap > helper.MaxTokensLimit) {
@@ -388,6 +392,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			limitField = "maxOutputTokens"
 		}
 		outputReserve = &relaycommon.OpenRouterOutputReserve{ExplicitLimit: outputLimit != nil, LimitField: limitField}
+		if floorReserve {
+			outputReserve.FloorUSD = decimal.NewFromFloat(*floorReserveUSD)
+		}
 	}
 	var channelBaseURL string
 	if info.ChannelMeta != nil {
@@ -438,13 +445,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		DefaultOutputTokens:   helper.DefaultPreConsumeMaxTokens,
 		MaxTokensLimit:        helper.MaxTokensLimit,
 		ApproximateReserveUSD: approximateReserveUSD,
-		AddOnReserveUSD:       addOnReserveUSD,
+		FloorReserveUSD:       floorReserveUSD,
 		Searches:              searches,
 		ManualSearch:          manualSearch,
 		SearchReserveUSD:      searchReserveUSD,
 	})
 	var unavailable *pricingdomain.EstimateUnavailableError
-	if addOnReserve && errors.As(err, &unavailable) {
+	if floorReserve && errors.As(err, &unavailable) {
 		return e.estimate(info, body, requestedOperation, localUSD, true)
 	}
 	if err != nil {
@@ -473,10 +480,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		e.ReserveQuantities = map[pricingdomain.ReserveQuantity]int{pricingdomain.ReserveQuantitySearches: searches}
 	}
 	e.OutputReserve = outputReserve
-	if approximateReserve {
+	switch {
+	case approximateReserve:
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
-	} else if addOnReserve && estimate.IncludesAddOnReserve {
+	case floorReserve && estimate.IncludesSearchReserve:
 		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
+	case floorReserve:
+		e.ReserveUse, e.ReserveModel = ReserveFloor, request.Model
 	}
 	return estimate.USD, nil
 }
@@ -496,6 +506,8 @@ func (e *RequestEstimator) AdmissionPolicy(settings *dto.ChannelSettings) pricin
 		return pricingdomain.AdmissionPolicyModelApproximateReserve
 	case ReserveAddOn:
 		return pricingdomain.AdmissionPolicyModelReserveAddOn
+	case ReserveFloor:
+		return pricingdomain.AdmissionPolicyModelReserveFloor
 	}
 	return ""
 }

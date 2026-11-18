@@ -15,7 +15,8 @@ const (
 	// ReserveSourceConfiguredPrice is the configured local price of the channel
 	// model.
 	ReserveSourceConfiguredPrice ReserveSource = "configured_price"
-	// ReserveSourceManual is the approximate reserve of the channel model.
+	// ReserveSourceManual is the manual reserve of the channel model: held
+	// whole as the approximate reserve, or as the floor above the estimate.
 	ReserveSourceManual ReserveSource = "manual"
 )
 
@@ -48,9 +49,12 @@ const (
 	// AdmissionPolicyModelApproximateReserve holds the approximate reserve of
 	// the channel model whole.
 	AdmissionPolicyModelApproximateReserve AdmissionPolicy = "model_approximate_reserve"
-	// AdmissionPolicyModelReserveAddOn adds the reserve of the channel model to
-	// the endpoints that price hosted search.
+	// AdmissionPolicyModelReserveAddOn adds the reserve of the channel model
+	// for requested hosted search that no endpoint price covers.
 	AdmissionPolicyModelReserveAddOn AdmissionPolicy = "model_reserve_add_on"
+	// AdmissionPolicyModelReserveFloor holds at least the reserve of the
+	// channel model over an estimate priced from endpoint tariffs.
+	AdmissionPolicyModelReserveFloor AdmissionPolicy = "model_reserve_floor"
 	// AdmissionPolicySonarResearchApproximateReserve holds the approximate
 	// reserve of perplexity/sonar-deep-research whole.
 	AdmissionPolicySonarResearchApproximateReserve AdmissionPolicy = "sonar_research_approximate_reserve"

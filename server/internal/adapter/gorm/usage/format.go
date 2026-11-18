@@ -380,6 +380,12 @@ func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.Req
 			other.SetAdmin("openrouter_approximate_reserve_usd", *state.ApproximateReserveUSD)
 			other.SetAdmin("openrouter_approximate_reserve_model", state.ApproximateReserveModel)
 		}
+		// A search add-on names the policy of a request the floor also bounds.
+		if state.FloorReserveUSD != nil {
+			other.SetAdmin("openrouter_admission_policy", string(pricingdomain.AdmissionPolicyModelReserveFloor))
+			other.SetAdmin("openrouter_floor_reserve_usd", *state.FloorReserveUSD)
+			other.SetAdmin("openrouter_floor_reserve_model", state.FloorReserveModel)
+		}
 		if state.AddOnReserveUSD != nil {
 			other.SetAdmin("openrouter_admission_policy", string(pricingdomain.AdmissionPolicyModelReserveAddOn))
 			other.SetAdmin("openrouter_add_on_reserve_usd", *state.AddOnReserveUSD)

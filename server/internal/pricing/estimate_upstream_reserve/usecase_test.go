@@ -213,7 +213,7 @@ func TestEndpointSavedNativeCalendarAndGeminiMetadata(t *testing.T) {
 		{"tencent/hy3", "tencent/fp8", 262144, 128000, `{"prompt":"0.0000000825","completion":"0.00000033","input_cache_read":"0.000000020625","discount":0,"overrides":[{"utc_start":0,"utc_end":1600,"prompt":"0.000000132","completion":"0.000000528","input_cache_read":"0.000000033"},{"utc_start":1600,"utc_end":0,"prompt":"0.0000000825","completion":"0.00000033","input_cache_read":"0.000000020625"}]}`, 0.00013728},
 		{"deepseek/deepseek-v4.1-flash", "deepseek", 1048576, 393216, `{"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003","discount":0,"overrides":[{"utc_days":["saturday","sunday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":0,"utc_end":100,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":100,"utc_end":400,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.0000003","completion":"0.0000012","input_cache_read":"0.000000006"},{"utc_start":400,"utc_end":600,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":600,"utc_end":1000,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.0000003","completion":"0.0000012","input_cache_read":"0.000000006"},{"utc_start":1000,"utc_end":0,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"}]}`, 0.000312},
 		{"tencent/hy4-preview", "tencent/fp8", 1048576, 64000, `{"prompt":"0.0000007506","completion":"0.0000022509","input_cache_read":"0.0000000378","discount":0,"overrides":[{"utc_start":0,"utc_end":1600,"prompt":"0.000000834","completion":"0.000002501","input_cache_read":"0.000000042"},{"utc_start":1600,"utc_end":0,"prompt":"0.0000007506","completion":"0.0000022509","input_cache_read":"0.0000000378"}]}`, 0.00085901},
-		{"google/gemini-2.5-pro", "google-ai-studio", 1048576, 65536, `{"prompt":"0.00000125","completion":"0.00001","image":"0.00000125","audio":"0.00000125","input_audio_cache":"0.000000125","web_search":"0.014","internal_reasoning":"0.00001","input_cache_read":"0.000000125","input_cache_write":"0.000000375","discount":0,"overrides":[{"min_prompt_tokens":200000,"prompt":"0.0000025","completion":"0.000015","audio":"0.0000025","input_audio_cache":"0.00000025","input_cache_read":"0.00000025"}]}`, 0.00135},
+		{"google/gemini-2.5-pro", "google-ai-studio", 1048576, 65536, `{"prompt":"0.00000125","completion":"0.00001","image":"0.00000125","audio":"0.00000125","input_audio_cache":"0.000000125","web_search":"0.014","internal_reasoning":"0.00001","input_cache_read":"0.000000125","input_cache_write":"0.000000375","discount":0,"overrides":[{"min_prompt_tokens":200000,"prompt":"0.0000025","completion":"0.000015","audio":"0.0000025","input_audio_cache":"0.00000025","input_cache_read":"0.00000025"}]}`, 0.01535},
 	} {
 		t.Run(scenario.model, func(t *testing.T) {
 			endpoint := domain.NativePricedEndpoint{ModelID: scenario.model, Tag: scenario.tag, ContextLength: scenario.contextLength, MaxCompletionTokens: scenario.maxCompletionTokens, Pricing: endpointPricing(t, deps, scenario.pricing)}
@@ -282,8 +282,8 @@ func TestExecuteSourceOrder(t *testing.T) {
 		live    map[string]domain.NativeEndpointResponse
 		only    []string
 		local   bool
-		// addOn sets the add-on reserve of the channel.
-		addOn bool
+		// floor sets the floor reserve of the channel.
+		floor bool
 		audio bool
 		// temperature requires the temperature parameter of the endpoints.
 		temperature bool
@@ -316,7 +316,7 @@ func TestExecuteSourceOrder(t *testing.T) {
 		{name: "empty pool of a stale document is refused", models: []string{"acme/a"}, only: []string{"p"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "empty pool of a stale document takes the local cover", models: []string{"acme/a"}, only: []string{"p"}, local: true, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, wantStale: true, liveAsked: []string{"acme/a"}},
 		{name: "empty pool of one stale model is refused, not priced by the other", models: []string{"acme/a", "acme/b"}, only: []string{"p"}, age: 25 * time.Hour, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/b": routedP("0.001", "0.002")}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a", "acme/b"}},
-		{name: "empty pool with an add-on reserve is an unavailable estimate when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, addOn: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter estimate unavailable: OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
+		{name: "empty pool with a floor reserve is an unavailable estimate when live fails", models: []string{"acme/a"}, only: []string{"live-provider"}, floor: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, wantErr: "OpenRouter estimate unavailable: OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "require_parameters narrowing is refused when live fails", models: []string{"acme/a"}, temperature: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantErr: "OpenRouter pricing discovery failed", liveAsked: []string{"acme/a"}},
 		{name: "require_parameters narrowing takes the local cover when live fails", models: []string{"acme/a"}, temperature: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": partlyParameterized}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
 		{name: "audio stays live", models: []string{"acme/a"}, audio: true, local: true, catalog: map[string]domain.NativeEndpointResponse{"acme/a": catalogPriced}, live: map[string]domain.NativeEndpointResponse{"acme/a": livePriced}, wantUSD: .5, source: domain.ReserveSourceConfiguredPrice, liveAsked: []string{"acme/a"}},
@@ -336,8 +336,8 @@ func TestExecuteSourceOrder(t *testing.T) {
 			if tc.local {
 				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &localUSD
 			}
-			if tc.addOn {
-				in.AddOnReserveUSD = &localUSD
+			if tc.floor {
+				in.FloorReserveUSD = &localUSD
 			}
 			if tc.audio {
 				in.Audio, in.TextOutput = true, false
@@ -350,7 +350,7 @@ func TestExecuteSourceOrder(t *testing.T) {
 			assert.Equal(t, tc.liveAsked, live.asked)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
-				if tc.addOn {
+				if tc.floor {
 					var unavailable *domain.EstimateUnavailableError
 					require.ErrorAs(t, err, &unavailable)
 					assert.EqualError(t, unavailable.Cause, "OpenRouter pricing discovery failed")
@@ -386,10 +386,10 @@ func TestExecuteBatchSkipsDeclaredOutputModalities(t *testing.T) {
 	}
 }
 
-// Requested searches cost the web_search price of the endpoint each, without
-// the add-on reserve. A price missing from the fresh catalog is checked against
-// live; when live has none either, the search reserve covers the searches, and
-// without it they are refused.
+// Requested searches cost the web_search price of the endpoint each, held at
+// least at the floor reserve. A price missing from the fresh catalog is checked
+// against live; when live has none either, the search reserve is added for the
+// searches, and without it they are refused.
 func TestExecutePricesSearches(t *testing.T) {
 	deps := pricingadapter.Capabilities()
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -402,7 +402,7 @@ func TestExecutePricesSearches(t *testing.T) {
 			{Tag: "provider", ModelID: "acme/a", MaxCompletionTokens: 100, Pricing: endpointPricing(t, deps, pricing+`}`)},
 		}}
 	}
-	reserve := .5
+	reserve, highFloor := .5, 2.0
 	for _, tc := range []struct {
 		name                string
 		searches            int
@@ -410,7 +410,7 @@ func TestExecutePricesSearches(t *testing.T) {
 		live                map[string]domain.NativeEndpointResponse
 		manualSearch        bool
 		searchReserve       bool
-		addOnReserve        bool
+		floorReserve        *float64
 		configuredPrice     bool
 		wantUSD             float64
 		wantErr             string
@@ -419,7 +419,8 @@ func TestExecutePricesSearches(t *testing.T) {
 		wantLiveAsked       []string
 	}{
 		{name: "searches cost the catalog price each", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
-		{name: "priced searches take no add-on reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), addOnReserve: true, wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
+		{name: "priced searches above the floor take no add-on reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), floorReserve: &reserve, wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
+		{name: "a floor above priced searches is the manual reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), floorReserve: &highFloor, wantUSD: 2, wantSource: domain.ReserveSourceManual},
 		{name: "priced searches take no search reserve", searches: 3, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.05, wantSource: domain.ReserveSourceCatalog},
 		{name: "a search price missing from the catalog is checked against live", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.07, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
 		{name: "a search price missing from live takes the search reserve", searches: 3, catalog: response("0.001", "0.002", ""), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "")}, searchReserve: true, wantUSD: 2.54, wantSource: domain.ReserveSourceLive, wantIncludesReserve: true, wantLiveAsked: []string{"acme/a"}},
@@ -431,7 +432,13 @@ func TestExecutePricesSearches(t *testing.T) {
 		{name: "a search on an engine without an endpoint price takes the search reserve", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
 		{name: "native searches and a search on another engine add both", searches: 3, manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, wantUSD: 1.55, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
 		{name: "a search on another engine without a search reserve is refused", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), wantErr: domain.ErrHostedSearchUnpriced.Error()},
-		{name: "without requested searches the add-on reserve covers native search", catalog: response("0.001", "0.002", `"0.01"`), addOnReserve: true, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "a search reserve is added on top of a floor", manualSearch: true, catalog: response("0.001", "0.002", `"0.01"`), searchReserve: true, floorReserve: &reserve, wantUSD: 1.52, wantSource: domain.ReserveSourceCatalog, wantIncludesReserve: true},
+		{name: "without requested searches a web_search endpoint costs one search", catalog: response("0.001", "0.002", `"0.01"`), wantUSD: 1.03, wantSource: domain.ReserveSourceCatalog},
+		{name: "without requested searches one search above the floor takes no add-on", catalog: response("0.001", "0.002", `"0.01"`), floorReserve: &reserve, wantUSD: 1.03, wantSource: domain.ReserveSourceCatalog},
+		{name: "without requested searches a missing search price is checked against live", catalog: response("0.001", "0.002", "null"), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", `"0.01"`)}, wantUSD: 2.05, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
+		{name: "without requested searches a search price missing from live costs nothing", catalog: response("0.001", "0.002", "null"), live: map[string]domain.NativeEndpointResponse{"acme/a": response("0.002", "0.004", "null")}, wantUSD: 2.04, wantSource: domain.ReserveSourceLive, wantLiveAsked: []string{"acme/a"}},
+		{name: "without requested searches an invalid search price is refused", catalog: response("0.001", "0.002", `"-1"`), wantErr: "invalid OpenRouter endpoint price"},
+		{name: "without requested searches a floor above the estimate is the manual reserve", catalog: response("0.001", "0.002", `"0.01"`), floorReserve: &highFloor, wantUSD: 2, wantSource: domain.ReserveSourceManual},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
@@ -442,9 +449,7 @@ func TestExecutePricesSearches(t *testing.T) {
 			if tc.searchReserve {
 				in.SearchReserveUSD = &reserve
 			}
-			if tc.addOnReserve {
-				in.AddOnReserveUSD = &reserve
-			}
+			in.FloorReserveUSD = tc.floorReserve
 			if tc.configuredPrice {
 				in.ConfiguredPrice, in.ApproximateReserveUSD = true, &reserve
 			}
@@ -457,7 +462,7 @@ func TestExecutePricesSearches(t *testing.T) {
 			require.NoError(t, err)
 			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-9)
 			assert.Equal(t, tc.wantSource, estimate.Source)
-			assert.Equal(t, tc.wantIncludesReserve, estimate.IncludesAddOnReserve)
+			assert.Equal(t, tc.wantIncludesReserve, estimate.IncludesSearchReserve)
 		})
 	}
 }
