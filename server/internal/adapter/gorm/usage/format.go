@@ -358,9 +358,15 @@ func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.Req
 		}
 		other.SetAdmin("openrouter_cost_basis", storedCostBasis(state.Basis))
 		other.SetAdmin("upstream_cost_usd", state.CostUSD)
-		if state.CostSource != "" {
-			other.SetAdmin("openrouter_cost_source", state.CostSource)
+		if state.GenerationID != "" {
 			other.SetAdmin("openrouter_generation_id", state.GenerationID)
+		}
+		costSource := state.CostSource
+		if costSource == "" && state.Final {
+			costSource = domain.OpenRouterCostSourceUpstream
+		}
+		if costSource != "" {
+			other.SetAdmin("openrouter_cost_source", costSource)
 		}
 		other.SetAdmin("reserved_quota", request.FinalPreConsumedQuota)
 		if state.ReserveSource != "" {

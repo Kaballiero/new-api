@@ -4216,7 +4216,7 @@ export function ChannelMutateDrawer({
                           )}
                           <fieldset
                             disabled={sensitiveLocked}
-                            className='space-y-4 disabled:opacity-60'
+                            className='min-w-0 space-y-4 disabled:opacity-60'
                           >
                             <div className='divide-border space-y-0 divide-y border-y'>
                               {currentType === 1 && (

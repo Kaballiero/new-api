@@ -180,8 +180,7 @@ export function OpenRouterSyncReconciliation(
   ]
     .filter(Boolean)
     .join(' / ')
-  const showAlert =
-    view.billing_state === 'manual_reconciliation' || view.alerted_at > 0
+  const showAlert = view.manual_hold || view.alerted_at > 0
   const canRelease = props.isRoot && view.release_allowed
   const canSettle = props.isRoot && view.settle_allowed
 

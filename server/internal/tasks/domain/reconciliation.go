@@ -74,5 +74,6 @@ func OpenRouterSyncAdminView(task *Task) map[string]any {
 	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorSettle) || retryable && r.UpstreamCostUSD > 0
 	view["alerted_at"] = a.AlertedAt
 	view["cost_estimated"] = r.UpstreamCostEstimated
+	view["manual_hold"] = task.IsOpenRouterSyncManualHold()
 	return view
 }

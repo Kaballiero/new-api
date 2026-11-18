@@ -2452,7 +2452,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Các Dự Án Liên Quan",
     "footer.defaultCopyright": "Bản quyền được bảo lưu.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
+    "footer.newapi.projectAttributionSuffix": "Bản quyền được bảo lưu. Được thiết kế và phát triển bởi các cộng tác viên dự án.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Đối với các kênh được thêm sau ngày 10 tháng 5 năm 2025, không cần loại bỏ \".\" khỏi tên mô hình trong quá trình triển khai",
     "For OpenRouter channels, expressions only display indicative prices. Charges use OpenRouter cost × effective group and exchange-rate factor; expression rules and local tool fees are not added.": "Với kênh OpenRouter, biểu thức chỉ hiển thị giá tham khảo. Phí tính theo chi phí OpenRouter × hệ số nhóm và tỷ giá hiệu dụng; không cộng quy tắc biểu thức hay phí công cụ cục bộ.",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Đối với các triển khai riêng tư, định dạng: https://fastgpt.run/api/openapi",
@@ -5588,7 +5588,7 @@
     "Timeline": "Dòng thời gian",
     "times": "lần",
     "Timezone": "Múi giờ",
-    "Timing": "Thời gian",
+    "Timing": "Thời lượng",
     "Tip": "Mẹo",
     "Tip: after configuring one model, select others in the table and use bulk copy.": "Mẹo: sau khi cấu hình một mô hình, hãy chọn các mô hình khác trong bảng và dùng tính năng sao chép hàng loạt.",
     "to": "đến",
@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "Số ký tự giọng nói đã giữ",
     "Reserved speech UTF-8 bytes": "Số byte UTF-8 giọng nói đã giữ",
     "Reserved speech seconds": "Số giây giọng nói đã giữ",
-    "Reserved search units": "Số đơn vị tìm kiếm đã giữ"
+    "Reserved search units": "Số đơn vị tìm kiếm đã giữ",
+    "Chat image": "Hình ảnh trò chuyện",
+    "Completions": "Hoàn thành văn bản",
+    "Decisions": "Quyết định",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "Chưa có nhật ký tác vụ. Nhật ký tác vụ sẽ xuất hiện tại đây khi có tác vụ bất đồng bộ được gửi."
   }
 }

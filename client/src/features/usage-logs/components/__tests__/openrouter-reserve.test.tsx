@@ -322,4 +322,28 @@ describe('OpenRouter reserve in task details', () => {
 
     expect(screen.queryByText('OpenRouter reserve')).toBeNull()
   })
+
+  test('shows the reserved quantities of the task order', () => {
+    render(
+      <QueryClientProvider client={newQueryClient()}>
+        <TaskDetailsDialog
+          log={makeTask({
+            openrouter_order_facts: {
+              reservation_source: 'manual',
+              reservation_quantities: { characters: 42 },
+            },
+          })}
+          isAdmin
+          isRoot={false}
+          open
+          onOpenChange={() => undefined}
+        />
+      </QueryClientProvider>
+    )
+
+    const characters = within(reserveSection()).getByText(
+      'Reserved speech characters'
+    )
+    expect(characters.nextElementSibling?.textContent).toBe('42')
+  })
 })

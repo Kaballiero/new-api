@@ -104,8 +104,12 @@ export function OpenRouterReserveTable(props: OpenRouterReserveTableProps) {
 
   return (
     <StaticDataTable
+      className='max-h-[60vh] overflow-auto **:data-[slot=table-container]:overflow-visible'
+      tableClassName='w-max min-w-full'
       data={props.rows}
       getRowKey={(row) => row.model}
+      emptyContent={t('No models matched your search.')}
+      emptyClassName='text-muted-foreground'
       columns={[
         {
           id: 'model',

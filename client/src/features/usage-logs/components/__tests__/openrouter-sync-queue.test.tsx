@@ -55,26 +55,62 @@ function renderDetailsCell(log: TaskLog) {
   )
 }
 
-function withBillingState(billingState: string): TaskLog {
+function withSyncView(view: Partial<OpenRouterSyncAdminView>): TaskLog {
   return {
     ...task,
     admin_info: {
-      openrouter_sync: {
-        billing_state: billingState,
-      } as OpenRouterSyncAdminView,
+      openrouter_sync: view as OpenRouterSyncAdminView,
     },
   }
 }
 
 describe('OpenRouter manual-hold queue', () => {
   test('manual hold row shows the needs decision badge', () => {
-    renderDetailsCell(withBillingState('manual_reconciliation'))
+    renderDetailsCell(
+      withSyncView({
+        billing_state: 'manual_reconciliation',
+        manual_hold: true,
+      })
+    )
 
     expect(screen.getByText('Needs decision')).toBeVisible()
   })
 
+  test('manual hold with an unknown reservation shows the needs decision badge', () => {
+    renderDetailsCell(
+      withSyncView({ billing_state: 'reservation_unknown', manual_hold: true })
+    )
+
+    expect(screen.getByText('Needs decision')).toBeVisible()
+  })
+
+  test.each([
+    ['audio', 'Audio'],
+    ['rerank', 'Rerank'],
+    ['chat-image', 'Chat image'],
+  ])('task with action %j names the action %s', (action, label) => {
+    const { result } = renderHook(() => useTaskLogsColumns(true, false))
+    const taskId = result.current.find(
+      (column) => 'accessorKey' in column && column.accessorKey === 'task_id'
+    ) as ColumnDef<TaskLog> & {
+      cell: (context: CellContext<TaskLog, unknown>) => React.ReactNode
+    }
+    const log = { ...task, platform: 'openrouter-audio', action }
+    render(
+      <>
+        {taskId.cell({
+          row: { original: log, getValue: () => log.task_id },
+        } as unknown as CellContext<TaskLog, unknown>)}
+      </>
+    )
+
+    expect(screen.getByText(`openrouter-audio · ${label}`)).toBeVisible()
+  })
+
   test('settled row and row without admin info show no badge', () => {
-    renderDetailsCell(withBillingState('settled'))
+    renderDetailsCell(
+      withSyncView({ billing_state: 'settled', manual_hold: false })
+    )
     renderDetailsCell(task)
 
     expect(screen.queryByText('Needs decision')).not.toBeInTheDocument()

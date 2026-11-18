@@ -57,6 +57,7 @@ const manualHold: OpenRouterSyncAdminView = {
   release_allowed: true,
   settle_allowed: true,
   alerted_at: 0,
+  manual_hold: true,
 }
 
 const success = {
@@ -132,7 +133,10 @@ describe('OpenRouter sync reconciliation actions', () => {
   })
 
   test('task that never became a manual hold shows no Telegram alert row', () => {
-    renderReconciliation({ ...manualHold, billing_state: 'settled' }, false)
+    renderReconciliation(
+      { ...manualHold, billing_state: 'settled', manual_hold: false },
+      false
+    )
 
     expect(screen.queryByText('Telegram alert')).not.toBeInTheDocument()
   })

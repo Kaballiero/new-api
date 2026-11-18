@@ -474,6 +474,22 @@ describe('OpenRouter reserve table', () => {
     expect(screen.getByText('No upstream models')).toBeInTheDocument()
   })
 
+  test('model filter keeps only matching rows and names an empty match', () => {
+    mockReservesResponse({ success: true, data: reservesPreview })
+    renderReserveForm()
+    const filter = screen.getByRole('searchbox', { name: 'Filter models...' })
+
+    fireEvent.change(filter, { target: { value: 'REASONER' } })
+    expect(
+      screen
+        .getAllByRole('combobox', { name: /^Reservation source for / })
+        .map((select) => select.getAttribute('aria-label'))
+    ).toEqual(['Reservation source for other/reasoner'])
+
+    fireEvent.change(filter, { target: { value: 'missing' } })
+    expect(screen.getByText('No models matched your search.')).toBeVisible()
+  })
+
   test('external form reset rebuilds the rows', () => {
     mockReservesResponse({ success: true, data: reservesPreview })
     renderReserveForm({ reserves: '{"legacy/model":0.5}' })

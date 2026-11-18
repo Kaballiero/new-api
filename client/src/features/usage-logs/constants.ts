@@ -213,6 +213,16 @@ export const TASK_ACTIONS = {
   FIRST_TAIL_GENERATE: 'firstTailGenerate', // 首尾生视频
   REFERENCE_GENERATE: 'referenceGenerate', // 参照生视频
   REMIX_GENERATE: 'remixGenerate', // 视频 Remix
+
+  // OpenRouter synchronous tasks
+  CHAT: 'chat',
+  CHAT_IMAGE: 'chat-image',
+  COMPLETIONS: 'completions',
+  EMBEDDINGS: 'embeddings',
+  DECISIONS: 'decisions',
+  AUDIO: 'audio',
+  RERANK: 'rerank',
+  IMAGE: 'image',
 } as const
 
 /**
@@ -329,6 +339,14 @@ export const TASK_ACTION_MAPPINGS: Record<string, StatusMapping> = {
     label: 'Video Remix',
     variant: 'blue',
   },
+  [TASK_ACTIONS.CHAT]: { label: 'Chat', variant: 'neutral' },
+  [TASK_ACTIONS.CHAT_IMAGE]: { label: 'Chat image', variant: 'neutral' },
+  [TASK_ACTIONS.COMPLETIONS]: { label: 'Completions', variant: 'neutral' },
+  [TASK_ACTIONS.EMBEDDINGS]: { label: 'Embeddings', variant: 'neutral' },
+  [TASK_ACTIONS.DECISIONS]: { label: 'Decisions', variant: 'neutral' },
+  [TASK_ACTIONS.AUDIO]: { label: 'Audio', variant: 'neutral' },
+  [TASK_ACTIONS.RERANK]: { label: 'Rerank', variant: 'neutral' },
+  [TASK_ACTIONS.IMAGE]: { label: 'Image', variant: 'neutral' },
 }
 
 /**

@@ -2452,7 +2452,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For OpenRouter channels, expressions only display indicative prices. Charges use OpenRouter cost × effective group and exchange-rate factor; expression rules and local tool fees are not added.": "OpenRouter チャネルでは、式は目安の価格表示にのみ使われます。料金は OpenRouter の費用 × グループと為替の実効係数で計算され、式のルールやローカルのツール料金は加算されません。",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "予約した音声合成の文字数",
     "Reserved speech UTF-8 bytes": "予約した音声合成の UTF-8 バイト数",
     "Reserved speech seconds": "予約した音声合成の秒数",
-    "Reserved search units": "予約した検索ユニット数"
+    "Reserved search units": "予約した検索ユニット数",
+    "Chat image": "チャット画像",
+    "Completions": "補完",
+    "Decisions": "判定",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "タスクログはありません。非同期タスクが送信されると、ここにタスクログが表示されます。"
   }
 }

@@ -22,6 +22,10 @@ export const STATIC_I18N_KEYS = [
   // OpenRouter synchronous task billing state filter labels.
   'Needs decision',
   'Awaiting cost',
+  // OpenRouter synchronous task action labels.
+  'Chat image',
+  'Completions',
+  'Decisions',
   // OpenRouter synchronous task operator decision validation.
   'Evidence is required',
   'Enter a USD amount with at most 12 decimal places',

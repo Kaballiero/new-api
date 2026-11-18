@@ -2452,7 +2452,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相關項目",
     "footer.defaultCopyright": "版權所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
+    "footer.newapi.projectAttributionSuffix": "版權所有，由項目貢獻者設計與開發。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "對於 2025 年 5 月 10 日之後新增的渠道，在部署時無需從模型名稱中移除 \".\"",
     "For OpenRouter channels, expressions only display indicative prices. Charges use OpenRouter cost × effective group and exchange-rate factor; expression rules and local tool fees are not added.": "對於 OpenRouter 渠道，運算式僅顯示參考價格。費用按 OpenRouter 成本 × 有效分組及匯率係數計算，不疊加運算式規則或本地工具費用。",
     "For private deployments, format: https://fastgpt.run/api/openapi": "對於私有部署，格式為：https://fastgpt.run/api/openapi",
@@ -6398,6 +6398,10 @@
     "Reserved speech characters": "預留語音字元數",
     "Reserved speech UTF-8 bytes": "預留語音 UTF-8 位元組數",
     "Reserved speech seconds": "預留語音秒數",
-    "Reserved search units": "預留搜尋單元數"
+    "Reserved search units": "預留搜尋單元數",
+    "Chat image": "聊天圖片",
+    "Completions": "補全",
+    "Decisions": "決策",
+    "No task logs available. Task logs will appear here once async tasks are submitted.": "暫無任務日誌。提交非同步任務後，任務日誌將顯示在此處。"
   }
 }
