@@ -2966,6 +2966,32 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 	}
 }
 
+// The API key of a speech request may be deleted before the poller confirms
+// its cost (dev tasks 552 and 556); the settlement still applies.
+func TestOpenRouterAudioSettlesAfterTokenDeleted(t *testing.T) {
+	c, info := newOpenRouterAudioReservation(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":{"id":"gen-audio-fixture","model":"vendor/audio","api_type":"tts","cancelled":false,"generation_time":null,"total_cost":0.04}}`)
+	}))
+	defer server.Close()
+	require.NoError(t, taskrecord.ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", http.Header{"Authorization": []string{"Bearer account-fixture"}}))
+	require.NoError(t, taskrecord.RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-audio-fixture"}}}, nil))
+	require.NoError(t, taskrecord.CompleteOpenRouterSyncTask(c, info, []byte("durable audio"), "audio/mpeg"))
+	require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+
+	RunTaskPollingOnce(t.Context(), nil)
+
+	task, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, record.TaskStatus(record.TaskStatusSuccess), task.Status)
+	assert.True(t, task.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, 40, task.Quota)
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+	var token model.Token
+	require.NoError(t, model.DB.Unscoped().First(&token, info.TokenId).Error)
+	assert.Equal(t, 9960, token.RemainQuota)
+}
+
 func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 	for _, hasGeneration := range []bool{false, true} {
 		t.Run(fmt.Sprint("generation_", hasGeneration), func(t *testing.T) {

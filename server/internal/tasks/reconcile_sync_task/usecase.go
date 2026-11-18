@@ -2,7 +2,6 @@ package reconcile_sync_task
 
 import (
 	"context"
-	"errors"
 	"math"
 	"net/url"
 	"strings"
@@ -42,6 +41,9 @@ func NewUsecase(store Store, codec Projection, settlement Settlement, metadata M
 	return Usecase{store: store, codec: codec, settlement: settlement, metadata: metadata, now: now}
 }
 
+// settlementRetryDelay spaces the retries of a settlement that moved no balances.
+const settlementRetryDelay = time.Minute
+
 // pollOpenRouterSync uses the existing Task scheduler, never a paid submit.
 // Only the winner of a revision-checked terminal claim may move funds.
 func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
@@ -80,6 +82,11 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 		if now.Unix() < a.NextPoll {
 			return nil
 		}
+		// Claim the retry before money moves; a stale poller loses this claim.
+		a.NextPoll = now.Add(settlementRetryDelay).Unix()
+		if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+			return err
+		}
 		return u.finishSettlement(task)
 	}
 	if now.Unix() >= a.Deadline || a.Attempts >= 16 {
@@ -110,12 +117,13 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 	a.LastHTTPStatus, a.LastError, a.LastLookupClass = status, class, class
 	if class == "" {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, cost
-		priorStatus, priorProgress, priorFailReason := task.Status, task.Progress, task.FailReason
-		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
+		u.settlement.Prepare(task)
 		if r.SettlementPending {
 			// The Task turns terminal only once its settlement applies, so the
 			// poller retries a settlement that failed or was interrupted.
-			task.Status, task.Progress, task.FinishTime, task.FailReason = priorStatus, priorProgress, 0, priorFailReason
+			a.NextPoll = now.Add(settlementRetryDelay).Unix()
+		} else {
+			domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
 		}
 	} else if class == "auth" || class == "account_binding_changed" || class == "identity_or_invalid_cost" || class == "permanent_http_error" {
 		domain.MarkSyncManual(task, class, u.now().Unix())
@@ -135,23 +143,18 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 	return nil
 }
 
-// settlementRetryDelay spaces the retries of a settlement that moved no balances.
-const settlementRetryDelay = time.Minute
-
-// finishSettlement applies the frozen settlement, then records the terminal
-// result. A settlement that moved no balances keeps the Task pollable; one that
-// moved them is never replayed and leaves only its repair to an operator.
+// finishSettlement applies the frozen settlement claimed by the caller, then
+// records the terminal result. A settlement that moved no balances keeps the
+// Task pollable at its claimed retry time; one that moved them is never
+// replayed and leaves only its repair to an operator.
 func (u Usecase) finishSettlement(task *domain.Task) error {
-	a := task.PrivateData.OpenRouterSyncState()
 	settleErr := u.settlement.SettleDurable(task)
 	if settleErr != nil && !task.PrivateData.Reconciliation.MainApplied {
-		a.NextPoll = u.now().Add(settlementRetryDelay).Unix()
-		u.codec.Project(task)
-		return errors.Join(settleErr, u.store.UpdateRevision(task, a.Revision))
+		return settleErr
 	}
 	domain.FinishSyncTask(task, u.now().Unix(), func(*domain.Task) {})
 	u.codec.Project(task)
-	if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+	if err := u.store.UpdateRevision(task, task.PrivateData.OpenRouterSyncState().Revision); err != nil {
 		return err
 	}
 	return settleErr

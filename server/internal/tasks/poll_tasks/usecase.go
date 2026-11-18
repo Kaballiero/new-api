@@ -125,6 +125,10 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 				if activeSubmission {
 					due = now >= audio.LeaseUntil
 				}
+				// A confirmed cost awaiting its settlement waits only for its retry time.
+				if reconciliation != nil && (reconciliation.SettlementPending || reconciliation.Finalized) {
+					due = now >= audio.NextPoll
+				}
 				if due && len(audioTasks) < audioLimit {
 					audioTasks = append(audioTasks, task)
 				}

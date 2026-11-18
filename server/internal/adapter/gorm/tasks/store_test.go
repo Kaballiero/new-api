@@ -511,6 +511,47 @@ func TestManualHoldsSelectRootHoldsAndKeepPrivateDataWhenMarked(t *testing.T) {
 	assert.Equal(t, missingIdentity.FailReason, saved.FailReason)
 }
 
+func TestOpenRouterSyncClaimNeverRevertsAppliedSettlement(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		mainApplied         bool
+		finalized           bool
+		staleFinalizedClaim bool
+	}{
+		{name: "balances applied", mainApplied: true},
+		{name: "settlement finalized", mainApplied: true, finalized: true},
+		{name: "finalized claim keeps the finalized state", mainApplied: true, finalized: true, staleFinalizedClaim: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, db := newTaskTestStore(t)
+			task := &record.Task{TaskID: "task_settling", Platform: constant.TaskPlatformOpenRouterAudio, Action: "audio", Status: record.TaskStatusInProgress, Quota: 3,
+				PrivateData: record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, SettlementPending: !tc.finalized,
+					MainApplied: tc.mainApplied, Finalized: tc.finalized}, OpenRouterAudio: &record.OpenRouterSyncTask{Revision: 4}}}
+			insertTask(t, db, task)
+
+			// A poller whose snapshot predates the settlement claims the same revision.
+			stale := *task
+			stale.Quota = 50
+			stale.PrivateData = record.TaskPrivateData{Reconciliation: &record.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, SettlementPending: true},
+				OpenRouterAudio: &record.OpenRouterSyncTask{Revision: 4}}
+			if tc.staleFinalizedClaim {
+				stale.Quota, stale.PrivateData.Reconciliation = 3, &record.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, MainApplied: true, Finalized: true}
+			}
+			err := store.UpdateOpenRouterSync(&stale, 4)
+			if tc.staleFinalizedClaim {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var saved record.Task
+			require.NoError(t, db.First(&saved, task.ID).Error)
+			assert.Equal(t, 3, saved.Quota)
+			assert.True(t, saved.PrivateData.Reconciliation.MainApplied)
+			assert.Equal(t, 4, saved.PrivateData.OpenRouterAudio.Revision)
+		})
+	}
+}
+
 func TestAdminTaskListSelectsOpenRouterSyncTasksByBillingStateAndHoldReasonPostgres(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {

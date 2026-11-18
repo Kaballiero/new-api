@@ -99,34 +99,61 @@ func TestReconciliationPreservesUnknownCostAndClaimsBeforeEffects(t *testing.T) 
 func TestReconciliationRetriesSettlementBeforeTerminalResult(t *testing.T) {
 	now := time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)
 	cancelled := false
-	state := &domain.OpenRouterSyncTask{LeaseUntil: now.Unix() - 1, Deadline: now.Add(24 * time.Hour).Unix(), MetadataURL: "https://provider.invalid/v1/generation",
-		ResultReady: true, ResultMimeType: "audio/mpeg"}
-	task := &domain.Task{TaskID: "task-sync", Platform: string(domain.TaskPlatformOpenRouterAudio), Action: domain.TaskActionAudio, Status: domain.TaskStatusInProgress, Progress: "10%", Quota: 50,
-		Properties:  domain.Properties{UpstreamModelName: "author/model"},
-		PrivateData: domain.TaskPrivateData{UpstreamTaskID: "gen-fixture", OpenRouterAudio: state, Reconciliation: &domain.TaskReconciliation{ReservedQuota: 50}},
+	newTask := func(reconciliation *domain.TaskReconciliation) (*domain.Task, *domain.OpenRouterSyncTask) {
+		state := &domain.OpenRouterSyncTask{LeaseUntil: now.Unix() - 1, Deadline: now.Add(24 * time.Hour).Unix(), MetadataURL: "https://provider.invalid/v1/generation",
+			ResultReady: true, ResultMimeType: "audio/mpeg", Attempts: 1}
+		return &domain.Task{TaskID: "task-sync", Platform: string(domain.TaskPlatformOpenRouterAudio), Action: domain.TaskActionAudio, Status: domain.TaskStatusInProgress, Progress: "10%", Quota: 50,
+			Properties:  domain.Properties{UpstreamModelName: "author/model"},
+			PrivateData: domain.TaskPrivateData{UpstreamTaskID: "gen-fixture", OpenRouterAudio: state, Reconciliation: reconciliation},
+		}, state
 	}
-	fixture := &syncFixture{settleError: errors.New("settlement interrupted"), metadata: domain.SyncMetadata{ID: "gen-fixture", Model: "author/model", APIType: "tts",
-		Cancelled: &cancelled, CostPresent: true, CostValid: true, CostUSD: 0.0000074}}
-	usecase := NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now })
+	metadata := domain.SyncMetadata{ID: "gen-fixture", Model: "author/model", APIType: "tts", Cancelled: &cancelled, CostPresent: true, CostValid: true, CostUSD: 0.0000074}
 
-	require.ErrorIs(t, usecase.Execute(t.Context(), task), fixture.settleError)
-	assert.Equal(t, []string{"metadata", "prepare", "project", "revision", "settle", "project", "revision"}, fixture.events)
-	assert.Equal(t, domain.TaskStatus(domain.TaskStatusInProgress), task.Status, "an unapplied settlement keeps the Task pollable")
-	assert.Equal(t, "10%", task.Progress)
-	assert.True(t, task.PrivateData.Reconciliation.SettlementPending)
+	t.Run("unapplied settlement is retried without a new lookup", func(t *testing.T) {
+		task, state := newTask(&domain.TaskReconciliation{ReservedQuota: 50})
+		state.Attempts = 0
+		fixture := &syncFixture{settleError: errors.New("settlement interrupted"), metadata: metadata}
+		current := now
+		usecase := NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return current })
 
-	assert.Equal(t, now.Add(time.Minute).Unix(), state.NextPoll)
+		require.ErrorIs(t, usecase.Execute(t.Context(), task), fixture.settleError)
+		assert.Equal(t, []string{"metadata", "prepare", "project", "revision", "settle"}, fixture.events, "the retry time is claimed before money moves")
+		assert.Equal(t, domain.TaskStatus(domain.TaskStatusInProgress), task.Status, "an unapplied settlement keeps the Task pollable")
+		assert.Equal(t, "10%", task.Progress)
+		assert.True(t, task.PrivateData.Reconciliation.SettlementPending)
+		assert.Equal(t, now.Add(time.Minute).Unix(), state.NextPoll)
 
-	// A due pass repeats only the settlement, never the cost lookup.
-	fixture.events, fixture.settleError = nil, nil
-	require.NoError(t, usecase.Execute(t.Context(), task))
-	assert.Empty(t, fixture.events, "the retry waits for its due time")
-	now = now.Add(time.Minute)
-	require.NoError(t, usecase.Execute(t.Context(), task))
-	assert.Equal(t, []string{"settle", "project", "revision"}, fixture.events)
-	assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status)
-	assert.Equal(t, "100%", task.Progress)
-	assert.Equal(t, 1, state.Attempts)
+		fixture.events, fixture.settleError = nil, nil
+		require.NoError(t, usecase.Execute(t.Context(), task))
+		assert.Empty(t, fixture.events, "the retry waits for its due time")
+		current = now.Add(time.Minute)
+		require.NoError(t, usecase.Execute(t.Context(), task))
+		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status)
+		assert.Equal(t, "100%", task.Progress)
+		assert.Equal(t, 1, state.Attempts)
+	})
+	t.Run("applied balances are not replayed", func(t *testing.T) {
+		task, _ := newTask(&domain.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, HasUpstreamCost: true, UpstreamCostConfirmed: true, SettlementPending: true, MainApplied: true})
+		fixture := &syncFixture{settleError: errors.New("settlement log failed")}
+		require.ErrorIs(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task), fixture.settleError)
+		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status, "repair is left to an operator")
+	})
+	t.Run("finalized settlement only records the terminal result", func(t *testing.T) {
+		task, _ := newTask(&domain.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, HasUpstreamCost: true, UpstreamCostConfirmed: true, MainApplied: true, Finalized: true})
+		fixture := &syncFixture{}
+		require.NoError(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task))
+		assert.Equal(t, []string{"revision", "settle", "project", "revision"}, fixture.events)
+		assert.Equal(t, domain.TaskStatus(domain.TaskStatusSuccess), task.Status)
+	})
+	t.Run("stale retry claim moves no money", func(t *testing.T) {
+		task, _ := newTask(&domain.TaskReconciliation{ReservedQuota: 50, TargetQuota: 3, HasUpstreamCost: true, UpstreamCostConfirmed: true, SettlementPending: true})
+		stale := errors.New("stale revision")
+		fixture := &syncFixture{claimError: stale}
+		require.ErrorIs(t, NewUsecase(fixture, fixture, fixture, fixture, func() time.Time { return now }).Execute(t.Context(), task), stale)
+		assert.Equal(t, []string{"revision"}, fixture.events)
+	})
 }
 
 func TestReconciliationMatchesGenerationOfTaskAction(t *testing.T) {
