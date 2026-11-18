@@ -120,7 +120,6 @@ func disableTaskFixtureArtifacts(t *testing.T) {
 
 var ErrOpenRouterSyncOperatorInvalid = taskdomain.ErrOpenRouterSyncOperatorInvalid
 var ErrOpenRouterSyncOperatorConflict = taskdomain.ErrOpenRouterSyncOperatorConflict
-var HoldOpenRouterSyncTaskForReconciliation = taskrecord.HoldOpenRouterSyncTaskForReconciliation
 
 func ApplyOpenRouterSyncOperatorDecision(taskID, action, cost, evidence string, operatorID int) (taskdomain.OpenRouterSyncOperatorResult, error) {
 	return tasksapp.NewReconciler().Operator(context.Background(), apply_sync_operator_decision.Input{TaskID: taskID, Action: action, CostUSD: cost, Evidence: evidence, OperatorID: operatorID})

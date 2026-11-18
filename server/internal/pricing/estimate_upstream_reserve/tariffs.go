@@ -77,8 +77,8 @@ var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogS
 
 // loadTariffs takes the tariffs of every routable model once per tariff model.
 // The catalog prices text generation, embeddings, speech, rerank and
-// transcription, Batch included, on a channel on the official OpenRouter API;
-// decisions, Chat audio output and image output stay live. Such a model takes the
+// decisions and transcription, Batch included, on a channel on the official
+// OpenRouter API; Chat audio output and image output stay live. Such a model takes the
 // catalog document of its tariff model while the catalog data is at most
 // maxAge old: its fetchedAt is the time the data last changed, so a catalog
 // nobody refreshed goes stale and the reserve falls back to live. Otherwise the model is discovered live; when
@@ -86,7 +86,7 @@ var tariffSourcePrecedence = []domain.ReserveSource{domain.ReserveSourceCatalogS
 // error is returned (domain.ModelTariff).
 func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	published := u.catalog.Load()
-	liveOperation := in.Decisions || in.Audio || in.ImageOutput || in.ImageReserveOnly
+	liveOperation := in.Audio || in.ImageOutput || in.ImageReserveOnly
 	var catalog map[string]domain.NativeEndpointResponse
 	fresh := false
 	if published != nil && !liveOperation && domain.IsOpenRouterCatalogBaseURL(in.ChannelBaseURL) {
@@ -108,16 +108,9 @@ func (u Usecase) loadTariffs(in Input) (requestTariffs, error) {
 	return tariffs, nil
 }
 
-// reserveSource names what the reserve of a request is priced from: the
-// configured price, then the approximate (manual) reserve of the channel,
-// then the model tariffs by tariffSourcePrecedence.
-func reserveSource(in Input, tariffs requestTariffs) domain.ReserveSource {
-	if in.ConfiguredPrice {
-		return domain.ReserveSourceConfiguredPrice
-	}
-	if in.ApproximateReserveUSD != nil {
-		return domain.ReserveSourceManual
-	}
+// tariffSource names the model tariffs the reserve of a request is priced
+// from by tariffSourcePrecedence.
+func (tariffs requestTariffs) tariffSource() domain.ReserveSource {
 	source := domain.ReserveSourceCatalog
 	for _, tariff := range tariffs {
 		if slices.Index(tariffSourcePrecedence, tariff.source) < slices.Index(tariffSourcePrecedence, source) {

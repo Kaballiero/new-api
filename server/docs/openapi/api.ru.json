@@ -16547,6 +16547,7 @@
                                 "enum": [
                                   "model_approximate_reserve",
                                   "model_reserve_add_on",
+                                  "model_reserve_floor",
                                   "sonar_research_approximate_reserve",
                                   null
                                 ],
@@ -16634,6 +16635,17 @@
                                 },
                                 "type": "array"
                               },
+                              "reference_operation": {
+                                "enum": [
+                                  "chat/completions",
+                                  "embeddings",
+                                  "audio/speech",
+                                  "rerank",
+                                  null
+                                ],
+                                "nullable": true,
+                                "type": "string"
+                              },
                               "upstream_model": {
                                 "nullable": true,
                                 "type": "string"
@@ -16648,6 +16660,7 @@
                               "configured_usd",
                               "effective_source",
                               "admission_policy",
+                              "reference_operation",
                               "example_usd",
                               "example_status",
                               "example_error",

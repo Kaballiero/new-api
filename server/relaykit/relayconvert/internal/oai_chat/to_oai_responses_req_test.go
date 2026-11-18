@@ -176,3 +176,35 @@ func assistantMessageWithTool(content string, id string, name string, args strin
 	})
 	return msg
 }
+
+// OpenRouter plugins, server tool parameters and limits reach the Responses
+// request; a negative max_tool_calls is a conversion error, never dropped.
+func TestChatCompletionsRequestToResponsesRequestPreservesOpenRouterServerToolFields(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, wantError string
+	}{
+		{name: "fields copied", raw: `{"model":"m","messages":[{"role":"user","content":"hi"}],"plugins":[{"id":"web"}],"stop_server_tools_when":{"max_cost":1},"max_tool_calls":2,"tools":[{"type":"openrouter:web_search","parameters":{"max_uses":1}}]}`},
+		{name: "explicit zero max_tool_calls kept", raw: `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tool_calls":0}`},
+		{name: "absent fields stay absent", raw: `{"model":"m","messages":[{"role":"user","content":"hi"}]}`},
+		{name: "negative max_tool_calls", raw: `{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tool_calls":-1}`, wantError: "max_tool_calls must not be negative"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var req dto.GeneralOpenAIRequest
+			require.NoError(t, kitutil.Unmarshal([]byte(tc.raw), &req))
+			got, err := ChatCompletionsRequestToResponsesRequest(&req)
+			if tc.wantError != "" {
+				require.EqualError(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			encoded, err := kitutil.Marshal(got)
+			require.NoError(t, err)
+			for _, path := range []string{"plugins", "stop_server_tools_when", "max_tool_calls"} {
+				assert.Equal(t, gjson.Get(tc.raw, path).Raw, gjson.GetBytes(encoded, path).Raw, path)
+			}
+			if tools := gjson.Get(tc.raw, "tools"); tools.Exists() {
+				assert.JSONEq(t, tools.Raw, gjson.GetBytes(encoded, "tools").Raw)
+			}
+		})
+	}
+}

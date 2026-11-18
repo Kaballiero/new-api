@@ -46,9 +46,12 @@ type Input struct {
 	Parameters map[string]json.RawMessage
 	Modalities []string
 	TextOutput bool
-	// ImageOutput, Audio and Decisions name an output whose quantity endpoint
-	// tariffs do not measure; Audio covers Chat audio output.
-	ImageOutput, Audio, Decisions bool
+	// ImageOutput and Audio name an output whose quantity endpoint tariffs do
+	// not measure; Audio covers Chat audio output.
+	ImageOutput, Audio bool
+	// Decisions is a decisions request, priced from its prompt tokens, the
+	// request price and its Searches.
+	Decisions bool
 	// Rerank is a rerank request, priced from its Units.
 	Rerank bool
 	// Units are the measured quantities of an operation priced only from the
@@ -70,16 +73,17 @@ type Input struct {
 	DefaultOutputTokens int
 	MaxTokensLimit      int
 	// Searches are the web searches the request may run on the native search
-	// of the endpoint's provider, at most 32; searchCost prices them.
+	// of the endpoint's provider, at most 32, or a decision model may run, at
+	// most 100; searchCost prices them.
 	Searches int
 	// ManualSearch is a search on an engine without an endpoint price, which
 	// SearchReserveUSD alone covers.
 	ManualSearch bool
-	// ApproximateReserveUSD is the whole-hold reserve, AddOnReserveUSD the
-	// reserve added for hosted search of a priced endpoint and
-	// SearchReserveUSD the reserve for requested hosted search that no
+	// ApproximateReserveUSD is the whole-hold reserve, FloorReserveUSD the
+	// least reserve over the estimate priced from endpoint tariffs and
+	// SearchReserveUSD the reserve added for requested hosted search that no
 	// endpoint price covers (searchCost).
-	ApproximateReserveUSD, AddOnReserveUSD, SearchReserveUSD *float64
+	ApproximateReserveUSD, FloorReserveUSD, SearchReserveUSD *float64
 }
 
 // Estimate is the reserve of a request. InputUSD, PromptPriceUSD,
@@ -89,10 +93,15 @@ type Estimate struct {
 	USD                                      float64
 	InputUSD, PromptPriceUSD, OutputPriceUSD decimal.Decimal
 	OutputTokens                             int
-	// IncludesAddOnReserve reports that the maximum endpoint cost includes the
-	// add-on or the search reserve.
-	IncludesAddOnReserve bool
-	// Source is what the reserve is priced from (reserveSource).
+	// IncludesSearchReserve reports that the maximum endpoint cost includes the
+	// search reserve (SearchReserveUSD).
+	IncludesSearchReserve bool
+	// Source is what set the reserve: the configured price, or the manual
+	// reserve held whole or as the floor, when it exceeds the estimate priced
+	// from the model tariffs; otherwise the tariffs by tariffSourcePrecedence.
+	// With a configured price the approximate reserve is the larger of the
+	// configured price and the channel reserve, and configured_price names
+	// that amount.
 	Source domain.ReserveSource
 	// StaleCatalog reports that a stale catalog document priced a model,
 	// whatever the Source.
@@ -137,7 +146,7 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 // price takes the complete maximum over the eligible endpoints of every
 // routable model. Price strings are USD per token/request/image. An
 // unavailable monetary estimate is a *domain.EstimateUnavailableError; with
-// an add-on reserve it is returned at the first such endpoint. The tariff
+// a floor reserve it is returned at the first such endpoint. The tariff
 // model it returns instead is a catalog tariff to price again from live
 // (modelTariffs.checksLive); it is empty otherwise.
 func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, string, error) {
@@ -148,7 +157,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 		flexFallback bool
 	}
 	approximateReserve := in.ApproximateReserveUSD != nil
-	addOnReserve := in.AddOnReserveUSD != nil
+	floorReserve := in.FloorReserveUSD != nil
 	outputReserve := in.TextOutput && !approximateReserve
 	// localCover is the explicit local/minimum policy that alone covers an
 	// unavailable monetary estimate.
@@ -260,7 +269,11 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
 				return Estimate{}, "", errors.New("invalid OpenRouter endpoint token limits")
 			}
-			if endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens {
+			// The prompt tokens of decisions are a byte bound that may exceed
+			// the context of an endpoint OpenRouter still routes to, so the
+			// context limits never drop a decisions endpoint from the reserve.
+			exceedsContext := endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens
+			if exceedsContext && !in.Decisions {
 				continue
 			}
 			output := 0
@@ -378,7 +391,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			// A pool the filters narrowed may hold fewer endpoints than live,
 			// so it never prices the model: only the local cover does, as for
 			// an unknown price, and otherwise the live error refuses it.
-			if addOnReserve {
+			if floorReserve {
 				return Estimate{}, "", &domain.EstimateUnavailableError{Cause: modelTariff.liveErr}
 			}
 			if !localCover {
@@ -400,10 +413,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			var cost, promptPrice, outputPrice decimal.Decimal
 			var estimateErr error
 			includesReserve := false
-			if in.Decisions {
-				// State may contain arbitrary structures/media; token estimates are unmeasured.
-				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
-			} else if in.Audio {
+			if in.Audio {
 				// Audio rates may be per character, second, token or song.
 				// Token caps and zero token tariffs do not price those quantities.
 				estimateErr = &domain.EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
@@ -414,16 +424,16 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			} else if pricingErr != nil {
 				estimateErr = &domain.EstimateUnavailableError{Cause: pricingErr}
 			} else {
-				cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
+				if in.Decisions {
+					estimateErr = u.assertDecisionOutputUnpriced(tariff)
+				}
 				if estimateErr == nil {
-					search, reserved, err := u.searchCost(in, tariff, modelTariff)
-					if modelTariff.missesCatalogPrice(err) {
-						return Estimate{}, tariffModel, nil
-					}
-					if err != nil {
-						return Estimate{}, "", err
-					}
-					cost, includesReserve = cost.Add(search), reserved
+					cost, promptPrice, outputPrice, estimateErr = u.estimateEndpointCost(tariff, model, in.PromptTokens, output, in.Count, in.Images, in.ImageTokens, in.ApproximateReserveUSD, in.ImageOutput)
+				}
+				if estimateErr == nil {
+					var search decimal.Decimal
+					search, includesReserve, estimateErr = u.searchCost(in, tariff, modelTariff)
+					cost = cost.Add(search)
 				}
 			}
 			if estimateErr != nil {
@@ -431,7 +441,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 					return Estimate{}, tariffModel, nil
 				}
 				var unavailable *domain.EstimateUnavailableError
-				if addOnReserve && errors.As(estimateErr, &unavailable) {
+				if floorReserve && errors.As(estimateErr, &unavailable) {
 					return Estimate{}, "", estimateErr
 				}
 				if !localCover || !errors.As(estimateErr, &unavailable) {
@@ -454,7 +464,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
-				estimate.IncludesAddOnReserve = includesReserve
+				estimate.IncludesSearchReserve = includesReserve
 			}
 			found = true
 		}
@@ -474,14 +484,29 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 		}
 		return Estimate{}, "", domain.ErrNoCompatibleEndpoint
 	}
+	// The source names the value that set the reserve: the configured price
+	// or the approximate reserve of the channel only above the estimate,
+	// otherwise the model tariffs.
+	estimate.Source = tariffsByModel.tariffSource()
 	if approximateReserve {
-		maximum = decimal.Max(maximum, decimal.NewFromFloat(*in.ApproximateReserveUSD))
+		if approximate := decimal.NewFromFloat(*in.ApproximateReserveUSD); approximate.GreaterThan(maximum) {
+			maximum = approximate
+			estimate.Source = domain.ReserveSourceManual
+			if in.ConfiguredPrice {
+				estimate.Source = domain.ReserveSourceConfiguredPrice
+			}
+		}
+	}
+	if floorReserve {
+		if floor := decimal.NewFromFloat(*in.FloorReserveUSD); floor.GreaterThan(maximum) {
+			maximum = floor
+			estimate.Source = domain.ReserveSourceManual
+		}
 	}
 	estimate.USD, _ = maximum.Float64()
 	if math.IsInf(estimate.USD, 0) || math.IsNaN(estimate.USD) {
 		return Estimate{}, "", errors.New("OpenRouter estimate overflow")
 	}
-	estimate.Source = reserveSource(in, tariffsByModel)
 	estimate.StaleCatalog = tariffsByModel.hasStaleDocument()
 	return estimate, "", nil
 }

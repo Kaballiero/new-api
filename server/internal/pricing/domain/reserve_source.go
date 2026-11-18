@@ -1,7 +1,7 @@
 package domain
 
-// ReserveSource is what the reserve of an OpenRouter request is priced from;
-// the admin log records it as openrouter_reservation_source.
+// ReserveSource is what set the reserve of an OpenRouter request; the admin
+// log records it as openrouter_reservation_source.
 type ReserveSource string
 
 const (
@@ -13,9 +13,12 @@ const (
 	// ReserveSourceLive is the endpoints OpenRouter publishes at request time.
 	ReserveSourceLive ReserveSource = "live"
 	// ReserveSourceConfiguredPrice is the configured local price of the channel
-	// model.
+	// model, together with the channel reserve when both are set, when it
+	// exceeds the estimate priced from the endpoint tariffs.
 	ReserveSourceConfiguredPrice ReserveSource = "configured_price"
-	// ReserveSourceManual is the approximate reserve of the channel model.
+	// ReserveSourceManual is the manual reserve of the channel model, held
+	// whole as the approximate reserve or as the floor, when it exceeds the
+	// estimate priced from the endpoint tariffs.
 	ReserveSourceManual ReserveSource = "manual"
 )
 
@@ -48,9 +51,12 @@ const (
 	// AdmissionPolicyModelApproximateReserve holds the approximate reserve of
 	// the channel model whole.
 	AdmissionPolicyModelApproximateReserve AdmissionPolicy = "model_approximate_reserve"
-	// AdmissionPolicyModelReserveAddOn adds the reserve of the channel model to
-	// the endpoints that price hosted search.
+	// AdmissionPolicyModelReserveAddOn adds the reserve of the channel model
+	// for requested hosted search that no endpoint price covers.
 	AdmissionPolicyModelReserveAddOn AdmissionPolicy = "model_reserve_add_on"
+	// AdmissionPolicyModelReserveFloor holds at least the reserve of the
+	// channel model over an estimate priced from endpoint tariffs.
+	AdmissionPolicyModelReserveFloor AdmissionPolicy = "model_reserve_floor"
 	// AdmissionPolicySonarResearchApproximateReserve holds the approximate
 	// reserve of perplexity/sonar-deep-research whole.
 	AdmissionPolicySonarResearchApproximateReserve AdmissionPolicy = "sonar_research_approximate_reserve"

@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -89,11 +90,14 @@ type NativeImageInfo struct {
 	PricingUnknown   bool
 	RequestBody      []byte
 	EstimatedCostUSD float64
-	ActualCostUSD    *float64
-	ChannelID        int
-	Sent             bool
-	OutcomeUnknown   bool
-	ProviderTag      string
+	// ReserveSource is what set EstimatedCostUSD: the live endpoint tariffs,
+	// or the channel reserve when it exceeds every tariff estimate.
+	ReserveSource  pricingdomain.ReserveSource
+	ActualCostUSD  *float64
+	ChannelID      int
+	Sent           bool
+	OutcomeUnknown bool
+	ProviderTag    string
 }
 
 type RelayInfo struct {

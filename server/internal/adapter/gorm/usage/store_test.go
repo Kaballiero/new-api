@@ -199,6 +199,31 @@ func TestSerializerWritesOpenRouterReservationSource(t *testing.T) {
 	}
 }
 
+// The admin log names the channel reserve policy of an OpenRouter reserve with
+// its amount and model: the floor over the estimate, or the search add-on.
+func TestSerializerWritesOpenRouterAdmissionPolicy(t *testing.T) {
+	reserve := 2.0
+	for _, tc := range []struct {
+		name  string
+		state domain.OpenRouterCostState
+		want  map[string]any
+	}{
+		{"floor", domain.OpenRouterCostState{ReserveSource: "manual", FloorReserveUSD: &reserve, FloorReserveModel: "acme/a"},
+			map[string]any{"openrouter_admission_policy": "model_reserve_floor", "openrouter_floor_reserve_usd": 2.0, "openrouter_floor_reserve_model": "acme/a"}},
+		{"search add-on over the floor", domain.OpenRouterCostState{ReserveSource: "catalog", AddOnReserveUSD: &reserve, AddOnReserveModel: "acme/a", FloorReserveUSD: &reserve, FloorReserveModel: "acme/a"},
+			map[string]any{"openrouter_admission_policy": "model_reserve_add_on", "openrouter_add_on_reserve_usd": 2.0, "openrouter_add_on_reserve_model": "acme/a", "openrouter_floor_reserve_usd": 2.0, "openrouter_floor_reserve_model": "acme/a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other := consumptionOther(domain.Consumption{Kind: domain.TextConsumption, Request: domain.RequestFacts{ContextPresent: true, OpenRouterCost: &tc.state}, Text: &domain.TextFacts{}}, logMetadata{})
+			admin, ok := other.Snapshot()["admin_info"].(map[string]any)
+			require.True(t, ok)
+			for key, value := range tc.want {
+				assert.Equal(t, value, admin[key], key)
+			}
+		})
+	}
+}
+
 // The admin log names the measured quantities an OpenRouter reserve is priced
 // by beside its source.
 func TestSerializerWritesOpenRouterReservationQuantities(t *testing.T) {

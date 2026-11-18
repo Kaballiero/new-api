@@ -110,7 +110,7 @@ func TestEndpointStatusOperations(t *testing.T) {
 			{"tts", "audio/speech", types.RelayFormatOpenAIAudio, "speech", `,"input":"hello"`, true, .25},
 			{"stt", "audio/transcriptions", types.RelayFormatOpenAIAudio, "transcription", `,"file":{"seconds":60}`, true, .25},
 			{"chat audio music", "chat/completions", types.RelayFormatOpenAI, "audio", `,"modalities":["audio"],"stream":true`, true, .25},
-			{"decisions", "decisions", types.RelayFormatSystemOne, "decisions", `,"state":{},"questions":[]`, true, .25},
+			{"decisions", "decisions", types.RelayFormatSystemOne, "decisions", `,"state":{},"questions":{"q":{}}`, true, .25},
 		} {
 			t.Run(fmt.Sprintf("%d/%s", status, tc.name), func(t *testing.T) {
 				e := NewRequestEstimator()
@@ -580,6 +580,49 @@ func TestRerankUnits(t *testing.T) {
 	require.EqualError(t, err, "invalid OpenRouter rerank request")
 }
 
+// A decisions request reserves the prompt tokens of its state and questions at
+// the prompt price, a token per UTF-8 byte for every model, and one search per
+// question, at most decisionSearchQuestionLimit, at the web_search price. The
+// admin log records both quantities.
+func TestEndpointDecisionReserve(t *testing.T) {
+	questionsOf := func(count int) string {
+		questions := make(map[string]any, count)
+		for i := range count {
+			questions[fmt.Sprintf("q%d", i)] = map[string]any{"type": "noul", "instructions": "Is the order late?"}
+		}
+		raw, err := common.Marshal(questions)
+		require.NoError(t, err)
+		return string(raw)
+	}
+	const state = `"Заказ 42 отправлен вчера"`
+	for _, tc := range []struct {
+		name, model, questions string
+		wantSearches           int
+	}{
+		{name: "a token per byte", model: "google/gemini-decision-1", questions: questionsOf(3), wantSearches: 3},
+		{name: "searches capped at 100 questions", model: "google/gemini-decision-1", questions: questionsOf(101), wantSearches: decisionSearchQuestionLimit},
+		{name: "an OpenAI model counts bytes too", model: "openai/gpt-6-luna-decisions", questions: questionsOf(3), wantSearches: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var endpoint PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`{"tag":"provider","model_id":"`+tc.model+`","pricing":{"prompt":"0.000001","completion":"0","web_search":"0.01"}}`, &endpoint))
+			e := NewRequestEstimator()
+			e.Models[tc.model] = []PricedEndpoint{endpoint}
+			e.OutputModalities[tc.model] = []string{"decisions"}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatSystemOne}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			cost, err := e.Estimate(info, []byte(`{"model":"`+tc.model+`","state":`+state+`,"questions":`+tc.questions+`}`), "decisions")
+			require.NoError(t, err)
+			wantPrompt := len(state) + len(tc.questions)
+			assert.Equal(t, map[pricingdomain.ReserveQuantity]int{
+				pricingdomain.ReserveQuantitySearches:     tc.wantSearches,
+				pricingdomain.ReserveQuantityPromptTokens: wantPrompt,
+			}, e.ReserveQuantities)
+			assert.InDelta(t, float64(wantPrompt)*.000001+float64(tc.wantSearches)*.01, cost, 1e-9)
+		})
+	}
+}
+
 // Tariff maps every field of a live endpoint onto the domain tariff of the
 // same name; a field added to PricedEndpoint must be mapped too.
 func TestPricedEndpointTariffMapsEveryField(t *testing.T) {
@@ -819,6 +862,8 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 	models := map[string]pricingdomain.NativeEndpointResponse{
 		"test/model":  tariff(`{"prompt":"0.001","completion":"0.002"}`),
 		"test/search": tariff(`{"prompt":"0.001","completion":"0.002","web_search":"0.01"}`),
+		// A Perplexity Sonar model searches on its own on every request.
+		"perplexity/sonar-pro": tariff(`{"prompt":"0.000003","completion":"0.000015","web_search":"0.005"}`),
 	}
 	for _, tc := range []struct {
 		name, model string
@@ -831,8 +876,11 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "catalog", model: "test/model", want: 1.2, source: pricingdomain.ReserveSourceCatalog},
-		{name: "add-on on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
-			want: 1.25, source: pricingdomain.ReserveSourceCatalog, use: ReserveAddOn},
+		{name: "floor below the estimate on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
+			want: 1.21, source: pricingdomain.ReserveSourceCatalog, use: ReserveFloor},
+		{name: "floor above the estimate is the manual reserve", model: "test/model", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/model": 3}},
+			want: 3, source: pricingdomain.ReserveSourceManual, use: ReserveFloor},
+		{name: "sonar model prices one unrequested search", model: "perplexity/sonar-pro", want: .0095, source: pricingdomain.ReserveSourceCatalog},
 		{name: "configured price above the catalog", model: "test/model", settings: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{"test/model": dto.OpenRouterReservationConfiguredPrice}},
 			want: 5, configured: true, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
 		{name: "outside the catalog", model: "other/model", wantErr: "OpenRouter endpoint discovery missing for other/model"},

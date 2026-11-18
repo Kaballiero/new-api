@@ -51,6 +51,8 @@ type OpenRouterCostState struct {
 	ApproximateReserveModel       string
 	AddOnReserveUSD               *float64
 	AddOnReserveModel             string
+	FloorReserveUSD               *float64
+	FloorReserveModel             string
 	ConfiguredReserveUSD          *float64
 	ConfiguredReserveModel        string
 	ConfiguredReserveExprHash     string
@@ -66,7 +68,8 @@ type OpenRouterCostState struct {
 
 // OpenRouterOutputReserve bounds a text reserve over its eligible endpoints:
 // an output limit M costs at most InputUSD + OutputPriceUSD*M, plus the
-// prompt tokens its LimitField adds at PromptPriceUSD.
+// prompt tokens its LimitField adds at PromptPriceUSD, and never less than
+// FloorUSD.
 type OpenRouterOutputReserve struct {
 	// ExplicitLimit records that the client sent an output limit. Without it
 	// the reserve covers the default output cap.
@@ -81,14 +84,18 @@ type OpenRouterOutputReserve struct {
 	PromptPriceUSD decimal.Decimal
 	// OutputPriceUSD is the largest price of one output token for all responses.
 	OutputPriceUSD decimal.Decimal
+	// FloorUSD is the channel reserve the reserve never goes below; zero
+	// without one.
+	FloorUSD decimal.Decimal
 }
 
 // AffordableMaxTokens is the largest output limit whose reserve fits the
-// available quota under basis, or zero when none does.
+// available quota under basis, or zero when none does: no limit lowers the
+// reserve below a floor the available quota does not cover.
 func (r OpenRouterOutputReserve) AffordableMaxTokens(basis OpenRouterCostBasis, available int) int {
 	quotaPerUSD := decimal.NewFromFloat(basis.EffectiveGroupRatio).Mul(decimal.NewFromFloat(basis.QuotaPerUnit))
 	outputQuota := r.OutputPriceUSD.Mul(quotaPerUSD)
-	if !outputQuota.IsPositive() {
+	if !outputQuota.IsPositive() || r.FloorUSD.Mul(quotaPerUSD).GreaterThan(decimal.NewFromInt(int64(available))) {
 		return 0
 	}
 	// The limit enters the counted prompt as `,"field":digits`; a text token

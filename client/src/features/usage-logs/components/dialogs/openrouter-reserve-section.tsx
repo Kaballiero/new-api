@@ -54,6 +54,9 @@ export function OpenRouterReserveSection(props: {
   const configuredReservation = orderFacts?.configured_reservation
   const quantityLabels: Record<string, string> = {
     [OPENROUTER_RESERVATION_QUANTITY.SEARCHES]: t('Reserved web searches'),
+    [OPENROUTER_RESERVATION_QUANTITY.PROMPT_TOKENS]: t(
+      'Reserved prompt tokens'
+    ),
     [OPENROUTER_RESERVATION_QUANTITY.AUDIO_SECONDS]: t(
       'Reserved transcription seconds'
     ),
@@ -162,6 +165,17 @@ export function OpenRouterReserveSection(props: {
         value={formatReserve(
           info.openrouter_add_on_reserve_usd,
           info.openrouter_add_on_reserve_model
+        )}
+        mono
+      />
+    ),
+    info.openrouter_floor_reserve_usd != null && (
+      <DetailRow
+        key='floor-reserve'
+        label={t('Floor reserve')}
+        value={formatReserve(
+          info.openrouter_floor_reserve_usd,
+          info.openrouter_floor_reserve_model
         )}
         mono
       />

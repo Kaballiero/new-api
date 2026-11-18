@@ -282,6 +282,7 @@ describe('OpenRouter reserve table rows', () => {
     configured_usd: null,
     effective_source: 'catalog',
     admission_policy: 'upstream_estimate',
+    reference_operation: 'chat/completions',
     example_usd: 0.0571,
     example_status: 'ok',
     example_error: null,

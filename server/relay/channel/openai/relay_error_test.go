@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -412,7 +413,7 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 		{name: "chat text null cost defers to generation", body: `{"id":"gen-text-null","choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, chatText: true, valid: true, deferred: true},
 		{name: "chat text lookup drift after Begin still delivers", body: `{"id":"gen-text-drift","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, lookupDrift: true, billingState: "manual_reconciliation"},
 		{name: "chat text failed hold transfer after Begin still delivers", body: `{"id":"gen-text-commit","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, commitFailure: true, billingState: "reservation_unknown"},
-		{name: "chat text handler failure after deferral holds for reconciliation", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true, billingState: "manual_reconciliation"},
+		{name: "chat text handler failure after deferral awaits generation cost", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true},
 		{name: "chat text missing cost without identity refunds", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
 		{name: "chat text missing cost with invalid identity refunds", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
 		{name: "chat text upstream error is surfaced", body: `{"id":"gen-text-error","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
@@ -449,7 +450,7 @@ func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 					assert.Empty(t, billing.settled)
 					return
 				}
-				// The hold stays in the Task without an automatic charge.
+				// The hold stays in the Task until the lookup charges the generation cost.
 				assert.Equal(t, []int{50}, billing.settled)
 				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
@@ -513,16 +514,18 @@ func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
 			frames: "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
 		{name: "chat text tool call without terminal cost keeps the hold", chatText: true, valid: true, billingState: "awaiting_cost", generationID: "gen-stream-tool",
 			frames: "data: {\"id\":\"gen-stream-tool\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\ndata: {\"id\":\"gen-stream-tool\",\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
-		{name: "chat text role-only chunk then error refunds", chatText: true, upstream: "Upstream error from Nvidia",
+		{name: "chat text role-only chunk then error defers to generation", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-role",
 			frames: "data: {\"id\":\"gen-stream-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: {\"id\":\"gen-stream-role\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text role-only stream without usage or identity refunds", chatText: true,
 			frames: "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: [DONE]\n\n"},
-		{name: "chat text content inside the error chunk is not delivered and refunds", chatText: true, upstream: "Upstream error from Nvidia", undelivered: "lost-content",
+		{name: "chat text content inside the error chunk is not delivered and defers to generation", chatText: true, upstream: "Upstream error from Nvidia", undelivered: "lost-content", billingState: "awaiting_cost", generationID: "gen-stream-joint",
 			frames: "data: {\"id\":\"gen-stream-joint\",\"choices\":[{\"delta\":{\"content\":\"lost-content\"}}],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text reasoning then error keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-reasoning",
 			frames: "data: {\"id\":\"gen-stream-reasoning\",\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}\n\ndata: {\"id\":\"gen-stream-reasoning\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
-		{name: "chat text upstream error before content refunds", chatText: true, upstream: "Upstream error from Nvidia",
+		{name: "chat text upstream error before content defers to generation", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-error",
 			frames: "data: {\"id\":\"gen-stream-error\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text upstream error before content without identity refunds", chatText: true, upstream: "Upstream error from Nvidia",
+			frames: "data: {\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 		{name: "chat text upstream error after content keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-partial",
 			frames: "data: {\"id\":\"gen-stream-partial\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"id\":\"gen-stream-partial\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 	} {
@@ -624,21 +627,26 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		cost                   float64
 		wantErr                string
 		delivered, undelivered string
+		// envelope marks the client format of a delivered response body.
+		envelope string
+		// undeliveredResult means no output reached the client before the Task took the hold.
+		undeliveredResult bool
 	}{
-		{name: "messages/nonstream without terminal cost", format: messages, upstream: chatNonstream, deferred: true, delivered: "partial"},
+		{name: "messages/nonstream without terminal cost", format: messages, upstream: chatNonstream, deferred: true, delivered: "partial", envelope: `"type":"message"`},
 		{name: "messages/nonstream without identity refunds", format: messages, upstream: chatNonstreamWithoutID, wantErr: missingCost},
 		{name: "messages/abort after content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "messages/abort after message_start with content buffered", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"alpha"}`) + chunk(`{"content":"beta"}`),
-			disconnectAt: "message_start", wantErr: missingCost, undelivered: "alpha"},
-		{name: "messages/abort before content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+			disconnectAt: "message_start", deferred: true, undelivered: "alpha", undeliveredResult: true},
+		{name: "messages/abort before content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), deferred: true, undeliveredResult: true},
 		{name: "messages/content in the last chunk without terminal cost", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "messages/completed", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
-		{name: "gemini/nonstream without terminal cost", format: gemini, upstream: chatNonstream, deferred: true, delivered: "partial"},
+		{name: "gemini/nonstream without terminal cost", format: gemini, upstream: chatNonstream, deferred: true, delivered: "partial", envelope: `"candidates"`},
+		{name: "gemini/nonstream without identity refunds", format: gemini, upstream: chatNonstreamWithoutID, wantErr: missingCost},
 		{name: "gemini/abort after content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
-		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), deferred: true, undeliveredResult: true},
 		{name: "gemini/content in the last chunk without terminal cost", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
 		{name: "gemini/completed", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
 
@@ -646,17 +654,17 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 		{name: "responses/nonstream without identity refunds", format: responses, upstream: responsesNonstreamWithoutID, wantErr: missingCost},
 		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
 		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
-		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, wantErr: "OpenRouter upstream reported an error"},
-		{name: "responses/empty delta is not content", format: responses, stream: true, upstream: created + delta(""), wantErr: missingCost},
-		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), wantErr: missingCost},
-		{name: "responses/abort before content", format: responses, stream: true, upstream: created, wantErr: missingCost},
+		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", undeliveredResult: true},
+		{name: "responses/empty delta is not content", format: responses, stream: true, upstream: created + delta(""), deferred: true, undeliveredResult: true},
+		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), deferred: true, undeliveredResult: true},
+		{name: "responses/abort before content", format: responses, stream: true, upstream: created, deferred: true, undeliveredResult: true},
 		{name: "responses/completed", format: responses, stream: true, upstream: created + delta("partial") + responsesCompleted, cost: .004, delivered: "partial"},
 
 		{name: "completions/nonstream without terminal cost", format: completions, upstream: completionNonstream, deferred: true, delivered: "partial"},
 		{name: "completions/nonstream without identity refunds", format: completions, upstream: completionNonstreamWithoutID, wantErr: missingCost},
 		{name: "completions/abort after content", format: completions, stream: true, upstream: completion("partial") + completion(" more") + completion(" lost"),
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
-		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), wantErr: missingCost},
+		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), deferred: true, undeliveredResult: true},
 		{name: "completions/completed", format: completions, stream: true, upstream: completion("partial") + completionCompleted, cost: .004, delivered: "partial"},
 
 		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
@@ -706,6 +714,9 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			if tc.delivered != "" {
 				assert.Contains(t, recorder.Body.String(), tc.delivered)
 			}
+			if tc.envelope != "" {
+				assert.Contains(t, recorder.Body.String(), tc.envelope)
+			}
 			if tc.undelivered != "" {
 				assert.NotContains(t, recorder.Body.String(), tc.undelivered)
 			}
@@ -734,6 +745,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			assert.Equal(t, hold, task.Quota)
 			assert.Equal(t, generationID, task.PrivateData.UpstreamTaskID)
 			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
+			assert.Equal(t, tc.undeliveredResult, task.PrivateData.OpenRouterSync.ResultReason == "undelivered_chat_result")
 			assert.Equal(t, "awaiting_cost", taskdomain.OpenRouterSyncReconciliation(tasksrecord.ToDomain(task))["billing_state"])
 		})
 	}
@@ -893,7 +905,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		rate                                  any
 		reserve                               *float64
 		insufficient, knownAboveReserve       bool
-		general, hostedSearch                 bool
+		general                               bool
 		policyModel                           string
 		endpointModel                         string
 		missingCost                           bool
@@ -947,9 +959,10 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "hosted search priced within the channel hold", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`},
 		{name: "general hosted search priced within the channel hold", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`},
 		{name: "general hosted search without channel hold keeps the unpriced reasoning refusal", model: "other/reasoner", general: true, extra: `,"web_search_options":{}`, wantError: "unsupported billable dimension internal_reasoning"},
-		{name: "general priced hosted search takes no add-on reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, reserveUse: openrouter.ReserveNotApplied},
-		{name: "general priced native search reserve is add-on", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), hostedSearch: true, reserveUse: openrouter.ReserveAddOn},
-		{name: "general priced reserve without search is not applied", model: "other/reasoner", general: true, zeroReasoning: true, rateKey: "web_search", rate: "0", reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveNotApplied},
+		{name: "general priced hosted search takes the floor reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, reserveUse: openrouter.ReserveFloor},
+		{name: "general web_search endpoint takes the floor reserve, not an add-on", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveFloor},
+		{name: "general priced reserve without search is the floor", model: "other/reasoner", general: true, zeroReasoning: true, rateKey: "web_search", rate: "0", reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveFloor},
+		{name: "general search on another engine adds the channel reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"plugins":[{"id":"web","engine":"exa"}]`, reserveUse: openrouter.ReserveAddOn},
 		{name: "preset rejected", reserve: common.GetPointer(2.0), extra: `,"preset":"some-preset"`, wantError: "unpriced execution dimensions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1067,21 +1080,26 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
 				assert.Equal(t, requestedModel, info.OpenRouterCost.ApproximateReserveModel)
 				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+				assert.Nil(t, info.OpenRouterCost.FloorReserveUSD)
 			case openrouter.ReserveAddOn:
 				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
+				require.NotNil(t, info.OpenRouterCost.FloorReserveUSD, "the floor still bounds a request with the search add-on")
+				assert.Equal(t, 2.0, *info.OpenRouterCost.FloorReserveUSD)
 				require.NotNil(t, info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, 2.0, *info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, requestedModel, info.OpenRouterCost.AddOnReserveModel)
-			default:
+			case openrouter.ReserveFloor:
 				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
 				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+				require.NotNil(t, info.OpenRouterCost.FloorReserveUSD)
+				assert.Equal(t, 2.0, *info.OpenRouterCost.FloorReserveUSD)
+				assert.Equal(t, requestedModel, info.OpenRouterCost.FloorReserveModel)
+				assert.Equal(t, pricingdomain.ReserveSourceManual, info.OpenRouterCost.ReserveSource, "the floor above the token estimate is the manual reserve")
 			}
-			if tc.reserveUse == openrouter.ReserveNotApplied {
-				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 0.01, "an unused reserve does not raise the token hold")
-			} else if tc.knownAboveReserve {
+			if tc.knownAboveReserve {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
 				assert.Greater(t, billing.reserved, 1500000)
-			} else if tc.hostedSearch {
+			} else if tc.reserveUse == openrouter.ReserveAddOn {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0, "search hold is added to the token estimate")
 				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.01)
 				assert.Greater(t, billing.reserved, 1500000)
@@ -1188,17 +1206,20 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 		noPolicy, wrongPolicy, noPrice, useRatio          bool
 		missingCost, insufficient, knownAboveLocal        bool
 		zeroTariffs                                       bool
+		// wantSource is the reserve source of an admitted configured price
+		// reserve; configured_price when empty.
+		wantSource pricingdomain.ReserveSource
 	}{
 		{name: "fixed configured price", price: 2},
 		{name: "configured price preserves minimum", price: 2, minimum: 3},
-		{name: "known upstream cost wins", price: 2, rateKey: "completion", rate: "1", knownAboveLocal: true},
+		{name: "known upstream cost wins", price: 2, rateKey: "completion", rate: "1", knownAboveLocal: true, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "expression uses effective payload", expression: `param("max_tokens") == 128 ? tier("effective", fixed(2)) : tier("other", fixed(7))`},
 		{name: "token expression uses USD per million", expression: `tier("tokens", c * 15625)`},
 		{name: "expression receives request headers", expression: `header("x-reserve") == "yes" ? tier("header", fixed(2)) : tier("other", fixed(7))`},
 		{name: "legacy ratio convention", useRatio: true, ratio: 5000},
 		{name: "unknown reasoning accepted by positive estimate", price: 2, rateKey: "internal_reasoning", rate: "0.000003"},
-		{name: "zero local does not erase upstream", price: 0},
-		{name: "confirmed zero preserved", price: 0, zeroTariffs: true},
+		{name: "zero local does not erase upstream", price: 0, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "confirmed zero preserved", price: 0, zeroTariffs: true, wantSource: pricingdomain.ReserveSourceLive},
 		{name: "zero cannot cover unknown quantity", rateKey: "internal_reasoning", rate: "0.000003", wantError: "requires a positive reserve"},
 		{name: "disabled by default", price: 2, noPolicy: true},
 		{name: "explicit upstream", price: 2, source: dto.OpenRouterReservationUpstream},
@@ -1310,7 +1331,9 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 				assert.Equal(t, pricingdomain.ReserveSourceLive, info.OpenRouterCost.ReserveSource)
 			} else {
 				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
-				assert.Equal(t, pricingdomain.ReserveSourceConfiguredPrice, info.OpenRouterCost.ReserveSource)
+				// The configured price names the reserve only above the
+				// upstream estimate.
+				assert.Equal(t, cmp.Or(tc.wantSource, pricingdomain.ReserveSourceConfiguredPrice), info.OpenRouterCost.ReserveSource)
 				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)
@@ -2767,6 +2790,15 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			require.True(t, exists)
 			assert.Equal(t, "rerank", task.Action)
 			assert.Equal(t, constant.TaskPlatformOpenRouterRerank, task.Platform)
+			// The task facts carry the reserve source to the reservation log.
+			wantSource := "manual"
+			if tc.configured {
+				wantSource = "configured_price"
+			}
+			assert.Equal(t, wantSource, task.PrivateData.BillingContext.OpenRouterOrderFacts["reservation_source"])
+			var reservation Log
+			require.NoError(t, logDB.Where("user_id = ?", id).Order("id").First(&reservation).Error)
+			assert.Contains(t, reservation.Other, `"openrouter_reservation_source":"`+wantSource+`"`)
 			assert.Nil(t, task.PrivateData.OpenRouterAudio)
 			require.NotNil(t, task.PrivateData.OpenRouterSync)
 			if task.PrivateData.OpenRouterSync.ResultReady {

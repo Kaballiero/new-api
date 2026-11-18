@@ -45,11 +45,13 @@ type OpenRouterCostState struct {
 	ConfiguredReserveUSD                    *float64
 	ApproximateReserveUSD                   *float64
 	AddOnReserveUSD                         *float64
+	FloorReserveUSD                         *float64
 	ApproximateResearchReserveUSD           *float64
 	ConfiguredReserveModel                  string
 	ConfiguredReserveExprHash               string
 	ApproximateReserveModel                 string
 	AddOnReserveModel                       string
+	FloorReserveModel                       string
 	// ReserveSource is a pricing ReserveSource value; the usage domain keeps
 	// it as text and does not import the pricing domain.
 	ReserveSource string

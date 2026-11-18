@@ -31,6 +31,7 @@
     "Expression hash": "Mã băm biểu thức",
     "Approximate reserve": "Khoản giữ ước tính",
     "Add-on reserve": "Khoản giữ bổ sung",
+    "Floor reserve": "Khoản giữ tối thiểu",
     "Approximate research reserve": "Khoản giữ nghiên cứu ước tính",
     "OpenRouter reserve": "Khoản giữ OpenRouter",
     "Catalog stale: {{date}}": "Danh mục đã cũ: {{date}}",
@@ -3070,7 +3071,7 @@
     "Manage your security settings and account access": "Quản lý cài đặt bảo mật và quyền truy cập tài khoản của bạn",
     "Manual Disabled": "Vô hiệu hóa thủ công",
     "Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream Chat response only, including image output. If endpoint tariffs cannot provide an estimate, the local reserve and minimum apply. Complete upstream estimates and minimum holds are never reduced. Final charges always use OpenRouter actual cost.": "Ánh xạ ID mô hình upstream chính xác sang configured_price để dự trữ theo giá hoặc biểu thức NewAPI đã cấu hình. Mặc định: upstream. Chỉ hỗ trợ một phản hồi Chat không truyền luồng, bao gồm đầu ra hình ảnh. Nếu biểu giá endpoint không cho phép ước tính, áp dụng dự trữ cục bộ và mức tối thiểu. Không giảm các ước tính upstream đầy đủ hoặc mức dự trữ tối thiểu. Phí cuối cùng luôn dựa trên chi phí thực tế của OpenRouter.",
-    "Manual reserve: a positive hold in USD for the model. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty manual amount disables the hold for that model. Legacy Sonar settings migrate on save.": "Dự trữ thủ công: mức giữ dương bằng USD cho mô hình. Các hợp đồng được hỗ trợ bao gồm Audio chuyên dụng, Rerank, đầu ra hình ảnh Chat, đầu ra âm thanh Chat dạng streaming và tìm kiếm web được lưu trữ (web_search_options). Mức giữ không làm giảm ước tính upstream cao hơn và không phải giới hạn chi tiêu. Toàn bộ chi phí thực tế được tính, kể cả phần vượt mức. Để trống số tiền thủ công sẽ tắt mức giữ của mô hình đó. Cài đặt Sonar cũ được chuyển đổi khi lưu.",
+    "Manual reserve: a minimum hold in USD for the model. A text request priced from upstream tariffs holds the larger of the estimate and this amount; when the estimate is unavailable, this amount alone is held only for one non-streaming Chat response (n = 1) without tools, provider routing, fallback models, image input or Batch. Hosted web search on another engine or without a published search price adds this amount on top. Dedicated Audio, Rerank, Decisions, Chat image output and streaming Chat audio output hold at least this amount. It is not a spending limit: full actual cost is charged, including excess. An empty manual amount disables the hold for that model. Legacy Sonar settings migrate on save.": "Dự trữ thủ công: mức giữ tối thiểu bằng USD cho mô hình. Yêu cầu văn bản được ước tính theo biểu giá upstream sẽ giữ mức lớn hơn giữa ước tính và số tiền này; khi không có ước tính, chỉ số tiền này được giữ, chỉ cho một phản hồi Chat không streaming (n = 1), không có công cụ, định tuyến nhà cung cấp, mô hình dự phòng, ảnh đầu vào hay Batch. Tìm kiếm web được lưu trữ bằng công cụ khác hoặc không có giá tìm kiếm được công bố sẽ cộng thêm số tiền này. Audio chuyên dụng, Rerank, Decisions, đầu ra hình ảnh Chat và đầu ra âm thanh Chat dạng streaming giữ ít nhất số tiền này. Đây không phải giới hạn chi tiêu: toàn bộ chi phí thực tế được tính, kể cả phần vượt mức. Để trống số tiền thủ công sẽ tắt mức giữ của mô hình đó. Cài đặt Sonar cũ được chuyển đổi khi lưu.",
     "Upstream model ID": "ID mô hình upstream",
     "Reservation source": "Nguồn giữ chỗ",
     "Enter an upstream model ID": "Nhập ID mô hình upstream",
@@ -3094,6 +3095,7 @@
     "At least {{usd}} by the manual reserve": "Ít nhất {{usd}} theo dự trữ thủ công",
     "Catalog fetched at {{time}}": "Danh mục được lấy lúc {{time}}",
     "Catalog is stale": "Danh mục đã cũ",
+    "Example request: {{operation}}": "Yêu cầu mẫu: {{operation}}",
     "Example request: {{operation}}, {{promptTokens}} prompt and {{outputTokens}} output tokens": "Yêu cầu mẫu: {{operation}}, {{promptTokens}} token prompt và {{outputTokens}} token đầu ra",
     "Loading reserve examples...": "Đang tải ví dụ dự trữ...",
     "Failed to load reserve examples": "Không tải được ví dụ dự trữ",
@@ -6390,6 +6392,7 @@
     "OpenRouter charge unknown": "Chưa rõ khoản phí OpenRouter",
     "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Yêu cầu đã đến OpenRouter nhưng chi phí chưa được xác nhận. Hãy kiểm tra khoản phí trên OpenRouter trước khi xử lý.",
     "Reserved web searches": "Số lượt tìm kiếm web đã giữ",
+    "Reserved prompt tokens": "Số token prompt đã giữ",
     "Reserved transcription seconds": "Số giây phiên âm đã giữ"
   }
 }

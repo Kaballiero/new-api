@@ -266,6 +266,7 @@ export interface OpenRouterReserveItem {
   configured_usd: number | null
   effective_source: string | null
   admission_policy: string | null
+  reference_operation: string | null
   example_usd: number | null
   example_status: string
   example_error: string | null

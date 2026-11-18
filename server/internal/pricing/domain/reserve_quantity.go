@@ -8,6 +8,9 @@ type ReserveQuantity string
 const (
 	// ReserveQuantitySearches is the web searches the request may run.
 	ReserveQuantitySearches ReserveQuantity = "searches"
+	// ReserveQuantityPromptTokens is the prompt tokens the state and the
+	// questions of a decisions request count as.
+	ReserveQuantityPromptTokens ReserveQuantity = "prompt_tokens"
 	// ReserveQuantityAudioSeconds is the seconds of a transcription file
 	// measured from its audio headers.
 	ReserveQuantityAudioSeconds ReserveQuantity = "audio_seconds"

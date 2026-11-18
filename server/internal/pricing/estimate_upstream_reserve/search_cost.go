@@ -17,20 +17,40 @@ import (
 //     domain.ErrHostedSearchUnpriced;
 //   - a search on an engine without an endpoint price adds the search reserve;
 //   - without requested searches, an endpoint with a positive web_search price
-//     may search on its own and the add-on reserve covers it.
+//     may search on its own and costs one search. A price missing from a fresh
+//     catalog tariff is checked against live first; a price live misses too
+//     costs nothing, as no search was requested;
+//   - the searches of a decision model cost the web_search price of the
+//     endpoint each, and nothing on an endpoint that publishes none. A missing
+//     or invalid price is a *domain.EstimateUnavailableError: a fresh catalog
+//     tariff is checked against live first, then only the local cover covers it.
 //
 // The channel reserves belong to the model of the request.
 func (u Usecase) searchCost(in Input, endpoint domain.NativePricedEndpoint, tariff modelTariffs) (decimal.Decimal, bool, error) {
-	if in.Searches == 0 && !in.ManualSearch {
+	if in.Decisions {
 		raw, published := endpoint.Pricing["web_search"]
-		if !published || in.AddOnReserveUSD == nil {
+		if !published {
 			return decimal.Zero, false, nil
 		}
 		rate, err := domain.ReadEndpointRate(u.deps, raw)
-		if err != nil || rate.IsZero() {
+		if err != nil {
+			return decimal.Zero, false, &domain.EstimateUnavailableError{Cause: err}
+		}
+		return rate.Mul(decimal.NewFromInt(int64(in.Searches))), false, nil
+	}
+	if in.Searches == 0 && !in.ManualSearch {
+		raw, published := endpoint.Pricing["web_search"]
+		if !published {
+			return decimal.Zero, false, nil
+		}
+		rate, err := domain.ReadEndpointRate(u.deps, raw)
+		switch {
+		case err == nil:
+			return rate, false, nil
+		case !errors.Is(err, domain.ErrEndpointPriceMissing) || tariff.checksLive():
 			return decimal.Zero, false, err
 		}
-		return decimal.NewFromFloat(*in.AddOnReserveUSD), true, nil
+		return decimal.Zero, false, nil
 	}
 	cost := decimal.Zero
 	reserves := 0

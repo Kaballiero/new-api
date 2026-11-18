@@ -115,7 +115,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           'Reservation source of each upstream model. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.'
         )}{' '}
         {t(
-          'Manual reserve: a positive hold in USD for the model. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty manual amount disables the hold for that model. Legacy Sonar settings migrate on save.'
+          'Manual reserve: a minimum hold in USD for the model. A text request priced from upstream tariffs holds the larger of the estimate and this amount; when the estimate is unavailable, this amount alone is held only for one non-streaming Chat response (n = 1) without tools, provider routing, fallback models, image input or Batch. Hosted web search on another engine or without a published search price adds this amount on top. Dedicated Audio, Rerank, Decisions, Chat image output and streaming Chat audio output hold at least this amount. It is not a spending limit: full actual cost is charged, including excess. An empty manual amount disables the hold for that model. Legacy Sonar settings migrate on save.'
         )}
       </FieldDescription>
       <FieldDescription id={sourceHintId}>
@@ -168,6 +168,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
           sourceErrors={sources.errors}
           reserveErrors={reserves.errors}
           previewLoaded={preview != null}
+          referenceOperation={preview?.reference.operation}
           unsaved={unsaved}
           disabled={props.disabled}
           onSourceChange={(model, source) => {

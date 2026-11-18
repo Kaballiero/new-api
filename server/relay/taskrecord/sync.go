@@ -3,7 +3,6 @@ package taskrecord
 import (
 	"context"
 	"errors"
-	"github.com/QuantumNous/new-api/internal/tasks/hold_sync_task"
 	"net/http"
 	"sync"
 
@@ -189,12 +188,4 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		return err
 	}
 	return syncTasks().Fail(context.Background(), fail_sync_task.Input{Task: task, Cost: syncCost(info), Reason: reason})
-}
-
-func HoldOpenRouterSyncTaskForReconciliation(info *relaycommon.RelayInfo, reason string) error {
-	task, err := openRouterSyncTask(info)
-	if err != nil {
-		return err
-	}
-	return syncTasks().Hold(context.Background(), hold_sync_task.Input{Task: task, IdentityConflict: info.OpenRouterCost.IdentityConflict, Reason: reason})
 }

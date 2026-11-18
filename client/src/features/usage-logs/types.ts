@@ -114,6 +114,7 @@ export type UsageBillingPath =
 // (admin_info.openrouter_reservation_quantities).
 export const OPENROUTER_RESERVATION_QUANTITY = {
   SEARCHES: 'searches',
+  PROMPT_TOKENS: 'prompt_tokens',
   AUDIO_SECONDS: 'audio_seconds',
 } as const
 
@@ -157,6 +158,8 @@ export interface OpenRouterReserveAdminInfo {
   openrouter_approximate_reserve_model?: string
   openrouter_add_on_reserve_usd?: number
   openrouter_add_on_reserve_model?: string
+  openrouter_floor_reserve_usd?: number
+  openrouter_floor_reserve_model?: string
   openrouter_approximate_research_reserve_usd?: number
   openrouter_order_facts?: OpenRouterOrderFacts
 }
