@@ -82,8 +82,10 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 				decision.Action == record.OpenRouterSyncOperatorSettle && next.UpstreamCostUSD > 0)
 		// A release closes an uncommitted reservation that holds no quota
 		// without a settlement.
-		reservationClosed := decision != nil && decision.Action == record.OpenRouterSyncOperatorRelease && prior != nil && prior.ReservationPending && next != nil &&
-			!next.ReservationPending && !next.SubmissionPending && !next.Required && next.Finalized && !next.SettlementPending && !next.HasUpstreamCost && next.TargetQuota == 0
+		zeroRelease := decision != nil && decision.Action == record.OpenRouterSyncOperatorRelease && decision.CostUSD == "0"
+		closedWithoutSettlement := next != nil && !next.ReservationPending && !next.SubmissionPending && !next.Required && next.Finalized &&
+			!next.SettlementPending && !next.HasUpstreamCost && next.UpstreamCostUSD == 0 && next.TargetQuota == 0
+		reservationClosed := zeroRelease && prior != nil && prior.ReservationPending && closedWithoutSettlement
 		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
 			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil && !next.MainApplied &&
 			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota && (pricedSettlement || reservationClosed)

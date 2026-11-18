@@ -57,7 +57,8 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 
 // OpenRouterSyncHeldQuota is the quota a hold may keep: the recorded reserve,
 // or for a reservation not yet committed the larger of it and the planned
-// reserve, which the billing session may take before Commit records it.
+// reserve, which the billing session may take before Commit records it. A
+// zero planned reserve funded by a subscription still takes one quota unit.
 func (t *Task) OpenRouterSyncHeldQuota() int {
 	r := t.PrivateData.Reconciliation
 	if !r.ReservationPending {

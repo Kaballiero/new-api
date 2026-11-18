@@ -37,7 +37,8 @@ func NewUsecase(store Store, alerts Alerts, now func() time.Time) Usecase {
 	return Usecase{store, alerts, now}
 }
 
-// Execute reports every manual hold that may keep quota and every settlement
+// Execute reports every manual hold, except a reservation never committed that
+// may hold no quota, and every settlement
 // pending longer than settlementStallAge not reported before in one summary,
 // then marks those Tasks reported. A summary that is not delivered leaves
 // them for the next run.
@@ -57,8 +58,9 @@ func (u Usecase) Execute(ctx context.Context) error {
 				if a == nil || r == nil || a.AlertedAt != 0 {
 					continue
 				}
-				// A hold that may keep no quota leaves root nothing to resolve.
-				manualHold := task.Status == domain.TaskStatusFailure && task.OpenRouterSyncHeldQuota() > 0
+				// A reservation never committed that may hold no quota leaves root
+				// nothing to resolve; a submitted hold may still owe its cost.
+				manualHold := task.Status == domain.TaskStatusFailure && (!r.ReservationPending || task.OpenRouterSyncHeldQuota() > 0)
 				stalledSettlement := r.SettlementPending && now.Sub(time.Unix(a.SettlementPendingSince, 0)) >= settlementStallAge
 				if manualHold || stalledSettlement {
 					unreported = append(unreported, task)

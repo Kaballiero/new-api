@@ -3243,51 +3243,67 @@ func TestOpenRouterAudioRefusedReservationClosesIntent(t *testing.T) {
 	}
 }
 
-func TestOpenRouterAudioFailedCommitRefundsSession(t *testing.T) {
-	taskfixture.WithSQLite(t)
-	disableTaskFixtureArtifacts(t)
-	const id = 987
-	taskfixture.SeedUser(t, id, 100000)
-	taskfixture.SeedToken(t, id, id, "audio-task-fixture", 100000)
-	taskfixture.SeedChannel(t, id)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
-	info := &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
-		RelayMode:   relayconstant.RelayModeAudioSpeech,
-		UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture",
-		OpenRouterCost: &relaycommon.OpenRouterCostState{},
+func TestOpenRouterAudioFailedCommitRefundsSessionOnlyBeforeRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name, failedWrite string
+		refunded          bool
+	}{
+		// The first Commit write records the reserved quota.
+		{name: "before the reserve is recorded", failedWrite: "NEW.quota <> 0 AND OLD.quota = 0", refunded: true},
+		{name: "after the reserve is recorded", failedWrite: "OLD.quota <> 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			taskfixture.WithSQLite(t)
+			disableTaskFixtureArtifacts(t)
+			const id = 987
+			taskfixture.SeedUser(t, id, 100000)
+			taskfixture.SeedToken(t, id, id, "audio-task-fixture", 100000)
+			taskfixture.SeedChannel(t, id)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
+				RelayMode:   relayconstant.RelayModeAudioSpeech,
+				UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture",
+				OpenRouterCost: &relaycommon.OpenRouterCostState{},
+			}
+			info.UserSetting.BillingPreference = "wallet_only"
+			info.PriceData.BillingGroupRatio = 1
+			require.NoError(t, model.DB.Exec(`
+				CREATE TRIGGER fail_reservation_commit
+				BEFORE UPDATE ON tasks
+				WHEN `+tc.failedWrite+`
+				BEGIN
+					SELECT RAISE(ABORT, 'forced commit failure');
+				END;
+			`).Error)
+
+			err := openrouter.ReserveCost(c, info, 0.1)
+			require.ErrorContains(t, err, "forced commit failure")
+			reservedUserQuota := getUserQuota(t, id)
+			require.Less(t, reservedUserQuota, 100000, "the session reserved before Commit")
+			var task model.Task
+			require.NoError(t, model.DB.Where("user_id = ?", id).First(&task).Error)
+
+			if !tc.refunded {
+				assert.True(t, relaycommon.HasOpenRouterSyncTask(info), "the Task owns the recorded reserve")
+				assert.True(t, task.PrivateData.Reconciliation.ReservationPending)
+				assert.Equal(t, 100000-reservedUserQuota, task.PrivateData.Reconciliation.ReservedQuota)
+				assert.False(t, info.Billing.NeedsRefund(), "the transferred hold is never refunded by the session")
+				return
+			}
+			assert.False(t, relaycommon.HasOpenRouterSyncTask(info), "the request refunds its session")
+			assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
+			assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
+			assert.True(t, task.PrivateData.Reconciliation.Finalized)
+			assert.Zero(t, task.Quota)
+			info.Billing.Refund(c)
+			// The session refund is queued asynchronously.
+			assert.Eventually(t, func() bool {
+				return getUserQuota(t, id) == 100000 && getTokenRemainQuota(t, id) == 100000
+			}, 5*time.Second, 50*time.Millisecond)
+		})
 	}
-	info.UserSetting.BillingPreference = "wallet_only"
-	info.PriceData.BillingGroupRatio = 1
-	// The first Commit write records the reserved quota; failing it leaves the
-	// hold with the billing session only.
-	require.NoError(t, model.DB.Exec(`
-		CREATE TRIGGER fail_reservation_commit
-		BEFORE UPDATE ON tasks
-		WHEN NEW.quota <> 0
-		BEGIN
-			SELECT RAISE(ABORT, 'forced commit failure');
-		END;
-	`).Error)
-
-	err := openrouter.ReserveCost(c, info, 0.1)
-	require.ErrorContains(t, err, "forced commit failure")
-	assert.False(t, relaycommon.HasOpenRouterSyncTask(info), "the request refunds its session")
-	require.Less(t, getUserQuota(t, id), 100000, "the session reserved before Commit")
-
-	var task model.Task
-	require.NoError(t, model.DB.Where("user_id = ?", id).First(&task).Error)
-	assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
-	assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
-	assert.True(t, task.PrivateData.Reconciliation.Finalized)
-	assert.Zero(t, task.Quota)
-
-	info.Billing.Refund(c)
-	// The session refund is queued asynchronously.
-	assert.Eventually(t, func() bool {
-		return getUserQuota(t, id) == 100000 && getTokenRemainQuota(t, id) == 100000
-	}, 5*time.Second, 50*time.Millisecond)
 }
 
 func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {

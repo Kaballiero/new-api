@@ -77,7 +77,7 @@ func (u Usecase) Execute(_ context.Context, input Input) (domain.OpenRouterSyncO
 		return result, fmt.Errorf("%w: task is not an OpenRouter synchronous task", domain.ErrOpenRouterSyncOperatorConflict)
 	}
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
-	result.Platform, result.ReservedQuota, result.TargetQuota = task.Platform, r.ReservedQuota, r.TargetQuota
+	result.Platform, result.ReservedQuota, result.TargetQuota = task.Platform, task.OpenRouterSyncHeldQuota(), r.TargetQuota
 	if d := a.OperatorDecision; d != nil {
 		if d.Action != action || d.CostUSD != result.CostUSD {
 			return result, fmt.Errorf("%w: another operator decision is recorded", domain.ErrOpenRouterSyncOperatorConflict)

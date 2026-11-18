@@ -121,7 +121,7 @@ func TestExecuteReportsSettlementsPendingLongerThanStallAge(t *testing.T) {
 	assert.Equal(t, map[int64]int64{1: now.Unix(), 5: now.Unix()}, store.alerted)
 }
 
-func TestExecuteSkipsHoldsThatMayKeepNoQuota(t *testing.T) {
+func TestExecuteSkipsOnlyUncommittedReservationsWithoutQuota(t *testing.T) {
 	empty := manualHold(1, 0)
 	empty.PrivateData.Reconciliation.ReservedQuota = 0
 	planned := manualHold(2, 0)
@@ -134,5 +134,5 @@ func TestExecuteSkipsHoldsThatMayKeepNoQuota(t *testing.T) {
 	usecase := NewUsecase(store, alerts, time.Now)
 
 	require.NoError(t, usecase.Execute(context.Background()))
-	assert.Equal(t, [][]string{{"task_2"}}, alerts.summaries, "a planned reserve may be held by the billing session")
+	assert.Equal(t, [][]string{{"task_1", "task_2"}}, alerts.summaries, "a submitted hold may owe its cost; a planned reserve may be held by the billing session")
 }
