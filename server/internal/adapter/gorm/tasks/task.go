@@ -77,12 +77,16 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 			target, clamp, quotaErr := saved.PrivateData.BillingContext.OpenRouterCost.Quota(next.UpstreamCostUSD)
 			decisionPriced = costErr == nil && cost.InexactFloat64() == next.UpstreamCostUSD && quotaErr == nil && clamp == nil && target == next.TargetQuota
 		}
-		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && decisionPriced && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
-			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil &&
-			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.MainApplied && !next.Finalized && next.QuotaSaturation == "" &&
-			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota &&
+		pricedSettlement := decisionPriced && next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.Finalized && next.QuotaSaturation == "" &&
 			(decision.Action == record.OpenRouterSyncOperatorRelease && next.UpstreamCostUSD == 0 && next.TargetQuota == 0 ||
 				decision.Action == record.OpenRouterSyncOperatorSettle && next.UpstreamCostUSD > 0)
+		// A release closes an uncommitted reservation that holds no quota
+		// without a settlement.
+		reservationClosed := decision != nil && decision.Action == record.OpenRouterSyncOperatorRelease && prior != nil && prior.ReservationPending && next != nil &&
+			!next.ReservationPending && !next.SubmissionPending && !next.Required && next.Finalized && !next.SettlementPending && !next.HasUpstreamCost && next.TargetQuota == 0
+		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
+			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil && !next.MainApplied &&
+			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota && (pricedSettlement || reservationClosed)
 		// No other writer may add, replace or drop a recorded decision.
 		decisionChanged := state != nil && (state.OperatorDecision == nil) != (decision == nil) ||
 			state != nil && state.OperatorDecision != nil && decision != nil && *state.OperatorDecision != *decision

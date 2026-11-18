@@ -120,3 +120,19 @@ func TestExecuteReportsSettlementsPendingLongerThanStallAge(t *testing.T) {
 	assert.Equal(t, [][]string{{"task_1", "task_5"}}, alerts.summaries, "a settlement pending before its start was recorded is reported")
 	assert.Equal(t, map[int64]int64{1: now.Unix(), 5: now.Unix()}, store.alerted)
 }
+
+func TestExecuteSkipsHoldsThatMayKeepNoQuota(t *testing.T) {
+	empty := manualHold(1, 0)
+	empty.PrivateData.Reconciliation.ReservedQuota = 0
+	planned := manualHold(2, 0)
+	planned.PrivateData.Reconciliation.ReservedQuota, planned.PrivateData.Reconciliation.ReservationPending = 0, true
+	planned.PrivateData.OpenRouterSync.PlannedQuota = 40
+	uncommittedEmpty := manualHold(3, 0)
+	uncommittedEmpty.PrivateData.Reconciliation.ReservedQuota, uncommittedEmpty.PrivateData.Reconciliation.ReservationPending = 0, true
+	store := &fakeStore{holds: []*domain.Task{empty, planned, uncommittedEmpty}, alerted: map[int64]int64{}}
+	alerts := &fakeAlerts{}
+	usecase := NewUsecase(store, alerts, time.Now)
+
+	require.NoError(t, usecase.Execute(context.Background()))
+	assert.Equal(t, [][]string{{"task_2"}}, alerts.summaries, "a planned reserve may be held by the billing session")
+}

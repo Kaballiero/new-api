@@ -129,7 +129,7 @@ func CommitOpenRouterSyncReservation(c *gin.Context, info *relaycommon.RelayInfo
 }
 
 // RefuseOpenRouterSyncReservation closes the intent of a reservation that was
-// refused before the Task held any quota.
+// refused, or whose Commit failed, before the Task recorded any reserved quota.
 func RefuseOpenRouterSyncReservation(info *relaycommon.RelayInfo) error {
 	task, err := openRouterSyncTask(info)
 	if err != nil {

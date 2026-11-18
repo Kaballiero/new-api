@@ -80,10 +80,22 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		return reserveErr
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
-	if durable {
-		return taskrecord.CommitOpenRouterSyncReservation(c, info)
+	if !durable {
+		return nil
 	}
-	return nil
+	commitErr := taskrecord.CommitOpenRouterSyncReservation(c, info)
+	if commitErr == nil {
+		return nil
+	}
+	// A Commit that failed before recording the reserved quota leaves the hold
+	// with the session only: the intent closes, so the caller refunds the
+	// session exactly. Once recorded, the close is refused and the Task keeps it.
+	if refuseErr := taskrecord.RefuseOpenRouterSyncReservation(info); refuseErr != nil {
+		logger.LogError(c, fmt.Sprintf("OpenRouter reservation task %s requires reconciliation after a failed commit: %v", info.OpenRouterCost.TaskID, refuseErr))
+	} else {
+		info.OpenRouterCost.TaskID = ""
+	}
+	return commitErr
 }
 
 func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, reader io.Reader, operation string) (io.Reader, error) {

@@ -16,7 +16,7 @@ import (
 func ManualHoldsNotification(lang string, holds []*domain.Task) (subject, content string) {
 	var reservedQuota int
 	for _, task := range holds {
-		reservedQuota += task.PrivateData.Reconciliation.ReservedQuota
+		reservedQuota += task.OpenRouterSyncHeldQuota()
 	}
 	shown := min(len(holds), 12)
 	var builder strings.Builder
@@ -30,7 +30,7 @@ func ManualHoldsNotification(lang string, holds []*domain.Task) (subject, conten
 		if task.PrivateData.Reconciliation.SettlementPending {
 			reason = domain.SyncBillingSettlementPending
 		}
-		builder.WriteString(fmt.Sprintf("\n- %s (%s, %s): $%.6f", task.TaskID, task.Action, reason, float64(task.PrivateData.Reconciliation.ReservedQuota)/common.QuotaPerUnit))
+		builder.WriteString(fmt.Sprintf("\n- %s (%s, %s): $%.6f", task.TaskID, task.Action, reason, float64(task.OpenRouterSyncHeldQuota())/common.QuotaPerUnit))
 	}
 	return i18n.Translate(lang, i18n.MsgTasksSyncManualHoldsSubject), builder.String()
 }
