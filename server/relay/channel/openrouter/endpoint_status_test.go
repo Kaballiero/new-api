@@ -717,8 +717,10 @@ func TestEstimateRequestReserveWithoutBoundRequest(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "catalog", model: "test/model", want: 1.2, source: pricingdomain.ReserveSourceCatalog},
-		{name: "add-on on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
-			want: 1.25, source: pricingdomain.ReserveSourceCatalog, use: ReserveAddOn},
+		{name: "floor below the estimate on a web_search endpoint", model: "test/search", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/search": .05}},
+			want: 1.2, source: pricingdomain.ReserveSourceCatalog, use: ReserveFloor},
+		{name: "floor above the estimate is the manual reserve", model: "test/model", settings: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{"test/model": 3}},
+			want: 3, source: pricingdomain.ReserveSourceManual, use: ReserveFloor},
 		{name: "configured price above the catalog", model: "test/model", settings: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{"test/model": dto.OpenRouterReservationConfiguredPrice}},
 			want: 5, configured: true, source: pricingdomain.ReserveSourceConfiguredPrice, use: ReserveWholeHold},
 		{name: "outside the catalog", model: "other/model", wantErr: "OpenRouter endpoint discovery missing for other/model"},

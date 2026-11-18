@@ -16,8 +16,8 @@ import (
 //     first; then the search reserve covers them, without it they are
 //     domain.ErrHostedSearchUnpriced;
 //   - a search on an engine without an endpoint price adds the search reserve;
-//   - without requested searches, an endpoint with a positive web_search price
-//     may search on its own and the add-on reserve covers it;
+//   - without requested searches the request costs no searches; the floor
+//     reserve covers an endpoint that searches on its own;
 //   - the searches of a decision model cost the web_search price of the
 //     endpoint each, and nothing on an endpoint that publishes none. A missing
 //     or invalid price is a *domain.EstimateUnavailableError: a fresh catalog
@@ -37,15 +37,7 @@ func (u Usecase) searchCost(in Input, endpoint domain.NativePricedEndpoint, tari
 		return rate.Mul(decimal.NewFromInt(int64(in.Searches))), false, nil
 	}
 	if in.Searches == 0 && !in.ManualSearch {
-		raw, published := endpoint.Pricing["web_search"]
-		if !published || in.AddOnReserveUSD == nil {
-			return decimal.Zero, false, nil
-		}
-		rate, err := domain.ReadEndpointRate(u.deps, raw)
-		if err != nil || rate.IsZero() {
-			return decimal.Zero, false, err
-		}
-		return decimal.NewFromFloat(*in.AddOnReserveUSD), true, nil
+		return decimal.Zero, false, nil
 	}
 	cost := decimal.Zero
 	reserves := 0

@@ -160,6 +160,9 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	case pricingdomain.AdmissionPolicyModelReserveAddOn:
 		info.OpenRouterCost.AddOnReserveUSD = reserve
 		info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
+	case pricingdomain.AdmissionPolicyModelReserveFloor:
+		info.OpenRouterCost.FloorReserveUSD = reserve
+		info.OpenRouterCost.FloorReserveModel = estimator.ReserveModel
 	}
 	var output struct {
 		Modalities []string `json:"modalities"`

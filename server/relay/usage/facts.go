@@ -115,6 +115,8 @@ func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 			ApproximateReserveModel:       p.ApproximateReserveModel,
 			AddOnReserveUSD:               p.AddOnReserveUSD,
 			AddOnReserveModel:             p.AddOnReserveModel,
+			FloorReserveUSD:               p.FloorReserveUSD,
+			FloorReserveModel:             p.FloorReserveModel,
 			ApproximateResearchReserveUSD: p.ApproximateResearchReserveUSD,
 			ReserveSource:                 string(p.ReserveSource),
 		}

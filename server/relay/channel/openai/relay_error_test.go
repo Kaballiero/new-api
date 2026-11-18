@@ -904,7 +904,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		rate                                  any
 		reserve                               *float64
 		insufficient, knownAboveReserve       bool
-		general, hostedSearch                 bool
+		general                               bool
 		policyModel                           string
 		endpointModel                         string
 		missingCost                           bool
@@ -958,9 +958,10 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "hosted search priced within the channel hold", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`},
 		{name: "general hosted search priced within the channel hold", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`},
 		{name: "general hosted search without channel hold keeps the unpriced reasoning refusal", model: "other/reasoner", general: true, extra: `,"web_search_options":{}`, wantError: "unsupported billable dimension internal_reasoning"},
-		{name: "general priced hosted search takes no add-on reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, reserveUse: openrouter.ReserveNotApplied},
-		{name: "general priced native search reserve is add-on", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), hostedSearch: true, reserveUse: openrouter.ReserveAddOn},
-		{name: "general priced reserve without search is not applied", model: "other/reasoner", general: true, zeroReasoning: true, rateKey: "web_search", rate: "0", reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveNotApplied},
+		{name: "general priced hosted search takes the floor reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, reserveUse: openrouter.ReserveFloor},
+		{name: "general web_search endpoint takes the floor reserve, not an add-on", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveFloor},
+		{name: "general priced reserve without search is the floor", model: "other/reasoner", general: true, zeroReasoning: true, rateKey: "web_search", rate: "0", reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveFloor},
+		{name: "general search on another engine adds the channel reserve", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), extra: `,"plugins":[{"id":"web","engine":"exa"}]`, reserveUse: openrouter.ReserveAddOn},
 		{name: "preset rejected", reserve: common.GetPointer(2.0), extra: `,"preset":"some-preset"`, wantError: "unpriced execution dimensions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1078,21 +1079,25 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
 				assert.Equal(t, requestedModel, info.OpenRouterCost.ApproximateReserveModel)
 				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+				assert.Nil(t, info.OpenRouterCost.FloorReserveUSD)
 			case openrouter.ReserveAddOn:
 				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
+				assert.Nil(t, info.OpenRouterCost.FloorReserveUSD)
 				require.NotNil(t, info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, 2.0, *info.OpenRouterCost.AddOnReserveUSD)
 				assert.Equal(t, requestedModel, info.OpenRouterCost.AddOnReserveModel)
-			default:
+			case openrouter.ReserveFloor:
 				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
 				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+				require.NotNil(t, info.OpenRouterCost.FloorReserveUSD)
+				assert.Equal(t, 2.0, *info.OpenRouterCost.FloorReserveUSD)
+				assert.Equal(t, requestedModel, info.OpenRouterCost.FloorReserveModel)
+				assert.Equal(t, pricingdomain.ReserveSourceManual, info.OpenRouterCost.ReserveSource, "the floor above the token estimate is the manual reserve")
 			}
-			if tc.reserveUse == openrouter.ReserveNotApplied {
-				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 0.01, "an unused reserve does not raise the token hold")
-			} else if tc.knownAboveReserve {
+			if tc.knownAboveReserve {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
 				assert.Greater(t, billing.reserved, 1500000)
-			} else if tc.hostedSearch {
+			} else if tc.reserveUse == openrouter.ReserveAddOn {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0, "search hold is added to the token estimate")
 				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.01)
 				assert.Greater(t, billing.reserved, 1500000)

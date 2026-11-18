@@ -43,6 +43,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -962,7 +963,7 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 		{name: "search under configured price alone is priced per search", extra: search + `,"modalities":["text"]`, local: common.GetPointer(0.25), want: 1.03},
 		{name: "search zero reserve with positive rate", extra: search, reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "search zero reserve with configured price", extra: search, reserve: common.GetPointer(0.0), local: common.GetPointer(5.0), wantError: "invalid OpenRouter approximate reserve"},
-		{name: "priced search takes no channel reserve", extra: search, reserve: common.GetPointer(5.0), want: 1.03},
+		{name: "priced search takes the channel reserve as a floor", extra: search, reserve: common.GetPointer(5.0), want: 5},
 		{name: "search reserve without published search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: "absent", want: 6.02},
 		{name: "search without reserve or published search rate stays closed", extra: search, searchRate: "absent", wantError: "hosted-search quantity is unpriced"},
 		{name: "priced search under configured price and reserve", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(0.25), want: 1.03},
@@ -1022,7 +1023,7 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 	}
 }
 
-func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
+func TestEndpointChannelReserveIsFloorForPricedTokens(t *testing.T) {
 	const plain = `,"max_tokens":10`
 	const search = `,"max_tokens":10,"web_search_options":{}`
 	for _, tc := range []struct {
@@ -1031,23 +1032,28 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 		reserve                           *float64
 		want                              float64
 		wantUse                           ReserveUse
+		wantSource                        pricingdomain.ReserveSource
 	}{
-		{name: "nonstream hold is token estimate", extra: plain, reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "native search adds reserve once", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveAddOn},
-		{name: "requested search priced per search takes no add-on reserve", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 1.03},
-		{name: "native search without reserve unchanged", extra: plain, nativeSearch: true, want: 1.02},
-		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "provider routing", extra: plain + `,"provider":{"only":["provider"],"order":["provider"]}`, reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "fallback models take the most expensive", extra: plain + `,"models":["test/expensive"]`, reserve: common.GetPointer(5.0), want: 2.04},
-		{name: "multiple outputs", extra: plain + `,"n":2`, reserve: common.GetPointer(5.0), want: 1.04},
-		{name: "image input", extra: plain + `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/i.png"}}]}]`, reserve: common.GetPointer(5.0), want: 1.52},
-		{name: "batch", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "free search of a streamed tool request takes no reserve", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.02},
-		{name: "free search with provider routing and n takes no reserve", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.04},
-		{name: "search without reserve is priced per search", extra: search + `,"stream":true`, want: 1.02},
-		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold},
-		{name: "unpriced dimension search keeps whole reserve over priced search", extra: search, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold},
+		{name: "floor above the token estimate is held", extra: plain, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "token estimate above the floor is held", extra: plain, reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "web_search endpoint takes the floor, not an add-on", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "web_search endpoint estimate above the floor adds nothing", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "requested search priced per search takes the floor", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "requested search priced above the floor", extra: search, nativeSearch: true, reserve: common.GetPointer(0.5), want: 1.03, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "native search without reserve unchanged", extra: plain, nativeSearch: true, want: 1.02, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "provider routing", extra: plain + `,"provider":{"only":["provider"],"order":["provider"]}`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "fallback models take the most expensive over the floor", extra: plain + `,"models":["test/expensive"]`, reserve: common.GetPointer(1.5), want: 2.04, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "multiple outputs", extra: plain + `,"n":2`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "image input", extra: plain + `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/i.png"}}]}]`, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "batch item takes the floor", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "batch item estimate above the floor", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "free search of a streamed tool request takes the floor", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.02, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "free search with provider routing and n takes the floor", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.04, wantUse: ReserveFloor, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "search without reserve is priced per search", extra: search + `,"stream":true`, want: 1.02, wantSource: pricingdomain.ReserveSourceLive},
+		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold, wantSource: pricingdomain.ReserveSourceManual},
+		{name: "unpriced dimension search keeps whole reserve over priced search", extra: search, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold, wantSource: pricingdomain.ReserveSourceManual},
 		{name: "unpriced dimension search stream stays closed", extra: search + `,"stream":true`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension search n stays closed", extra: search + `,"n":2`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension search models stays closed", extra: search + `,"models":["test/expensive"]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "endpoint model does not match final model ID"},
@@ -1089,6 +1095,11 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 			require.NoError(t, err)
 			assert.InDelta(t, tc.want, cost, 1e-9)
 			assert.Equal(t, tc.wantUse, estimator.ReserveUse)
+			assert.Equal(t, tc.wantSource, estimator.ReserveSource)
+			if tc.wantUse == ReserveFloor {
+				require.NotNil(t, estimator.OutputReserve, "the max_tokens hint stays for a floor")
+				assert.Equal(t, decimal.NewFromFloat(*tc.reserve).String(), estimator.OutputReserve.FloorUSD.String())
+			}
 		})
 	}
 }
@@ -1102,8 +1113,8 @@ func TestEndpointChannelReserveInactiveAudioInputRates(t *testing.T) {
 		reserve                                *float64
 		want                                   float64
 	}{
-		{name: "text search reserve admits published audio input rates", extra: search, reserve: common.GetPointer(5.0), want: 1.03},
-		{name: "text reserve without search adds native search reserve", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.52},
+		{name: "text search floor admits published audio input rates", extra: search, reserve: common.GetPointer(0.5), want: 1.03},
+		{name: "text floor without search adds no native search reserve", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.02},
 		{name: "audio input content under search reserve stays closed", extra: search + audioInput, reserve: common.GetPointer(5.0), wantError: "input media duration quantity is unpriced"},
 		{name: "invalid inactive audio input rate under reserve", extra: search, reserve: common.GetPointer(5.0), audioCacheRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
 		{name: "streamed audio output reserve unchanged", extra: `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`, reserve: common.GetPointer(0.3), want: 0.3},

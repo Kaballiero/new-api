@@ -51,6 +51,8 @@ func TestEndpointWebSearchReserve(t *testing.T) {
 		{name: "Responses server tool", extra: `,"max_output_tokens":10` + tool + `,"parameters":{"max_uses":3}}]`, operation: "responses", want: 1.05, wantSearches: 3},
 		{name: "max_tool_calls without search stays unchecked", extra: `,"max_tool_calls":0`, want: 1.02},
 		{name: "other model without a search price cannot take the reserve of the model", extra: `,"plugins":[{"id":"web"}]`, otherModel: true, reserve: common.GetPointer(0.5), wantError: "endpoint model does not match final model ID"},
+		{name: "native searches take the channel reserve as a floor", extra: `,"plugins":[{"id":"web"}]`, reserve: common.GetPointer(2.0), want: 2, wantSearches: 1, wantUse: ReserveFloor},
+		{name: "native searches priced above the floor add no reserve", extra: `,"plugins":[{"id":"web"}]`, reserve: common.GetPointer(0.5), want: 1.03, wantSearches: 1, wantUse: ReserveFloor},
 		{name: "missing search price takes the channel reserve", extra: `,"plugins":[{"id":"web"}]`, searchAbsent: true, reserve: common.GetPointer(0.5), want: 1.52, wantSearches: 1, wantUse: ReserveAddOn},
 		{name: "missing search price without a reserve stays closed", extra: `,"plugins":[{"id":"web"}]`, searchAbsent: true, wantError: pricingdomain.ErrHostedSearchUnpriced.Error()},
 		{name: "exa engine takes the channel reserve", extra: `,"plugins":[{"id":"web","engine":"exa"}]`, reserve: common.GetPointer(0.5), want: 1.52, wantUse: ReserveAddOn},

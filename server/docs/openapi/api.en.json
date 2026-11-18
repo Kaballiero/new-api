@@ -16547,6 +16547,7 @@
                                 "enum": [
                                   "model_approximate_reserve",
                                   "model_reserve_add_on",
+                                  "model_reserve_floor",
                                   "sonar_research_approximate_reserve",
                                   null
                                 ],

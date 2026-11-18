@@ -135,6 +135,12 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 		return &relaycommon.OpenRouterOutputReserve{ExplicitLimit: explicit, LimitField: field, OutputTokens: 8192,
 			InputUSD: decimal.RequireFromString(input), PromptPriceUSD: decimal.RequireFromString("0.000001"), OutputPriceUSD: decimal.RequireFromString("0.0000002")}
 	}
+	// A floor of 0.0005 USD is 500 quota, of 0.002 USD 2000.
+	flooredReserve := func(floor string) *relaycommon.OpenRouterOutputReserve {
+		reserve := textReserve("max_tokens", false, "0.0001")
+		reserve.FloorUSD = decimal.RequireFromString(floor)
+		return reserve
+	}
 	type ledger interface {
 		create_reservation.Store
 		increase_reservation.Store
@@ -157,6 +163,12 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 		{"Gemini names its limit field", textReserve("maxOutputTokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
 			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set maxOutputTokens to 4385 or less, top up the balance, or choose another model",
 			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите maxOutputTokens не больше 4385, пополните баланс или выберите другую модель"},
+		{"wallet floor within the balance keeps the limit hint", flooredReserve("0.0005"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set max_tokens to 4410 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите max_tokens не больше 4410, пополните баланс или выберите другую модель"},
+		{"wallet floor above the balance suggests no limit", flooredReserve("0.002"), &admissionStore{balance: 1000}, 0, 2000, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the request needs 2000, the balance is 1000",
+			"Недостаточно средств: для запроса нужно 2000, баланс 1000"},
 		{"wallet with limit", textReserve("max_tokens", true, "0.0001"), &admissionStore{balance: 1000}, 0, 4100, types.ErrorCodeInsufficientUserQuota,
 			"Insufficient balance: the request needs 4100, the balance is 1000",
 			"Недостаточно средств: для запроса нужно 4100, баланс 1000"},
