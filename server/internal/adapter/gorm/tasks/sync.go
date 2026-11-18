@@ -44,7 +44,12 @@ func (s SyncStore) ManualHolds(afterID int64, limit int) ([]*domain.Task, error)
 }
 
 func (s SyncStore) Unfinished(afterID int64, limit int) ([]*domain.Task, error) {
-	return PollingStore{Store: s.Store}.UnfinishedPage(limit, afterID), nil
+	rows, err := s.Store.GetUnfinishedOpenRouterSyncTasks(afterID, limit)
+	tasks := make([]*domain.Task, len(rows))
+	for i := range rows {
+		tasks[i] = record.ToDomain(rows[i])
+	}
+	return tasks, err
 }
 
 func (s SyncStore) MarkAlerted(task *domain.Task, alertedAt int64) error {

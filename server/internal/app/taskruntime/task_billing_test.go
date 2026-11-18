@@ -3033,7 +3033,7 @@ func TestOpenRouterSyncInlineSettlementIsRecoverable(t *testing.T) {
 	})
 	t.Run("root repeats a terminal pending settlement at the confirmed cost", func(t *testing.T) {
 		info, task := failInlineSettlement(t)
-		// Builds before the poller retry recorded the result before settling.
+		// A terminal result whose settlement is still pending.
 		task.Status, task.Progress = record.TaskStatusSuccess, "100%"
 		require.NoError(t, fixtureStore.UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSync.Revision))
 		task, err := openRouterSyncTask(info)
@@ -3310,55 +3310,6 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 		adminInfo, ok := other["admin_info"].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, map[string]any{"action": "release", "operator_id": float64(1), "cost_usd": "0"}, adminInfo["operator_reconciliation"])
-	})
-	t.Run("uncommitted reservation without reserved quota is closed by a release", func(t *testing.T) {
-		taskfixture.Truncate(t)
-		const id = 987
-		taskfixture.SeedUser(t, id, 10000)
-		taskfixture.SeedToken(t, id, id, "audio-task-fixture", 10000)
-		taskfixture.SeedChannel(t, id)
-		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
-		info := &relaycommon.RelayInfo{
-			ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
-			RelayMode:   relayconstant.RelayModeAudioSpeech,
-			UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", RequestId: "audio-request-fixture",
-			OpenRouterCost: &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: 0.05}},
-		}
-		require.NoError(t, taskrecord.BeginOpenRouterSyncTask(c, info, 50))
-		task, err := openRouterSyncTask(info)
-		require.NoError(t, err)
-		task.PrivateData.OpenRouterAudio.LeaseUntil = time.Now().Add(-time.Minute).Unix()
-		require.NoError(t, fixtureStore.UpdateOpenRouterSync(task, task.PrivateData.OpenRouterAudio.Revision))
-		require.NoError(t, pollOpenRouterSync(t.Context(), task))
-		task, err = openRouterSyncTask(info)
-		require.NoError(t, err)
-		require.Equal(t, "reservation_unknown", OpenRouterSyncReconciliation(task)["billing_state"])
-		assert.False(t, task.OpenRouterSyncOperatorEligible(record.OpenRouterSyncOperatorSettle))
-		view := OpenRouterSyncAdminView(task)
-		assert.Equal(t, true, view["release_allowed"])
-		committed := *task.PrivateData.Reconciliation
-		committed.ReservedQuota = 50
-		task.PrivateData.Reconciliation = &committed
-		assert.False(t, task.OpenRouterSyncOperatorEligible(record.OpenRouterSyncOperatorRelease), "a recorded reservation may hold quota")
-
-		result, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "request never reserved", 1)
-		require.NoError(t, err)
-		assert.Equal(t, "settled", result.BillingState)
-		assert.Zero(t, result.ReservedQuota)
-		repeat, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "0", "again", 1)
-		require.NoError(t, err)
-		assert.True(t, repeat.AlreadyApplied)
-
-		task, err = openRouterSyncTask(info)
-		require.NoError(t, err)
-		assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
-		assert.False(t, task.PrivateData.Reconciliation.ReservationPending)
-		assert.True(t, task.PrivateData.Reconciliation.Finalized)
-		assert.Equal(t, "operator_released", OpenRouterSyncReconciliation(task)["reason_code"])
-		assert.Equal(t, 10000, getUserQuota(t, id))
-		assert.Equal(t, 10000, getTokenRemainQuota(t, id))
-		assert.Empty(t, refunds(t))
 	})
 	// parkLeaseExpiredChatImage leaves a chat-image Task whose original request
 	// outlived its lease after recording a generation, then exhausted lookups.

@@ -77,16 +77,12 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 			target, clamp, quotaErr := saved.PrivateData.BillingContext.OpenRouterCost.Quota(next.UpstreamCostUSD)
 			decisionPriced = costErr == nil && cost.InexactFloat64() == next.UpstreamCostUSD && quotaErr == nil && clamp == nil && target == next.TargetQuota
 		}
-		pricedSettlement := decisionPriced && next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.Finalized && next.QuotaSaturation == "" &&
+		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && decisionPriced && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
+			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.MainApplied && !next.Finalized && next.QuotaSaturation == "" &&
+			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota &&
 			(decision.Action == record.OpenRouterSyncOperatorRelease && next.UpstreamCostUSD == 0 && next.TargetQuota == 0 ||
 				decision.Action == record.OpenRouterSyncOperatorSettle && next.UpstreamCostUSD > 0)
-		// A release closes an uncommitted reservation that held no quota
-		// without a settlement.
-		reservationClosed := decision != nil && decision.Action == record.OpenRouterSyncOperatorRelease && prior != nil && prior.ReservationPending && next != nil &&
-			!next.ReservationPending && next.Finalized && !next.SettlementPending && !next.HasUpstreamCost && next.TargetQuota == 0
-		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
-			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil && !next.MainApplied &&
-			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota && (pricedSettlement || reservationClosed)
 		// No other writer may add, replace or drop a recorded decision.
 		decisionChanged := state != nil && (state.OperatorDecision == nil) != (decision == nil) ||
 			state != nil && state.OperatorDecision != nil && decision != nil && *state.OperatorDecision != *decision
@@ -287,6 +283,16 @@ func (s Store) HasManualHoldsSince(since int64) bool {
 	var id int64
 	err := s.manualHolds().Where("finish_time >= ?", since).Limit(1).Pluck("id", &id).Error
 	return err == nil && id != 0
+}
+
+// GetUnfinishedOpenRouterSyncTasks pages unfinished OpenRouter synchronous
+// tasks, whose settlement may be pending.
+func (s Store) GetUnfinishedOpenRouterSyncTasks(afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.db().Where("platform IN ?", openRouterSyncPlatforms).
+		Where("status NOT IN ?", []string{record.TaskStatusFailure, record.TaskStatusSuccess}).
+		Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
 }
 
 // MarkManualHoldAlerted records when a manual hold was reported on the locked

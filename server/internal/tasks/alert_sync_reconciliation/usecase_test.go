@@ -98,18 +98,6 @@ func TestExecuteLeavesHoldsUnmarkedWhenSummaryIsNotDelivered(t *testing.T) {
 	assert.Contains(t, store.alerted, int64(1))
 }
 
-func TestExecuteSkipsHoldsWithoutReservedQuota(t *testing.T) {
-	empty := manualHold(1, 0)
-	empty.PrivateData.Reconciliation.ReservedQuota = 0
-	store := &fakeStore{holds: []*domain.Task{empty, manualHold(2, 0)}, alerted: map[int64]int64{}}
-	alerts := &fakeAlerts{}
-	usecase := NewUsecase(store, alerts, time.Now)
-
-	require.NoError(t, usecase.Execute(context.Background()))
-	assert.Equal(t, [][]string{{"task_2"}}, alerts.summaries)
-	assert.NotContains(t, store.alerted, int64(1))
-}
-
 func TestExecuteReportsSettlementsPendingLongerThanStallAge(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	pending := func(id int64, since time.Time) *domain.Task {
