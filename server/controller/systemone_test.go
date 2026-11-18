@@ -97,15 +97,19 @@ func TestSystemOneRelay(t *testing.T) {
 		missing, malformed, disconnect, timeout, noReserve, empty, unsupported, duplicate, override, frozen, configured bool
 		nullProbability, oversizedUsage, missingID, mismatchID, metadata, unpriced                                      bool
 		// generation adds the response id; deferred means a Task holds the
-		// reserve until the generation lookup settles it.
-		generation, deferred, undelivered bool
+		// reserve until the generation lookup settles it; errorEnvelope answers
+		// 200 with an upstream error object.
+		generation, deferred, errorEnvelope bool
+		resultReason                        string
 	}{
 		{name: "typed result and raw order", cost: "0.02", status: 200, quota: 20000},
 		{name: "OR metadata with required parameters", metadata: true, cost: "0.02", status: 200, quota: 20000},
 		{name: "explicit zero", cost: "0", status: 200},
 		{name: "missing cost", missing: true, status: 502},
 		{name: "missing cost with generation id defers", missing: true, generation: true, deferred: true, status: 200},
-		{name: "missing cost broken answers with generation id awaits lookup", missing: true, malformed: true, generation: true, deferred: true, undelivered: true, status: 502},
+		{name: "missing cost broken answers with generation id awaits lookup", missing: true, malformed: true, generation: true, deferred: true, status: 502, resultReason: "undelivered_chat_result"},
+		{name: "upstream error envelope refunds", errorEnvelope: true, status: 502},
+		{name: "upstream error envelope with generation id awaits lookup", errorEnvelope: true, generation: true, deferred: true, status: 502, resultReason: "undelivered_chat_result"},
 		{name: "known cost with generation id settles", cost: "0.02", generation: true, status: 200, quota: 20000},
 		{name: "null cost", cost: "null", status: 502},
 		{name: "negative cost", cost: "-1", status: 502},
@@ -245,6 +249,10 @@ func TestSystemOneRelay(t *testing.T) {
 				if tc.generation {
 					id = `"id":"` + generationID + `",`
 				}
+				if tc.errorEnvelope {
+					fmt.Fprintf(w, `{%s"error":{"message":"Upstream failed","code":"server_error"}}`, id)
+					return
+				}
 				fmt.Fprintf(w, `{%s"model":%q,%s,"usage":{"input_tokens":%d,"output_tokens":3%s}}`, id, upstreamModel, result, input, cost)
 			}))
 			defer upstream.Close()
@@ -300,6 +308,9 @@ func TestSystemOneRelay(t *testing.T) {
 			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, "alias"))
 			gatewaytransport.Relay(c, types.RelayFormatSystemOne)
 			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.errorEnvelope {
+				assert.Contains(t, recorder.Body.String(), "Upstream failed")
+			}
 			expectedCalls := int32(1)
 			if tc.status == 400 {
 				expectedCalls = 0
@@ -330,7 +341,9 @@ func TestSystemOneRelay(t *testing.T) {
 				assert.Equal(t, constant.TaskActionDecisions, tasks[0].Action)
 				assert.Equal(t, expectedReserve, tasks[0].Quota)
 				assert.Equal(t, generationID, tasks[0].PrivateData.UpstreamTaskID)
-				assert.Equal(t, tc.undelivered, tasks[0].PrivateData.OpenRouterSync.ResultReason == "undelivered_chat_result")
+				// A delivered result is completed; an undelivered one awaits the lookup.
+				assert.Equal(t, tc.status == 200, tasks[0].PrivateData.OpenRouterSync.ResultReady)
+				assert.Equal(t, tc.resultReason, tasks[0].PrivateData.OpenRouterSync.ResultReason)
 			} else {
 				assert.Empty(t, tasks)
 			}

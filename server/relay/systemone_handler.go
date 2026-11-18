@@ -109,8 +109,7 @@ func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		usage = &dto.Usage{}
 	}
 	// A valid authoritative cost must settle even if the typed result is broken.
-	// Settle before writing so a disconnected client cannot bypass payment; a
-	// Task that owns the hold skips this settlement.
+	// Settle before writing so a disconnected client cannot bypass payment.
 	billinggateway.PostTextConsumeQuota(c, info, usage, nil)
 	if typedErr != nil {
 		return systemOneResponseError(typedErr.Error())
