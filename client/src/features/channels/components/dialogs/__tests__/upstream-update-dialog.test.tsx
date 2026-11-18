@@ -99,7 +99,31 @@ describe('upstream update dialog needs-decision section', () => {
     await user.click(needsDecision)
 
     expect(screen.getByRole('list')).toHaveTextContent('acme/unreservable')
+    expect(
+      screen.queryByText('Nothing needs a decision')
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the empty state when no conflict and no refused reserve need a decision', async () => {
+    const user = userEvent.setup()
+    render(
+      <UpstreamUpdateDialog
+        open
+        addModels={['acme/chat']}
+        removeModels={[]}
+        conflictModels={[]}
+        reserveRefusedModels={[]}
+        preferredTab='add'
+        confirmLoading={false}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByRole('tab', { name: /Needs decision/ }))
+
     expect(screen.getByText('Nothing needs a decision')).toBeInTheDocument()
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 })
 

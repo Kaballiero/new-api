@@ -163,7 +163,8 @@ func TestUpstreamModelAutoRemovalRequiresAutoSyncAndCatalogSync(t *testing.T) {
 
 // The manual reserves of an OpenRouter channel cover the models of its exact
 // reserves and, without an exact one, the Sonar research model of its legacy
-// reserve, each above zero; another channel type has none.
+// reserve, each above zero; another channel type has none. An unreadable
+// setting covers none and does not fail the state.
 func TestModelUpdateStateReadsManualReserveModels(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -176,6 +177,7 @@ func TestModelUpdateStateReadsManualReserveModels(t *testing.T) {
 		{name: "zero legacy Sonar research reserve", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_sonar_research_reserve_usd":0}`},
 		{name: "exact Sonar reserve takes precedence", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_model_reserve_usd":{"perplexity/sonar-deep-research":0},"openrouter_sonar_research_reserve_usd":2}`},
 		{name: "without settings", channelType: constant.ChannelTypeOpenRouter},
+		{name: "invalid setting", channelType: constant.ChannelTypeOpenRouter, setting: `{"openrouter_model_reserve_usd":`},
 		{name: "other channel type", channelType: constant.ChannelTypeOpenAI, setting: `{"openrouter_model_reserve_usd":{"a/model":1}}`},
 	}
 

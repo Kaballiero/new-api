@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/estimate_upstream_reserve"
 	"github.com/QuantumNous/new-api/internal/pricing/preview_channel_reserves"
@@ -19,6 +18,8 @@ import (
 // a request, so a model the tariffs do not price is refused without calling
 // OpenRouter.
 type CatalogReserves struct {
+	Capabilities domain.Capabilities
+	Now          func() time.Time
 	// MaxAge bounds the age of the catalog data a reserve is priced from.
 	MaxAge func() time.Duration
 }
@@ -29,8 +30,8 @@ type CatalogReserves struct {
 // without settings, so no manual reserve or configured price covers it.
 func (r CatalogReserves) Check(tariffs map[string]domain.NativeEndpointResponse, model, operation string) error {
 	var catalog atomic.Pointer[domain.UpstreamCatalogTariffs]
-	catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: time.Now(), Models: tariffs})
-	reserve := estimate_upstream_reserve.NewUsecase(pricingadapter.Capabilities(), &catalog, time.Now, r.MaxAge)
+	catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: r.Now(), Models: tariffs})
+	reserve := estimate_upstream_reserve.NewUsecase(r.Capabilities, &catalog, r.Now, r.MaxAge)
 	info, body, err := referenceRelayRequest(preview_channel_reserves.ReferenceRequest{Model: model, UpstreamModel: model,
 		Operation: preview_channel_reserves.ReferenceOperation(operation), PromptTokens: preview_channel_reserves.ReferencePromptTokens})
 	if err != nil {

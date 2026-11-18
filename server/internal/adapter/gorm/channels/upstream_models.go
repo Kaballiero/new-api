@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -36,31 +37,11 @@ var channelUpstreamModelUpdateSelectFields = []string{
 }
 
 // ModelUpdateState reads the upstream model update state from the channel
-// settings without repairing invalid settings. The ManualReserveModels of an
-// OpenRouter channel are the upstream models of its exact model reserves and
-// the Sonar research model of its legacy reserve, each above zero.
-func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState, error) {
+// settings without repairing invalid settings.
+func (store Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState, error) {
 	settings, err := parseOtherSettings(channel)
 	if err != nil {
 		return domain.ModelUpdateState{}, err
-	}
-	var manualReserveModels []string
-	if channel.Type == constant.ChannelTypeOpenRouter {
-		setting, err := parseChannelSetting(channel)
-		if err != nil {
-			return domain.ModelUpdateState{}, err
-		}
-		// The legacy reserve covers the Sonar research model unless an exact
-		// model reserve takes precedence (OpenRouterReserveUSD).
-		models := slices.Sorted(maps.Keys(setting.OpenRouterModelReserveUSD))
-		if sonarResearchModel := "perplexity/sonar-deep-research"; !slices.Contains(models, sonarResearchModel) {
-			models = append(models, sonarResearchModel)
-		}
-		for _, model := range models {
-			if reserve := setting.OpenRouterReserveUSD(model); reserve != nil && *reserve > 0 {
-				manualReserveModels = append(manualReserveModels, model)
-			}
-		}
 	}
 	return domain.ModelUpdateState{
 		CheckEnabled:        settings.UpstreamModelUpdateCheckEnabled,
@@ -72,8 +53,43 @@ func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState,
 		LastRemovedModels:   settings.UpstreamModelUpdateLastRemovedModels,
 		LastConflictModels:  settings.UpstreamModelUpdateLastConflictModels,
 		IgnoredModels:       settings.UpstreamModelUpdateIgnoredModels,
-		ManualReserveModels: manualReserveModels,
+		ManualReserveModels: store.manualReserveModels(channel),
 	}, nil
+}
+
+// invalidReserveSettings keeps, by channel ID, the invalid setting whose
+// manual reserves were last reported unreadable, so it is logged once.
+var invalidReserveSettings sync.Map
+
+// manualReserveModels are the upstream models a manual reserve of an
+// OpenRouter channel covers: the models of its exact reserves and the Sonar
+// research model of its legacy reserve, each above zero. An unreadable setting
+// covers none; it does not fail the state, so a channel whose checks are off
+// is not reported as failed, and a check still fails on it (FetchFingerprint).
+func (Store) manualReserveModels(channel *domain.Channel) []string {
+	if channel.Type != constant.ChannelTypeOpenRouter {
+		return nil
+	}
+	setting, err := parseChannelSetting(channel)
+	if err != nil {
+		if previous, logged := invalidReserveSettings.Swap(channel.Id, *channel.Setting); !logged || previous != *channel.Setting {
+			common.SysLog(fmt.Sprintf("channel manual reserves unreadable, none applied: channel_id=%d err=%v", channel.Id, err))
+		}
+		return nil
+	}
+	// The legacy reserve covers the Sonar research model unless an exact
+	// model reserve takes precedence (OpenRouterReserveUSD).
+	models := slices.Sorted(maps.Keys(setting.OpenRouterModelReserveUSD))
+	if !slices.Contains(models, dto.OpenRouterSonarResearchModel) {
+		models = append(models, dto.OpenRouterSonarResearchModel)
+	}
+	var covered []string
+	for _, model := range models {
+		if reserve := setting.OpenRouterReserveUSD(model); reserve != nil && *reserve > 0 {
+			covered = append(covered, model)
+		}
+	}
+	return covered
 }
 
 func parseOtherSettings(channel *domain.Channel) (dto.ChannelOtherSettings, error) {

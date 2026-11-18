@@ -282,26 +282,24 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
           </TabsContent>
 
           <TabsContent value='needs-decision' className='space-y-3'>
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'These upstream models were not offered: their name is already used by a model with another target. Edit the channel model mapping to resolve the conflict.'
-              )}
-            </p>
-            <ScrollArea className='h-[280px] rounded-md border p-2'>
-              {props.conflictModels.length > 0 ? (
-                <ul className='space-y-1'>
-                  {props.conflictModels.map((model) => (
-                    <li key={model} className='truncate px-2 py-1.5 text-sm'>
-                      {model}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className='text-muted-foreground py-8 text-center text-sm'>
-                  {t('Nothing needs a decision')}
+            {props.conflictModels.length > 0 && (
+              <>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'These upstream models were not offered: their name is already used by a model with another target. Edit the channel model mapping to resolve the conflict.'
+                  )}
                 </p>
-              )}
-            </ScrollArea>
+                <ScrollArea className='h-[280px] rounded-md border p-2'>
+                  <ul className='space-y-1'>
+                    {props.conflictModels.map((model) => (
+                      <li key={model} className='truncate px-2 py-1.5 text-sm'>
+                        {model}
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+              </>
+            )}
             {props.reserveRefusedModels.length > 0 && (
               <>
                 <p className='text-muted-foreground text-sm'>
@@ -320,6 +318,12 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
                 </ScrollArea>
               </>
             )}
+            {props.conflictModels.length === 0 &&
+              props.reserveRefusedModels.length === 0 && (
+                <p className='text-muted-foreground py-8 text-center text-sm'>
+                  {t('Nothing needs a decision')}
+                </p>
+              )}
           </TabsContent>
         </Tabs>
       </Dialog>

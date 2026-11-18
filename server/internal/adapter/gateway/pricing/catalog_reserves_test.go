@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"github.com/stretchr/testify/assert"
@@ -32,23 +33,28 @@ func TestCatalogReservesCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name, model, operation string
 		wantErr                error
-		wantRefused            bool
+		// wantUnavailable is the text of a domain.EstimateUnavailableError.
+		wantUnavailable string
 	}{
 		{name: "priced text", model: "test/model", operation: "chat/completions"},
 		{name: "priced embeddings", model: "test/embed", operation: "embeddings"},
 		{name: "Cohere Embed priced by image tokens", model: "cohere/embed-5-fast", operation: "embeddings"},
 		{name: "outside the tariffs", model: "test/unpriced", operation: "chat/completions", wantErr: domain.ErrEndpointDiscoveryMissing},
-		{name: "missing completion price", model: "test/no-completion", operation: "chat/completions", wantRefused: true},
-		{name: "unknown pricing item", model: "test/unknown-item", operation: "chat/completions", wantRefused: true},
+		{name: "missing completion price", model: "test/no-completion", operation: "chat/completions",
+			wantUnavailable: "OpenRouter estimate unavailable: invalid OpenRouter endpoint price"},
+		{name: "unknown pricing item", model: "test/unknown-item", operation: "chat/completions",
+			wantUnavailable: "OpenRouter estimate unavailable: OpenRouter endpoint has unsupported billable dimension per_moon"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := CatalogReserves{MaxAge: func() time.Duration { return time.Hour }}.Check(tariffs, tc.model, tc.operation)
+			err := CatalogReserves{Capabilities: pricingadapter.Capabilities(), Now: time.Now, MaxAge: func() time.Duration { return time.Hour }}.Check(tariffs, tc.model, tc.operation)
 
 			switch {
 			case tc.wantErr != nil:
 				require.ErrorIs(t, err, tc.wantErr)
-			case tc.wantRefused:
-				require.Error(t, err)
+			case tc.wantUnavailable != "":
+				var unavailable *domain.EstimateUnavailableError
+				require.ErrorAs(t, err, &unavailable)
+				assert.EqualError(t, err, tc.wantUnavailable)
 			default:
 				assert.NoError(t, err)
 			}
