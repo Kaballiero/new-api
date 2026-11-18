@@ -13,8 +13,10 @@ import (
 	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
 
@@ -413,7 +415,7 @@ func recordingFixtureStore(consume, export func() bool) Store {
 		ChannelConsumption: func(id, quota int) { counters.UpdateChannelUsedQuota(model.DB, id, quota) }}
 }
 
-func TestUnknownOutcomeRefundLogsTallyTextAndNativeImageRefunds(t *testing.T) {
+func TestUnknownOutcomeRefundLogsTallyRefundsAndEstimateCharges(t *testing.T) {
 	runOnGetAPIUsageDialects(t, func(t *testing.T) {
 		const from, to = int64(1_800_000_000), int64(1_800_086_400)
 		record := func(logType int, createdAt int64, quota int, cost domain.OpenRouterCostState, image *domain.NativeImage, hasTask bool) {
@@ -431,12 +433,28 @@ func TestUnknownOutcomeRefundLogsTallyTextAndNativeImageRefunds(t *testing.T) {
 		record(usagerecord.LogTypeError, to, 1600, sent, nil, false)
 		record(usagerecord.LogTypeError, from-1, 3200, sent, nil, false)
 		record(usagerecord.LogTypeConsume, from, 6400, sent, nil, false)
+		consumed := func(logType int, createdAt int64, quota int, costSource string) {
+			other := new(usagerecord.LogOther)
+			appendOpenRouterConsumption(other, domain.RequestFacts{OpenRouterCost: &domain.OpenRouterCostState{CostSource: costSource}}, nil)
+			require.NoError(t, model.LOG_DB.Create(&usagerecord.Log{Type: logType, CreatedAt: createdAt, Quota: quota, Other: other.JSONString()}).Error)
+		}
+		consumed(usagerecord.LogTypeConsume, from, 1000, domain.OpenRouterCostSourceEstimate)
+		consumed(usagerecord.LogTypeConsume, from, 2000, "generation")
+		consumed(usagerecord.LogTypeConsume, to, 4000, domain.OpenRouterCostSourceEstimate)
+		// A task settled at an estimate below its reserve logs the refunded
+		// change, 300, and its charge, 700.
+		task := taskfixture.MakeTask(1, 1, 1000, 0, "wallet", 0)
+		task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 1000, TargetQuota: 700, UpstreamCostEstimated: true}
+		billing := TaskBilling{Writer: NewWriter(WriterEnvironment{DB: func() *gorm.DB { return model.DB }, LogDB: func() *gorm.DB { return model.LOG_DB }})}
+		require.NoError(t, billing.Durable(tasksrecord.ToDomain(task), -300))
+		require.NoError(t, model.LOG_DB.Model(&usagerecord.Log{}).Where("type = ?", usagerecord.LogTypeRefund).Update("created_at", to-1).Error)
 
 		refunds, err := UnknownOutcomeRefundLogs{LogDB: func() *gorm.DB { return model.LOG_DB }}.UnknownOutcomeRefunds(context.Background(), from, to)
 		require.NoError(t, err)
 		assert.Equal(t, domain.UnknownOutcomeRefunds{
-			Text:  domain.RefundTally{Count: 2, Quota: 300},
-			Image: domain.RefundTally{Count: 1, Quota: 50},
-		}, refunds, "only refunded error logs of the day count; held, settled and known image failures do not")
+			Text:             domain.Tally{Count: 2, Quota: 300},
+			Image:            domain.Tally{Count: 1, Quota: 50},
+			EstimatedCharges: domain.Tally{Count: 2, Quota: 1700},
+		}, refunds, "only refunded error logs and estimate charges of the day count; held, settled and known image failures do not")
 	})
 }

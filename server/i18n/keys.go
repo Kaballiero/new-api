@@ -744,6 +744,7 @@ const (
 	MsgTasksSyncManualHolds                = "tasks.sync_manual_holds"
 	MsgTasksSyncEstimateSettlementsSubject = "tasks.sync_estimate_settlements_subject"
 	MsgTasksSyncEstimateSettlements        = "tasks.sync_estimate_settlements"
+	MsgTasksSyncStalledEstimateSettlements = "tasks.sync_stalled_estimate_settlements"
 )
 
 // Usage alerts to the operators use the root user's language.

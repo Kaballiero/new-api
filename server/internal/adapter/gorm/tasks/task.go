@@ -328,15 +328,16 @@ func (s Store) GetPendingEstimateSettlements(afterID int64, limit int) ([]*recor
 }
 
 // GetEstimateCharges pages the tasks that may carry an estimate charge, holds
-// settled at an estimate and successful OpenRouter videos, that finished
-// after the (finish_time, id) cursor, in that order, with only the columns
-// the estimate summary reads. The keyset lets the finish_time index bound the
-// scan.
+// settled or claimed at an estimate and successful OpenRouter videos, that
+// finished after the (finish_time, id) cursor, in that order, with only the
+// columns the estimate summary reads. The keyset lets the finish_time index
+// bound the scan.
 func (s Store) GetEstimateCharges(afterFinishTime, afterID int64, limit int) ([]*record.Task, error) {
 	var tasks []*record.Task
-	err := s.db().Select("id", "task_id", "action", "finish_time", "private_data").
-		Where("((platform IN ? AND status = ? AND fail_reason = ?) OR (platform = ? AND status = ?))",
-			openRouterEstimateHoldPlatforms, record.TaskStatusFailure, domain.SyncEstimateSettledFailReason, constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess).
+	err := s.db().Select("id", "task_id", "action", "fail_reason", "finish_time", "private_data").
+		Where("((platform IN ? AND status = ? AND fail_reason IN ?) OR (platform = ? AND status = ?))",
+			openRouterEstimateHoldPlatforms, record.TaskStatusFailure, []string{domain.SyncEstimateSettledFailReason, domain.SyncEstimatePendingFailReason},
+			constant.TaskPlatformOpenRouterVideo, record.TaskStatusSuccess).
 		Where("finish_time >= ? AND (finish_time > ? OR id > ?)", afterFinishTime, afterFinishTime, afterID).
 		Order("finish_time").Order("id").Limit(limit).Find(&tasks).Error
 	return tasks, err

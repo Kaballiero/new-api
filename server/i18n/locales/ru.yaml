@@ -465,8 +465,8 @@ usage.invalid_end: "недопустимый end_timestamp"
 usage.invalid_range: "недопустимый временной диапазон"
 usage.invalid_token_id: "token_id должен быть положительным целым числом"
 usage.positive_time: "start_timestamp и end_timestamp должны быть положительными"
-usage.unknown_outcome_refunds_subject: "OpenRouter: возвраты с неизвестным списанием"
-usage.unknown_outcome_refunds: "Резервы OpenRouter, возвращённые за {{.Day}} (по Москве), хотя списание upstream неизвестно; клиентам не начислено.\nТекстовые запросы: {{.TextCount}}, {{.TextAmount}}\nКартинки: {{.ImageCount}}, {{.ImageAmount}}"
+usage.unknown_outcome_refunds_subject: "OpenRouter: возвраты с неизвестным списанием и списания по оценке"
+usage.unknown_outcome_refunds: "Резервы OpenRouter, возвращённые за {{.Day}} (по Москве), хотя списание upstream неизвестно; клиентам не начислено.\nТекстовые запросы: {{.TextCount}}, {{.TextAmount}}\nКартинки: {{.ImageCount}}, {{.ImageAmount}}\n\nСписано по оценке неизвестной стоимости upstream: {{.EstimatedCount}}, {{.EstimatedAmount}}"
 usage.granularity: "granularity должен быть hour, day, week или month"
 usage.month_limit: "granularity month поддерживает не более 120 месяцев в одном запросе"
 usage.aggregate_request_size: "запрос агрегации превышает 16 КиБ"
@@ -651,6 +651,7 @@ tasks.sync_manual_holds_subject: "OpenRouter: резервы ждут ручно
 tasks.sync_manual_holds: "Новых резервов OpenRouter в ручной сверке: {{.Count}}, всего удержано {{.Reserved}}. Резервы удерживаются, пока root не разберёт каждый в деталях задачи в журнале задач.\n\nРезервы (показано {{.Shown}}/{{.Count}}):"
 tasks.sync_estimate_settlements_subject: "OpenRouter: стоимость списана по оценке"
 tasks.sync_estimate_settlements: "Результатов OpenRouter, доставленных без стоимости провайдера и списанных по оценке: {{.Count}}, всего списано {{.Charged}}. Текст списан по токенам по максимальному тарифу резерва, картинка или видео — по резерву; оценка не превышает резерв. Сверьте их с активностью OpenRouter.\n\nСписания (показано {{.Shown}}/{{.Count}}):"
+tasks.sync_stalled_estimate_settlements: "Требуют починки: {{.Count}} списаний по оценке, заявленных более {{.StallMinutes}} минут назад, так и не изменили балансы; повторы не проходят. Задачи (показано {{.Shown}}/{{.Count}}): {{.TaskIDs}}"
 
 # Batch messages: Chinese locales preserve the previous response bytes.
 batch.batch_busy: "Сверка пакетной задачи уже выполняется"

@@ -37,21 +37,41 @@ func ManualHoldsNotification(lang string, holds []*domain.Task) (subject, conten
 
 // EstimateSettlementsNotification phrases the OpenRouter results charged an
 // estimate of their missing upstream cost in lang, with the charged amounts in
-// USD. At most 12 charges are listed with their task id, action and amount.
-func EstimateSettlementsNotification(lang string, tasks []*domain.Task) (subject, content string) {
-	var chargedQuota int
-	for _, task := range tasks {
-		chargedQuota += task.PrivateData.Reconciliation.TargetQuota
-	}
-	shown := min(len(tasks), 12)
+// USD, and the estimate claims that need repair because their balances never
+// moved. Each part is omitted when empty; at most 12 charges are listed with
+// their task id, action and amount, and at most 12 claims with their task id.
+func EstimateSettlementsNotification(lang string, charges, stalledClaims []*domain.Task) (subject, content string) {
 	var builder strings.Builder
-	builder.WriteString(i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlements, map[string]any{
-		"Count":   len(tasks),
-		"Charged": fmt.Sprintf("$%.6f", float64(chargedQuota)/common.QuotaPerUnit),
-		"Shown":   shown,
-	}))
-	for _, task := range tasks[:shown] {
-		builder.WriteString(fmt.Sprintf("\n- %s (%s): $%.6f", task.TaskID, task.Action, float64(task.PrivateData.Reconciliation.TargetQuota)/common.QuotaPerUnit))
+	if len(charges) > 0 {
+		var chargedQuota int
+		for _, task := range charges {
+			chargedQuota += task.PrivateData.Reconciliation.TargetQuota
+		}
+		shown := min(len(charges), 12)
+		builder.WriteString(i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlements, map[string]any{
+			"Count":   len(charges),
+			"Charged": fmt.Sprintf("$%.6f", float64(chargedQuota)/common.QuotaPerUnit),
+			"Shown":   shown,
+		}))
+		for _, task := range charges[:shown] {
+			builder.WriteString(fmt.Sprintf("\n- %s (%s): $%.6f", task.TaskID, task.Action, float64(task.PrivateData.Reconciliation.TargetQuota)/common.QuotaPerUnit))
+		}
+	}
+	if len(stalledClaims) > 0 {
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		shown := min(len(stalledClaims), 12)
+		taskIDs := make([]string, shown)
+		for i, task := range stalledClaims[:shown] {
+			taskIDs[i] = task.TaskID
+		}
+		builder.WriteString(i18n.Translate(lang, i18n.MsgTasksSyncStalledEstimateSettlements, map[string]any{
+			"Count":        len(stalledClaims),
+			"StallMinutes": int(domain.SyncSettlementStallAge.Minutes()),
+			"Shown":        shown,
+			"TaskIDs":      strings.Join(taskIDs, ", "),
+		}))
 	}
 	return i18n.Translate(lang, i18n.MsgTasksSyncEstimateSettlementsSubject), builder.String()
 }

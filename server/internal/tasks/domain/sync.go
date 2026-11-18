@@ -118,6 +118,10 @@ const SyncBillingSettlementPending = "settlement_pending"
 // balances.
 const SyncSettlementRetryDelay = time.Minute
 
+// SyncSettlementStallAge is how long a settlement retried by the poller may
+// stay pending before it is reported to root.
+const SyncSettlementStallAge = 30 * time.Minute
+
 // SyncManualFailReason is the stored failure text of a manual hold for reason.
 func SyncManualFailReason(reason string) string {
 	return "OpenRouter synchronous manual reconciliation required: " + reason
