@@ -1327,7 +1327,13 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 				assert.Equal(t, pricingdomain.ReserveSourceLive, info.OpenRouterCost.ReserveSource)
 			} else {
 				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
-				assert.Equal(t, pricingdomain.ReserveSourceConfiguredPrice, info.OpenRouterCost.ReserveSource)
+				// The configured price names the reserve only above the
+				// upstream estimate; a zero price never is.
+				wantSource := pricingdomain.ReserveSourceConfiguredPrice
+				if tc.knownAboveLocal || tc.price == 0 && tc.expression == "" && !tc.useRatio {
+					wantSource = pricingdomain.ReserveSourceLive
+				}
+				assert.Equal(t, wantSource, info.OpenRouterCost.ReserveSource)
 				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
 				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)

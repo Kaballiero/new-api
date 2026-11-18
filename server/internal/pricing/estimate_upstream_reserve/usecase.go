@@ -96,8 +96,9 @@ type Estimate struct {
 	// IncludesSearchReserve reports that the maximum endpoint cost includes the
 	// search reserve (SearchReserveUSD).
 	IncludesSearchReserve bool
-	// Source is what the reserve is priced from (reserveSource); the manual
-	// reserve when the floor exceeds the estimate.
+	// Source is what set the reserve: the configured price, or the manual
+	// reserve held whole or as the floor, when it exceeds the estimate priced
+	// from the model tariffs; otherwise the tariffs by tariffSourcePrecedence.
 	Source domain.ReserveSource
 	// StaleCatalog reports that a stale catalog document priced a model,
 	// whatever the Source.
@@ -480,10 +481,19 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 		}
 		return Estimate{}, "", domain.ErrNoCompatibleEndpoint
 	}
+	// The source names the value that set the reserve: the configured price
+	// or the approximate reserve of the channel only above the estimate,
+	// otherwise the model tariffs.
+	estimate.Source = tariffsByModel.tariffSource()
 	if approximateReserve {
-		maximum = decimal.Max(maximum, decimal.NewFromFloat(*in.ApproximateReserveUSD))
+		if approximate := decimal.NewFromFloat(*in.ApproximateReserveUSD); approximate.GreaterThan(maximum) {
+			maximum = approximate
+			estimate.Source = domain.ReserveSourceManual
+			if in.ConfiguredPrice {
+				estimate.Source = domain.ReserveSourceConfiguredPrice
+			}
+		}
 	}
-	estimate.Source = reserveSource(in, tariffsByModel)
 	if floorReserve {
 		if floor := decimal.NewFromFloat(*in.FloorReserveUSD); floor.GreaterThan(maximum) {
 			maximum = floor
