@@ -42,7 +42,7 @@ func TestHandlersForwardOpenRouterServerToolFields(t *testing.T) {
 		wantError           string
 	}{
 		{name: "chat web plugin", body: chat + `,"plugins":[{"id":"web"}]}`, channelType: constant.ChannelTypeOpenRouter, forwarded: []string{"plugins"}, wantSearches: 1},
-		{name: "chat server tool", body: chat + `,"tools":[{"type":"openrouter:web_search","parameters":{"max_uses":3}}],"max_tool_calls":2}`, channelType: constant.ChannelTypeOpenRouter, forwarded: []string{"tools.0.parameters", "max_tool_calls"}, wantSearches: 2},
+		{name: "chat server tool", body: chat + `,"tools":[{"type":"openrouter:web_search","parameters":{"max_uses":1}}],"max_tool_calls":2}`, channelType: constant.ChannelTypeOpenRouter, forwarded: []string{"tools.0.parameters", "max_tool_calls"}, stripped: []string{"tools.0.function"}, wantSearches: 1},
 		{name: "chat stop rules with search refused before the paid POST", body: chat + searchFields + `}`, channelType: constant.ChannelTypeOpenRouter, wantError: "unpriced execution dimensions"},
 		{name: "responses web plugin", body: responses + `,"plugins":[{"id":"web"}]}`, responses: true, channelType: constant.ChannelTypeOpenRouter, forwarded: []string{"plugins"}, wantSearches: 1},
 		{name: "chat to another channel", body: chat + searchFields + `}`, channelType: constant.ChannelTypeOpenAI, stripped: []string{"plugins", "max_tool_calls", "stop_server_tools_when"}},

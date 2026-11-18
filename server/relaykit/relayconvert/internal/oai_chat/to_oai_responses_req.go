@@ -85,6 +85,9 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	if lo.FromPtrOr(req.N, 1) > 1 {
 		return nil, fmt.Errorf("n>1 is not supported in responses compatibility mode")
 	}
+	if lo.FromPtr(req.MaxToolCalls) < 0 {
+		return nil, errors.New("max_tool_calls must not be negative")
+	}
 
 	var instructionsParts []string
 	inputItems := make([]map[string]any, 0, len(req.Messages))
@@ -390,27 +393,32 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	}
 
 	out := &dto.OpenAIResponsesRequest{
-		Model:             req.Model,
-		Input:             inputRaw,
-		Instructions:      instructionsRaw,
-		Stream:            req.Stream,
-		Temperature:       req.Temperature,
-		Text:              textRaw,
-		ToolChoice:        toolChoiceRaw,
-		Tools:             toolsRaw,
-		TopP:              topP,
-		FrequencyPenalty:  frequencyPenaltyRaw,
-		PresencePenalty:   presencePenaltyRaw,
-		User:              req.User,
-		ParallelToolCalls: parallelToolCallsRaw,
-		Store:             req.Store,
-		Metadata:          req.Metadata,
-		PromptCacheKey:    promptCacheKeyRaw,
-		EnableThinking:    req.EnableThinking,
-		ThinkingBudget:    req.ThinkingBudget,
+		Model:               req.Model,
+		Input:               inputRaw,
+		Instructions:        instructionsRaw,
+		Stream:              req.Stream,
+		Temperature:         req.Temperature,
+		Text:                textRaw,
+		ToolChoice:          toolChoiceRaw,
+		Tools:               toolsRaw,
+		TopP:                topP,
+		FrequencyPenalty:    frequencyPenaltyRaw,
+		PresencePenalty:     presencePenaltyRaw,
+		User:                req.User,
+		ParallelToolCalls:   parallelToolCallsRaw,
+		Store:               req.Store,
+		Metadata:            req.Metadata,
+		PromptCacheKey:      promptCacheKeyRaw,
+		EnableThinking:      req.EnableThinking,
+		ThinkingBudget:      req.ThinkingBudget,
+		Plugins:             req.Plugins,
+		StopServerToolsWhen: req.StopServerToolsWhen,
 	}
 	if req.MaxTokens != nil || req.MaxCompletionTokens != nil {
 		out.MaxOutputTokens = lo.ToPtr(maxOutputTokens)
+	}
+	if req.MaxToolCalls != nil {
+		out.MaxToolCalls = lo.ToPtr(uint(*req.MaxToolCalls))
 	}
 
 	reasoningIntent, err := reasoning.FromOpenAIChat(req)

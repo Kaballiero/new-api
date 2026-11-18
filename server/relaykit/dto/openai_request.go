@@ -381,6 +381,20 @@ type ToolCallRequest struct {
 	Parameters json.RawMessage `json:"parameters,omitempty"`
 }
 
+// MarshalJSON omits the function object of a server tool such as
+// openrouter:web_search, which has no function. A tool call without a type,
+// such as a streamed delta, keeps its function.
+func (t ToolCallRequest) MarshalJSON() ([]byte, error) {
+	type Alias ToolCallRequest
+	if t.Type == "" || t.Type == "function" || t.Type == "custom" {
+		return kitutil.Marshal(Alias(t))
+	}
+	return kitutil.Marshal(struct {
+		Alias
+		Function *FunctionRequest `json:"function,omitempty"`
+	}{Alias: Alias(t)})
+}
+
 type FunctionRequest struct {
 	Description string `json:"description,omitempty"`
 	Name        string `json:"name"`
